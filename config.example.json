@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "url": "https://service.example",
+  "token_env": "SERVICE_TOKEN",
+  "timeout_seconds": 30,
+  "verify_tls": true
+}

@@ -1,0 +1,13 @@
+# build output
+/workctl
+/workctl.exe
+/dist/
+*.exe
+*.test
+*.out
+*.prof
+
+# local config and secrets
+/config.json
+.env
+.env.*
