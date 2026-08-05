@@ -44,11 +44,9 @@ func newAPIClient(cfg *Config) (*APIClient, error) {
 	}
 	headers := make(http.Header)
 	headers.Set("Accept", "application/json")
-	headers.Set("User-Agent", "workctl/0.0.0")
-	if cfg.TokenEnv != "" {
-		if token := os.Getenv(cfg.TokenEnv); token != "" {
-			headers.Set("Authorization", "Bearer "+token)
-		}
+	headers.Set("User-Agent", "workctl/0.1.0")
+	if token, err := resolveSecret(cfg); err == nil && token != "" {
+		headers.Set("Authorization", "Bearer "+token)
 	}
 	return &APIClient{baseURL: cfg.URL, client: client, headers: headers}, nil
 }

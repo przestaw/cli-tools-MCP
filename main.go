@@ -4,17 +4,20 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"strings"
 )
 
-const version = "0.0.0"
+const version = "0.1.0"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `workctl %s - shared CLI for developer-service APIs
 
 Usage:
   workctl [global options] raw METHOD PATH [--data BODY]
+  workctl [global options] credential set|delete
   workctl [global options] MODULE ...
   workctl version
 
@@ -52,6 +55,27 @@ func run(args []string) error {
 	if rest[0] == "version" {
 		fmt.Println(version)
 		return nil
+	}
+	if rest[0] == "credential" {
+		cfg, err := loadConfig(*configPath)
+		if err != nil {
+			return err
+		}
+		if len(rest) != 2 {
+			return fmt.Errorf("usage: workctl credential set|delete")
+		}
+		switch rest[1] {
+		case "set":
+			b, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				return fmt.Errorf("read credential from stdin: %w", err)
+			}
+			return credentialStore.Set(cfg.TokenAccount, strings.TrimSpace(string(b)))
+		case "delete":
+			return credentialStore.Delete(cfg.TokenAccount)
+		default:
+			return fmt.Errorf("usage: workctl credential set|delete")
+		}
 	}
 	if description, ok := plannedModules[rest[0]]; ok {
 		_ = description
