@@ -14,13 +14,14 @@ type Config struct {
 	Version        int    `json:"version"`
 	URL            string `json:"url"`
 	TokenEnv       string `json:"token_env,omitempty"`
+	TokenAccount   string `json:"token_account,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	VerifyTLS      bool   `json:"verify_tls"`
 	path           string
 }
 
 func defaultConfig() *Config {
-	return &Config{Version: 1, TimeoutSeconds: 30, VerifyTLS: true}
+	return &Config{Version: 1, TokenAccount: "default", TimeoutSeconds: 30, VerifyTLS: true}
 }
 
 func defaultConfigPath() (string, error) {
@@ -62,6 +63,9 @@ func loadConfig(path string) (*Config, error) {
 	cfg.URL = strings.TrimRight(strings.TrimSpace(os.ExpandEnv(cfg.URL)), "/")
 	if cfg.TimeoutSeconds <= 0 {
 		cfg.TimeoutSeconds = 30
+	}
+	if cfg.TokenAccount == "" {
+		cfg.TokenAccount = "default"
 	}
 	return cfg, nil
 }
