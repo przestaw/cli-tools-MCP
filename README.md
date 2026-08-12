@@ -8,6 +8,10 @@ transport code.
 
 The first version exposes guarded raw API access and reserves stable command names for planned modules.
 
+Azure DevOps is available as `workctl azure ...` (short alias: `workctl ado ...`), including repositories, pull
+requests, pipelines, builds and releases. Run `workctl azure config init` to create a profile and store its token in
+the operating system's credential store.
+
 ```powershell
 workctl --url https://service.example --token-env SERVICE_TOKEN raw GET /api/status
 workctl --config config.json raw POST /api/items --data '{"name":"demo"}'

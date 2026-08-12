@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	azurecmd "workctl/internal/azure/cmd"
 )
 
-const version = "0.1.0"
+const version = "0.1.1"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `workctl %s - shared CLI for developer-service APIs
@@ -55,6 +57,9 @@ func run(args []string) error {
 	if rest[0] == "version" {
 		fmt.Println(version)
 		return nil
+	}
+	if rest[0] == "azure" || rest[0] == "ado" {
+		return azurecmd.Run(rest[1:])
 	}
 	if rest[0] == "credential" {
 		cfg, err := loadConfig(*configPath)

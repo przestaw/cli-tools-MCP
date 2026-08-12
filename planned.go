@@ -3,7 +3,6 @@ package main
 import "fmt"
 
 var plannedModules = map[string]string{
-	"azure":     "Azure DevOps",
 	"atlassian": "Atlassian",
 	"jira":      "Jira",
 	"gitlab":    "GitLab",
