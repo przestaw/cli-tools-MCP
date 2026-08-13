@@ -44,7 +44,7 @@ func newAPIClient(cfg *Config) (*APIClient, error) {
 	}
 	headers := make(http.Header)
 	headers.Set("Accept", "application/json")
-	headers.Set("User-Agent", "workctl/0.1.1")
+	headers.Set("User-Agent", "workctl/0.1.2")
 	if token, err := resolveSecret(cfg); err == nil && token != "" {
 		headers.Set("Authorization", "Bearer "+token)
 	}

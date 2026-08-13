@@ -12,6 +12,9 @@ Azure DevOps is available as `workctl azure ...` (short alias: `workctl ado ...`
 requests, pipelines, builds and releases. Run `workctl azure config init` to create a profile and store its token in
 the operating system's credential store.
 
+Atlassian Cloud is available as `workctl atlassian ...` (short alias: `workctl atl ...`). The lightweight Jira module
+uses the common endpoint configuration and offers `workctl jira issue get DEMO-123` plus guarded raw requests.
+
 ```powershell
 workctl --url https://service.example --token-env SERVICE_TOKEN raw GET /api/status
 workctl --config config.json raw POST /api/items --data '{"name":"demo"}'

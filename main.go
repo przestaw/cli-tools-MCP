@@ -9,10 +9,11 @@ import (
 	"os"
 	"strings"
 
+	atlassiancmd "workctl/internal/atlassian/cmd"
 	azurecmd "workctl/internal/azure/cmd"
 )
 
-const version = "0.1.1"
+const version = "0.1.2"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `workctl %s - shared CLI for developer-service APIs
@@ -60,6 +61,23 @@ func run(args []string) error {
 	}
 	if rest[0] == "azure" || rest[0] == "ado" {
 		return azurecmd.Run(rest[1:])
+	}
+	if rest[0] == "atlassian" || rest[0] == "atl" {
+		return atlassiancmd.Run(rest[1:])
+	}
+	if rest[0] == "jira" {
+		cfg, err := loadConfig(*configPath)
+		if err != nil {
+			return err
+		}
+		if *baseURL != "" {
+			cfg.URL = *baseURL
+		}
+		client, err := newAPIClient(cfg)
+		if err != nil {
+			return err
+		}
+		return cmdJira(context.Background(), client, rest[1:])
 	}
 	if rest[0] == "credential" {
 		cfg, err := loadConfig(*configPath)
