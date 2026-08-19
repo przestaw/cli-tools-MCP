@@ -12,7 +12,7 @@ func TestVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workctl version: %v\n%s", err, out)
 	}
-	if strings.TrimSpace(string(out)) != "0.1.2" {
+	if strings.TrimSpace(string(out)) != "0.1.3" {
 		t.Fatalf("version output = %q", out)
 	}
 }

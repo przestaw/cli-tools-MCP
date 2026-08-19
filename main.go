@@ -13,7 +13,7 @@ import (
 	azurecmd "workctl/internal/azure/cmd"
 )
 
-const version = "0.1.2"
+const version = "0.1.3"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `workctl %s - shared CLI for developer-service APIs
@@ -78,6 +78,20 @@ func run(args []string) error {
 			return err
 		}
 		return cmdJira(context.Background(), client, rest[1:])
+	}
+	if rest[0] == "gitlab" {
+		cfg, err := loadConfig(*configPath)
+		if err != nil {
+			return err
+		}
+		if *baseURL != "" {
+			cfg.URL = *baseURL
+		}
+		client, err := newAPIClient(cfg)
+		if err != nil {
+			return err
+		}
+		return cmdGitLab(context.Background(), client, rest[1:])
 	}
 	if rest[0] == "credential" {
 		cfg, err := loadConfig(*configPath)
