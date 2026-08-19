@@ -15,6 +15,10 @@ the operating system's credential store.
 Atlassian Cloud is available as `workctl atlassian ...` (short alias: `workctl atl ...`). The lightweight Jira module
 uses the common endpoint configuration and offers `workctl jira issue get DEMO-123` plus guarded raw requests.
 
+GitLab is available as `workctl gitlab ...`, with project and merge-request lookups plus guarded raw requests. Project
+paths are supplied on the command line or in neutral local configuration; the repository contains no organization or
+project defaults.
+
 ```powershell
 workctl --url https://service.example --token-env SERVICE_TOKEN raw GET /api/status
 workctl --config config.json raw POST /api/items --data '{"name":"demo"}'
