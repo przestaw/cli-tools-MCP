@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "workctl": {
+      "command": "C:\\tools\\workctl\\workctl.exe",
+      "args": ["--config", "C:\\tools\\workctl\\company.json", "mcp"],
+      "env": {
+        "WORKCTL_JIRA_TOKEN": "REPLACE_ME",
+        "WORKCTL_GITLAB_TOKEN": "REPLACE_ME"
+      }
+    }
+  }
+}

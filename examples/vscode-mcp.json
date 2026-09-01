@@ -1,0 +1,27 @@
+{
+  "servers": {
+    "workctl": {
+      "type": "stdio",
+      "command": "C:\\tools\\workctl\\workctl.exe",
+      "args": ["--config", "C:\\tools\\workctl\\company.json", "mcp"],
+      "env": {
+        "WORKCTL_JIRA_TOKEN": "${input:jira-token}",
+        "WORKCTL_GITLAB_TOKEN": "${input:gitlab-token}"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "jira-token",
+      "description": "Jira token/password",
+      "password": true
+    },
+    {
+      "type": "promptString",
+      "id": "gitlab-token",
+      "description": "GitLab personal access token",
+      "password": true
+    }
+  ]
+}

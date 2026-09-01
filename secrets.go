@@ -4,24 +4,41 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"workctl/internal/secret"
 )
 
-var credentialStore = secret.Store{Service: "workctl"}
+// tokenStore holds the credentials of the Jira and GitLab modules. Azure DevOps and Atlassian Cloud keep theirs
+// under the service names of their original CLIs so that tokens stored earlier still resolve.
+var tokenStore = secret.Store{Service: "workctl"}
 
-func resolveSecret(cfg *Config) (string, error) {
-	if cfg.TokenEnv != "" {
-		if value := os.Getenv(cfg.TokenEnv); value != "" {
-			return value, nil
+func keyringAccount(module string, ec EndpointConfig) string {
+	return module + ":" + normalizeBaseURL(ec.URL)
+}
+
+// resolveSecret returns the credential of a module: the environment variable named by token_env, then the OS
+// keyring (written by `workctl <module> init`), then a token in the config file (legacy, plaintext).
+func resolveSecret(module string, ec EndpointConfig) (string, error) {
+	if ec.TokenEnv != "" {
+		if v := os.Getenv(ec.TokenEnv); v != "" {
+			return v, nil
 		}
 	}
-	value, err := credentialStore.Get(cfg.TokenAccount)
-	if err == nil {
-		return value, nil
+	v, err := tokenStore.Get(keyringAccount(module, ec))
+	if err == nil && v != "" {
+		return v, nil
 	}
-	if errors.Is(err, secret.ErrNotFound) {
-		return "", nil
+	keyringErr := err
+	if ec.Token != "" {
+		return os.ExpandEnv(ec.Token), nil
 	}
-	return "", fmt.Errorf("resolve credential: %w", err)
+	msg := fmt.Sprintf("no credential for %s: run `workctl %s init`", module, module)
+	if ec.TokenEnv != "" {
+		msg += fmt.Sprintf(" or set %s", ec.TokenEnv)
+	}
+	if keyringErr != nil && !errors.Is(keyringErr, secret.ErrNotFound) {
+		msg += " (" + strings.TrimSpace(keyringErr.Error()) + ")"
+	}
+	return "", errors.New(msg)
 }
