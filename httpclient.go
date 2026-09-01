@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,85 +16,214 @@ import (
 	"time"
 )
 
+type APIError struct {
+	Method string
+	URL    string
+	Status int
+	Body   string
+}
+
+func (e *APIError) Error() string {
+	b := strings.TrimSpace(e.Body)
+	if len(b) > 1200 {
+		b = b[:1200] + "..."
+	}
+	return fmt.Sprintf("%s %s: HTTP %d: %s", e.Method, e.URL, e.Status, b)
+}
+
 type APIClient struct {
 	baseURL string
+	prefix  string
 	client  *http.Client
 	headers http.Header
 }
 
-func newAPIClient(cfg *Config) (*APIClient, error) {
-	u, err := url.Parse(cfg.URL)
+func newAPIClient(cfg EndpointConfig, prefix string, timeout time.Duration) (*APIClient, error) {
+	base := normalizeBaseURL(cfg.URL)
+	u, err := url.Parse(base)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil, fmt.Errorf("invalid URL %q", cfg.URL)
 	}
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		TLSClientConfig: &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: !cfg.VerifyTLS, // explicitly requested with --insecure or config
-		},
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if !cfg.VerifyTLS {
+		tlsCfg.InsecureSkipVerify = true // explicitly requested by config
 	}
-	client := &http.Client{
-		Timeout:   time.Duration(cfg.TimeoutSeconds) * time.Second,
-		Transport: transport,
+	if cfg.CAFile != "" {
+		pem, err := os.ReadFile(os.ExpandEnv(cfg.CAFile))
+		if err != nil {
+			return nil, fmt.Errorf("read CA file: %w", err)
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("CA file %s contains no usable PEM certificates", cfg.CAFile)
+		}
+		tlsCfg.RootCAs = pool
+	}
+	tr := &http.Transport{TLSClientConfig: tlsCfg, Proxy: http.ProxyFromEnvironment}
+	c := &http.Client{
+		Timeout:   timeout,
+		Transport: tr,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > 0 && !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
-				return fmt.Errorf("refusing cross-host redirect")
+				return fmt.Errorf("refusing cross-host redirect from %s to %s", via[0].URL.Host, req.URL.Host)
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
 			}
 			return nil
 		},
 	}
-	headers := make(http.Header)
-	headers.Set("Accept", "application/json")
-	headers.Set("User-Agent", "workctl/0.1.3")
-	if token, err := resolveSecret(cfg); err == nil && token != "" {
-		headers.Set("Authorization", "Bearer "+token)
-	}
-	return &APIClient{baseURL: cfg.URL, client: client, headers: headers}, nil
+	h := make(http.Header)
+	h.Set("Accept", "application/json")
+	h.Set("User-Agent", "workctl/0.1.4")
+	return &APIClient{baseURL: base, prefix: prefix, client: c, headers: h}, nil
 }
 
-func (c *APIClient) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
-	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
-		return nil, fmt.Errorf("absolute URLs are not allowed")
+func newJiraClient(cfg *Config) (*APIClient, error) {
+	if !cfg.hasJira() {
+		return nil, fmt.Errorf("jira is not configured: set jira.url (run `workctl jira init`)")
 	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
 	}
-	var reader io.Reader
-	if body != nil {
-		reader = bytes.NewReader(body)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+	c, err := newAPIClient(cfg.Jira, "/rest/api/2", time.Duration(cfg.TimeoutSeconds)*time.Second)
 	if err != nil {
 		return nil, err
+	}
+	sec, err := resolveSecret("jira", cfg.Jira)
+	if err != nil {
+		return nil, err
+	}
+	switch strings.ToLower(cfg.Jira.Auth) {
+	case "bearer":
+		c.headers.Set("Authorization", "Bearer "+sec)
+	case "basic":
+		if cfg.Jira.Username == "" {
+			return nil, fmt.Errorf("jira.username is required for basic auth")
+		}
+		raw := cfg.Jira.Username + ":" + sec
+		c.headers.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(raw)))
+	}
+	return c, nil
+}
+
+func newGitLabClient(cfg *Config) (*APIClient, error) {
+	if !cfg.hasGitLab() {
+		return nil, fmt.Errorf("gitlab is not configured: set gitlab.url (run `workctl gitlab init`)")
+	}
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
+	}
+	c, err := newAPIClient(cfg.GitLab.EndpointConfig, "/api/v4", time.Duration(cfg.TimeoutSeconds)*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	sec, err := resolveSecret("gitlab", cfg.GitLab.EndpointConfig)
+	if err != nil {
+		return nil, err
+	}
+	switch strings.ToLower(cfg.GitLab.Auth) {
+	case "private-token":
+		c.headers.Set("PRIVATE-TOKEN", sec)
+	case "bearer":
+		c.headers.Set("Authorization", "Bearer "+sec)
+	}
+	return c, nil
+}
+
+func (c *APIClient) endpoint(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "/"
+	}
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return "", fmt.Errorf("absolute URLs are not allowed; use a path on the configured server")
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = strings.TrimRight(c.prefix, "/") + "/" + path
+	}
+	return c.baseURL + path, nil
+}
+
+func (c *APIClient) do(ctx context.Context, method, path string, q url.Values, body []byte, contentType string) ([]byte, string, error) {
+	endpoint, err := c.endpoint(path)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(q) > 0 {
+		sep := "?"
+		if strings.Contains(endpoint, "?") {
+			sep = "&"
+		}
+		endpoint += sep + q.Encode()
+	}
+	var r io.Reader
+	if body != nil {
+		r = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, r)
+	if err != nil {
+		return nil, "", err
 	}
 	req.Header = c.headers.Clone()
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		if contentType == "" {
+			contentType = "application/json"
+		}
+		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("%s %s: HTTP %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, resp.Header.Get("Content-Type"), &APIError{Method: method, URL: endpoint, Status: resp.StatusCode, Body: string(b)}
 	}
-	return b, nil
+	return b, resp.Header.Get("Content-Type"), nil
+}
+
+func prettyJSONBytes(b []byte) []byte {
+	if !json.Valid(b) {
+		return b
+	}
+	var out bytes.Buffer
+	if err := json.Indent(&out, b, "", "  "); err != nil {
+		return b
+	}
+	out.WriteByte('\n')
+	return out.Bytes()
 }
 
 func printBody(b []byte) error {
 	if json.Valid(b) {
-		var out bytes.Buffer
-		if err := json.Indent(&out, b, "", "  "); err == nil {
-			out.WriteByte('\n')
-			b = out.Bytes()
+		_, err := os.Stdout.Write(prettyJSONBytes(b))
+		return err
+	}
+	if len(b) > 0 {
+		if _, err := os.Stdout.Write(b); err != nil {
+			return err
+		}
+		if b[len(b)-1] != '\n' {
+			_, _ = os.Stdout.Write([]byte("\n"))
 		}
 	}
-	_, err := os.Stdout.Write(b)
-	return err
+	return nil
+}
+
+func readBodyArg(s string) ([]byte, error) {
+	if s == "" {
+		return nil, nil
+	}
+	if strings.HasPrefix(s, "@") {
+		return os.ReadFile(strings.TrimPrefix(s, "@"))
+	}
+	return []byte(s), nil
 }

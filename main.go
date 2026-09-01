@@ -2,34 +2,38 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
-
-	atlassiancmd "workctl/internal/atlassian/cmd"
-	azurecmd "workctl/internal/azure/cmd"
+	"time"
 )
 
-const version = "0.1.3"
+const version = "0.1.4"
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `workctl %s - shared CLI for developer-service APIs
+	fmt.Fprintf(os.Stderr, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence and GitLab
 
 Usage:
-  workctl [global options] raw METHOD PATH [--data BODY]
-  workctl [global options] credential set|delete
-  workctl [global options] MODULE ...
-  workctl version
+  workctl [--config FILE] init [module...]   guided setup; tokens go to the OS keyring
+  workctl [--config FILE] setup [options]    non-interactive config from flags
+  workctl [--config FILE] doctor
+  workctl [--config FILE] config show|path
+  workctl [--config FILE] azure ...      Azure DevOps (alias: ado)
+  workctl [--config FILE] atlassian ...  Jira and Confluence Cloud (alias: atl)
+  workctl [--config FILE] jira ...     Jira
+  workctl [--config FILE] gitlab ...   GitLab
+  workctl [--config FILE] task ISSUE-KEY
+  workctl [--config FILE] mcp
 
-Global options:
-  --config FILE
-  --url URL
-  --token-env NAME
-  --timeout SECONDS
-  --insecure
+Global:
+  --config FILE     config path (or WORKCTL_CONFIG)
+
+Run workctl help or see README.md for command examples.
 `, version)
 }
 
@@ -41,121 +45,658 @@ func main() {
 }
 
 func run(args []string) error {
-	fs := flag.NewFlagSet("workctl", flag.ContinueOnError)
-	configPath := fs.String("config", "", "config file")
-	baseURL := fs.String("url", "", "API base URL")
-	tokenEnv := fs.String("token-env", "", "environment variable holding the token")
-	timeout := fs.Int("timeout", 0, "HTTP timeout in seconds")
-	insecure := fs.Bool("insecure", false, "disable TLS verification")
-	if err := fs.Parse(args); err != nil {
+	global := flag.NewFlagSet("workctl", flag.ContinueOnError)
+	global.SetOutput(os.Stderr)
+	configPath := global.String("config", "", "config file")
+	if err := global.Parse(args); err != nil {
 		return err
 	}
-	rest := fs.Args()
-	if len(rest) == 0 || rest[0] == "help" || rest[0] == "--help" || rest[0] == "-h" {
+	rest := global.Args()
+	if len(rest) == 0 {
 		usage()
 		return nil
 	}
-	if rest[0] == "version" {
+	cmd := moduleAliases[rest[0]]
+	if cmd == "" {
+		cmd = rest[0]
+	}
+	rest = rest[1:]
+	switch cmd {
+	case "help", "-h", "--help":
+		usage()
+		return nil
+	case "version":
 		fmt.Println(version)
 		return nil
+	case "setup":
+		return cmdSetup(*configPath, rest)
+	case "init":
+		return cmdInit(*configPath, rest)
+	case "jira", "gitlab":
+		if len(rest) > 0 && rest[0] == "init" {
+			return cmdEndpointInit(*configPath, cmd, rest[1:], nil)
+		}
+		if len(rest) > 0 && rest[0] == "set-token" {
+			return cmdEndpointSetToken(*configPath, cmd, nil)
+		}
+	case "config":
+		return cmdConfig(*configPath, rest)
 	}
-	if rest[0] == "azure" || rest[0] == "ado" {
-		return azurecmd.Run(rest[1:])
-	}
-	if rest[0] == "atlassian" || rest[0] == "atl" {
-		return atlassiancmd.Run(rest[1:])
-	}
-	if rest[0] == "jira" {
-		cfg, err := loadConfig(*configPath)
-		if err != nil {
-			return err
-		}
-		if *baseURL != "" {
-			cfg.URL = *baseURL
-		}
-		client, err := newAPIClient(cfg)
-		if err != nil {
-			return err
-		}
-		return cmdJira(context.Background(), client, rest[1:])
-	}
-	if rest[0] == "gitlab" {
-		cfg, err := loadConfig(*configPath)
-		if err != nil {
-			return err
-		}
-		if *baseURL != "" {
-			cfg.URL = *baseURL
-		}
-		client, err := newAPIClient(cfg)
-		if err != nil {
-			return err
-		}
-		return cmdGitLab(context.Background(), client, rest[1:])
-	}
-	if rest[0] == "credential" {
-		cfg, err := loadConfig(*configPath)
-		if err != nil {
-			return err
-		}
-		if len(rest) != 2 {
-			return fmt.Errorf("usage: workctl credential set|delete")
-		}
-		switch rest[1] {
-		case "set":
-			b, err := io.ReadAll(os.Stdin)
-			if err != nil {
-				return fmt.Errorf("read credential from stdin: %w", err)
-			}
-			return credentialStore.Set(cfg.TokenAccount, strings.TrimSpace(string(b)))
-		case "delete":
-			return credentialStore.Delete(cfg.TokenAccount)
-		default:
-			return fmt.Errorf("usage: workctl credential set|delete")
-		}
-	}
-	if description, ok := plannedModules[rest[0]]; ok {
-		_ = description
-		return cmdPlanned(rest[0])
-	}
-	if rest[0] != "raw" {
-		return fmt.Errorf("unknown command %q", rest[0])
-	}
-	cfg, err := loadConfig(*configPath)
+	cfg, err := loadConfigOrDefault(*configPath)
 	if err != nil {
 		return err
 	}
-	if *baseURL != "" {
-		cfg.URL = *baseURL
+	switch cmd {
+	case "doctor":
+		return cmdDoctor(cfg)
+	case "azure", "atlassian":
+		return cmdModule(cfg, cmd, rest)
+	case "jira":
+		return cmdJira(cfg, rest)
+	case "gitlab":
+		return cmdGitLab(cfg, rest)
+	case "bitbucket", "asana":
+		return cmdPlanned(cmd)
+	case "task":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: workctl task ISSUE-KEY")
+		}
+		jc, err := newJiraClient(cfg)
+		if err != nil {
+			return err
+		}
+		gc, err := newGitLabClient(cfg)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds*3)*time.Second)
+		defer cancel()
+		b, err := getTaskContext(ctx, cfg, jc, gc, rest[0])
+		if err != nil {
+			return err
+		}
+		return printBody(b)
+	case "mcp":
+		return runMCP(context.Background(), cfg)
+	default:
+		return fmt.Errorf("unknown command %q", cmd)
 	}
-	if *tokenEnv != "" {
-		cfg.TokenEnv = *tokenEnv
+}
+
+func cmdSetup(path string, args []string) error {
+	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
+	jiraURL := fs.String("jira-url", "", "Jira base URL")
+	jiraAuth := fs.String("jira-auth", "", "bearer or basic")
+	jiraUser := fs.String("jira-user", "", "Jira username for basic auth")
+	jiraTokenEnv := fs.String("jira-token-env", "", "environment variable holding Jira credential")
+	jiraCA := fs.String("jira-ca", "", "custom PEM CA bundle")
+	gitlabURL := fs.String("gitlab-url", "", "GitLab base URL")
+	gitlabAuth := fs.String("gitlab-auth", "", "private-token or bearer")
+	gitlabTokenEnv := fs.String("gitlab-token-env", "", "environment variable holding GitLab token")
+	gitlabProjects := fs.String("gitlab-projects", "", "comma-separated group/project paths")
+	gitlabDefault := fs.String("gitlab-default-project", "", "default group/project")
+	gitlabCA := fs.String("gitlab-ca", "", "custom PEM CA bundle")
+	timeout := fs.Int("timeout", 0, "HTTP timeout seconds")
+	insecure := fs.Bool("insecure", false, "disable TLS verification for both endpoints")
+	allowWrite := fs.Bool("allow-write", false, "allow write commands and MCP write tools")
+	nonInteractive := fs.Bool("non-interactive", false, "do not prompt; require URLs via flags or existing config")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if !*nonInteractive && fs.NFlag() == 0 {
+		return cmdInit(path, nil)
+	}
+	cfg, err := loadConfigForSetup(path)
+	if err != nil {
+		return err
+	}
+	if *jiraURL != "" {
+		cfg.Jira.URL = *jiraURL
+	}
+	if *jiraAuth != "" {
+		cfg.Jira.Auth = *jiraAuth
+	}
+	if *jiraUser != "" {
+		cfg.Jira.Username = *jiraUser
+	}
+	if *jiraTokenEnv != "" {
+		cfg.Jira.TokenEnv = *jiraTokenEnv
+	}
+	if *jiraCA != "" {
+		cfg.Jira.CAFile = *jiraCA
+	}
+	if *gitlabURL != "" {
+		cfg.GitLab.URL = *gitlabURL
+	}
+	if *gitlabAuth != "" {
+		cfg.GitLab.Auth = *gitlabAuth
+	}
+	if *gitlabTokenEnv != "" {
+		cfg.GitLab.TokenEnv = *gitlabTokenEnv
+	}
+	if *gitlabProjects != "" {
+		cfg.GitLab.Projects = parseCommaList(*gitlabProjects)
+	}
+	if *gitlabDefault != "" {
+		cfg.GitLab.DefaultProject = *gitlabDefault
+	}
+	if *gitlabCA != "" {
+		cfg.GitLab.CAFile = *gitlabCA
 	}
 	if *timeout > 0 {
 		cfg.TimeoutSeconds = *timeout
 	}
 	if *insecure {
-		cfg.VerifyTLS = false
+		cfg.Jira.VerifyTLS = false
+		cfg.GitLab.VerifyTLS = false
 	}
-	if len(rest) < 3 {
-		return fmt.Errorf("usage: workctl raw METHOD PATH [--data BODY]")
+	if *allowWrite {
+		cfg.Policy.AllowWrite = true
 	}
-	raw := flag.NewFlagSet("raw", flag.ContinueOnError)
-	data := raw.String("data", "", "request body")
-	if err := raw.Parse(rest[3:]); err != nil {
+
+	if cfg.GitLab.DefaultProject == "" && len(cfg.GitLab.Projects) > 0 {
+		cfg.GitLab.DefaultProject = cfg.GitLab.Projects[0]
+	}
+	if err := validateConfig(cfg); err != nil {
 		return err
 	}
-	client, err := newAPIClient(cfg)
+	if err := cfg.save(); err != nil {
+		return err
+	}
+	fmt.Printf("saved: %s\n", cfg.path)
+	if cfg.hasJira() {
+		fmt.Println("store the Jira token with: workctl jira set-token")
+	}
+	if cfg.hasGitLab() {
+		fmt.Println("store the GitLab token with: workctl gitlab set-token")
+	}
+	return nil
+}
+
+func cmdConfig(path string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: workctl config show|path")
+	}
+	switch args[0] {
+	case "path":
+		if path == "" {
+			p, err := defaultConfigPath()
+			if err != nil {
+				return err
+			}
+			path = p
+		}
+		fmt.Println(path)
+		return nil
+	case "show":
+		cfg, err := loadConfig(path)
+		if err != nil {
+			return err
+		}
+		cp := *cfg
+		cp.Jira.Token = ""
+		cp.GitLab.Token = ""
+		cp.path = ""
+		b, _ := json.MarshalIndent(cp, "", "  ")
+		return printBody(b)
+	default:
+		return fmt.Errorf("usage: workctl config show|path")
+	}
+}
+
+func cmdDoctor(cfg *Config) error {
+	type check struct {
+		OK     bool   `json:"ok"`
+		Detail any    `json:"detail,omitempty"`
+		Error  string `json:"error,omitempty"`
+	}
+	result := map[string]check{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	defer cancel()
+	if !cfg.hasJira() {
+		result["jira"] = check{OK: true, Detail: "not configured; skipped"}
+	} else if jc, err := newJiraClient(cfg); err != nil {
+		result["jira"] = check{Error: err.Error()}
+	} else {
+		info, e1 := jiraServerInfo(ctx, jc)
+		me, e2 := jiraMyself(ctx, jc)
+		if e1 != nil {
+			result["jira"] = check{Error: e1.Error()}
+		} else if e2 != nil {
+			result["jira"] = check{Error: e2.Error()}
+		} else {
+			result["jira"] = check{OK: true, Detail: map[string]json.RawMessage{"server": info, "user": me}}
+		}
+	}
+	if !cfg.hasGitLab() {
+		result["gitlab"] = check{OK: true, Detail: "not configured; skipped"}
+	} else if gc, err := newGitLabClient(cfg); err != nil {
+		result["gitlab"] = check{Error: err.Error()}
+	} else {
+		ver, e := gitlabVersion(ctx, gc)
+		if e != nil {
+			result["gitlab"] = check{Error: e.Error()}
+		} else {
+			result["gitlab"] = check{OK: true, Detail: json.RawMessage(ver)}
+		}
+	}
+	// The embedded CLIs report their own connectivity; this is informational and does not change the exit code.
+	for _, name := range []string{"azure", "atlassian"} {
+		out, err := runModuleProcess(ctx, cfg, name, []string{"config", "test"})
+		if err != nil {
+			result[name] = check{Error: err.Error()}
+		} else {
+			result[name] = check{OK: true, Detail: strings.TrimSpace(string(out))}
+		}
+	}
+	b, _ := json.MarshalIndent(result, "", "  ")
+	_ = printBody(b)
+	if !result["jira"].OK || !result["gitlab"].OK {
+		return fmt.Errorf("one or more connectivity checks failed")
+	}
+	return nil
+}
+
+func cmdJira(cfg *Config, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("jira commands: issue, search, comments, transitions, transition, comment, myself, server-info, raw")
+	}
+	c, err := newJiraClient(cfg)
 	if err != nil {
 		return err
 	}
-	method := rest[1]
-	if method == "" {
-		method = http.MethodGet
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	defer cancel()
+	switch args[0] {
+	case "issue":
+		fs := flag.NewFlagSet("jira issue", flag.ContinueOnError)
+		fields := fs.String("fields", "", "comma-separated fields")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return fmt.Errorf("usage: jira issue [--fields a,b] KEY")
+		}
+		b, err := jiraGetIssue(ctx, c, fs.Arg(0), parseCommaList(*fields))
+		if err != nil {
+			return err
+		}
+		return printBody(b)
+	case "search":
+		fs := flag.NewFlagSet("jira search", flag.ContinueOnError)
+		jql := fs.String("jql", "", "JQL")
+		start := fs.Int("start", 0, "startAt")
+		max := fs.Int("max", 50, "maxResults")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *jql == "" {
+			return fmt.Errorf("--jql is required")
+		}
+		b, err := jiraSearch(ctx, c, *jql, *start, *max)
+		if err != nil {
+			return err
+		}
+		return printBody(b)
+	case "comments":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: jira comments KEY")
+		}
+		b, err := jiraComments(ctx, c, args[1])
+		if err != nil {
+			return err
+		}
+		return printBody(b)
+	case "transitions":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: jira transitions KEY")
+		}
+		b, err := jiraTransitions(ctx, c, args[1])
+		if err != nil {
+			return err
+		}
+		return printBody(b)
+	case "transition":
+		if err := requireWrite(cfg); err != nil {
+			return err
+		}
+		fs := flag.NewFlagSet("jira transition", flag.ContinueOnError)
+		id := fs.String("id", "", "transition id")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 || *id == "" {
+			return fmt.Errorf("usage: jira transition --id ID KEY")
+		}
+		b, err := jiraDoTransition(ctx, c, fs.Arg(0), *id)
+		if err != nil {
+			return err
+		}
+		return printBody(b)
+	case "comment":
+		if len(args) < 2 || args[1] != "add" {
+			return fmt.Errorf("usage: jira comment add --body TEXT KEY")
+		}
+		if err := requireWrite(cfg); err != nil {
+			return err
+		}
+		fs := flag.NewFlagSet("jira comment add", flag.ContinueOnError)
+		body := fs.String("body", "", "comment body")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 || *body == "" {
+			return fmt.Errorf("usage: jira comment add --body TEXT KEY")
+		}
+		b, err := jiraAddComment(ctx, c, fs.Arg(0), *body)
+		if err != nil {
+			return err
+		}
+		return printBody(b)
+	case "myself":
+		b, err := jiraMyself(ctx, c)
+		if err != nil {
+			return err
+		}
+		return printBody(b)
+	case "server-info":
+		b, err := jiraServerInfo(ctx, c)
+		if err != nil {
+			return err
+		}
+		return printBody(b)
+	case "raw":
+		return cmdRaw(ctx, c, cfg, args[1:])
+	default:
+		return fmt.Errorf("unknown jira command %q", args[0])
 	}
-	b, err := client.do(context.Background(), method, rest[2], []byte(*data))
+}
+
+func projectFlagSet(name string) (*flag.FlagSet, *string) {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	p := fs.String("project", "", "group/project (default from config)")
+	return fs, p
+}
+
+func cmdGitLab(cfg *Config, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("gitlab commands: project, mr, pipelines, pipeline, job, branches, file, raw")
+	}
+	c, err := newGitLabClient(cfg)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	defer cancel()
+	switch args[0] {
+	case "project":
+		fs, p := projectFlagSet("gitlab project")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		project, e := glProject(cfg, *p)
+		if e != nil {
+			return e
+		}
+		b, e := gitlabGetProject(ctx, c, project)
+		if e != nil {
+			return e
+		}
+		return printBody(b)
+	case "mr":
+		return cmdGitLabMR(ctx, c, cfg, args[1:])
+	case "pipelines":
+		if len(args) < 2 || args[1] != "list" {
+			return fmt.Errorf("usage: gitlab pipelines list [--project P] [--ref R]")
+		}
+		fs, p := projectFlagSet("gitlab pipelines list")
+		ref := fs.String("ref", "", "ref")
+		per := fs.Int("per-page", 30, "per page")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		project, e := glProject(cfg, *p)
+		if e != nil {
+			return e
+		}
+		b, e := gitlabListPipelines(ctx, c, project, *ref, *per)
+		if e != nil {
+			return e
+		}
+		return printBody(b)
+	case "pipeline":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: gitlab pipeline get|jobs ...")
+		}
+		action := args[1]
+		fs, p := projectFlagSet("gitlab pipeline " + action)
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return fmt.Errorf("pipeline ID required")
+		}
+		id, e := strconv.Atoi(fs.Arg(0))
+		if e != nil {
+			return e
+		}
+		project, e := glProject(cfg, *p)
+		if e != nil {
+			return e
+		}
+		var b []byte
+		if action == "get" {
+			b, e = gitlabGetPipeline(ctx, c, project, id)
+		} else if action == "jobs" {
+			b, e = gitlabListPipelineJobs(ctx, c, project, id)
+		} else {
+			return fmt.Errorf("unknown pipeline action %q", action)
+		}
+		if e != nil {
+			return e
+		}
+		return printBody(b)
+	case "job":
+		if len(args) < 2 || args[1] != "trace" {
+			return fmt.Errorf("usage: gitlab job trace [--project P] JOB_ID")
+		}
+		fs, p := projectFlagSet("gitlab job trace")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return fmt.Errorf("job ID required")
+		}
+		id, e := strconv.Atoi(fs.Arg(0))
+		if e != nil {
+			return e
+		}
+		project, e := glProject(cfg, *p)
+		if e != nil {
+			return e
+		}
+		b, e := gitlabJobTrace(ctx, c, project, id)
+		if e != nil {
+			return e
+		}
+		return printBody(b)
+	case "branches":
+		fs, p := projectFlagSet("gitlab branches")
+		search := fs.String("search", "", "search")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		project, e := glProject(cfg, *p)
+		if e != nil {
+			return e
+		}
+		b, e := gitlabListBranches(ctx, c, project, *search)
+		if e != nil {
+			return e
+		}
+		return printBody(b)
+	case "file":
+		if len(args) < 2 || args[1] != "get" {
+			return fmt.Errorf("usage: gitlab file get [--project P] [--ref R] PATH")
+		}
+		fs, p := projectFlagSet("gitlab file get")
+		ref := fs.String("ref", "HEAD", "ref")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return fmt.Errorf("file path required")
+		}
+		project, e := glProject(cfg, *p)
+		if e != nil {
+			return e
+		}
+		b, e := gitlabGetFile(ctx, c, project, fs.Arg(0), *ref)
+		if e != nil {
+			return e
+		}
+		return printBody(b)
+	case "raw":
+		return cmdRaw(ctx, c, cfg, args[1:])
+	default:
+		return fmt.Errorf("unknown gitlab command %q", args[0])
+	}
+}
+
+func cmdGitLabMR(ctx context.Context, c *APIClient, cfg *Config, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("mr actions: get, changes, notes, list, note, create")
+	}
+	action := args[0]
+	switch action {
+	case "get", "changes", "notes":
+		fs, p := projectFlagSet("gitlab mr " + action)
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return fmt.Errorf("MR IID required")
+		}
+		iid, e := strconv.Atoi(fs.Arg(0))
+		if e != nil {
+			return e
+		}
+		project, e := glProject(cfg, *p)
+		if e != nil {
+			return e
+		}
+		var b []byte
+		if action == "get" {
+			b, e = gitlabGetMR(ctx, c, project, iid)
+		} else if action == "changes" {
+			b, e = gitlabGetMRChanges(ctx, c, project, iid)
+		} else {
+			b, e = gitlabGetMRNotes(ctx, c, project, iid)
+		}
+		if e != nil {
+			return e
+		}
+		return printBody(b)
+	case "list":
+		fs, p := projectFlagSet("gitlab mr list")
+		search := fs.String("search", "", "search")
+		state := fs.String("state", "all", "state")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		project, e := glProject(cfg, *p)
+		if e != nil {
+			return e
+		}
+		b, e := gitlabListMRs(ctx, c, project, *search, *state)
+		if e != nil {
+			return e
+		}
+		return printBody(b)
+	case "note":
+		if len(args) < 2 || args[1] != "add" {
+			return fmt.Errorf("usage: gitlab mr note add [--project P] --body TEXT IID")
+		}
+		if err := requireWrite(cfg); err != nil {
+			return err
+		}
+		fs, p := projectFlagSet("gitlab mr note add")
+		body := fs.String("body", "", "note body")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 || *body == "" {
+			return fmt.Errorf("IID and --body required")
+		}
+		iid, e := strconv.Atoi(fs.Arg(0))
+		if e != nil {
+			return e
+		}
+		project, e := glProject(cfg, *p)
+		if e != nil {
+			return e
+		}
+		b, e := gitlabAddMRNote(ctx, c, project, iid, *body)
+		if e != nil {
+			return e
+		}
+		return printBody(b)
+	case "create":
+		if err := requireWrite(cfg); err != nil {
+			return err
+		}
+		fs, p := projectFlagSet("gitlab mr create")
+		source := fs.String("source", "", "source branch")
+		target := fs.String("target", "master", "target branch")
+		title := fs.String("title", "", "title")
+		desc := fs.String("description", "", "description")
+		draft := fs.Bool("draft", true, "create Draft MR")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *source == "" || *title == "" {
+			return fmt.Errorf("--source and --title required")
+		}
+		project, e := glProject(cfg, *p)
+		if e != nil {
+			return e
+		}
+		b, e := gitlabCreateMR(ctx, c, project, *source, *target, *title, *desc, *draft)
+		if e != nil {
+			return e
+		}
+		return printBody(b)
+	default:
+		return fmt.Errorf("unknown mr action %q", action)
+	}
+}
+
+func cmdRaw(ctx context.Context, c *APIClient, cfg *Config, args []string) error {
+	fs := flag.NewFlagSet("raw", flag.ContinueOnError)
+	bodyArg := fs.String("body", "", "JSON body or @file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return fmt.Errorf("usage: raw [--body JSON|@file] METHOD PATH")
+	}
+	method := strings.ToUpper(fs.Arg(0))
+	if method != "GET" && method != "HEAD" {
+		if err := requireWrite(cfg); err != nil {
+			return err
+		}
+	}
+	body, err := readBodyArg(*bodyArg)
+	if err != nil {
+		return err
+	}
+	b, _, err := c.do(ctx, method, fs.Arg(1), nil, body, "application/json")
 	if err != nil {
 		return err
 	}
 	return printBody(b)
 }
+
+// Silence otherwise unused imports when command code is compiled on old Go versions.
+var _ = http.MethodGet
+var _ = url.Values{}

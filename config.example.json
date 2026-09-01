@@ -1,8 +1,30 @@
 {
   "version": 1,
-  "url": "https://service.example",
-  "token_env": "SERVICE_TOKEN",
-  "token_account": "default",
   "timeout_seconds": 30,
-  "verify_tls": true
+  "modules": {
+    "timeout_seconds": 120
+  },
+  "jira": {
+    "url": "https://jira.company.local",
+    "auth": "bearer",
+    "username": "",
+    "token_env": "WORKCTL_JIRA_TOKEN",
+    "verify_tls": true,
+    "ca_file": ""
+  },
+  "gitlab": {
+    "url": "https://gitlab.company.local",
+    "auth": "private-token",
+    "token_env": "WORKCTL_GITLAB_TOKEN",
+    "verify_tls": true,
+    "ca_file": "",
+    "default_project": "group/project",
+    "projects": ["group/project"]
+  },
+  "policy": {
+    "allow_write": false
+  },
+  "mcp": {
+    "max_output_bytes": 500000
+  }
 }

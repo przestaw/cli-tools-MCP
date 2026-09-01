@@ -2,41 +2,126 @@
 
 Author: [przestaw](https://github.com/przestaw)
 
-`workctl` is a small, provider-neutral command-line foundation for developer-service APIs. It keeps shared options,
-configuration, HTTP behavior and output handling in one binary so provider modules can be added without duplicating
-transport code.
+One binary for the work-tracking and code-hosting services a developer uses every day, as a CLI and as an MCP server
+for local AI agents (VS Code, Claude Code, Cline, Cursor). Read-only by default; writes are opt-in.
 
-The first version exposes guarded raw API access and reserves stable command names for planned modules.
+| Module | Service | Source |
+| --- | --- | --- |
+| `azure` (`ado`) | Azure DevOps: repos, pull requests, pipelines, builds, releases | `internal/azure` |
+| `atlassian` (`atl`) | Jira Cloud and Confluence Cloud | `internal/atlassian` |
+| `jira` | Jira (REST v2) | `jira.go` |
+| `gitlab` | GitLab (REST v4) | `gitlab.go` |
+| `bitbucket` | Bitbucket | reserved, not implemented yet |
+| `asana` | Asana | reserved, not implemented yet |
 
-Azure DevOps is available as `workctl azure ...` (short alias: `workctl ado ...`), including repositories, pull
-requests, pipelines, builds and releases. Run `workctl azure config init` to create a profile and store its token in
-the operating system's credential store.
+`workctl bitbucket ...` and `workctl asana ...` only say that the module does not exist yet (`planned.go`); the names are
+reserved so the command line stays stable. A GitHub module and macros are planned too (see the end).
 
-Atlassian Cloud is available as `workctl atlassian ...` (short alias: `workctl atl ...`). The lightweight Jira module
-uses the common endpoint configuration and offers `workctl jira issue get DEMO-123` plus guarded raw requests.
+Every module is optional. With no config file at all, `workctl azure ...` and `workctl atlassian ...` work as long as those
+CLIs are set up (`workctl azure config init`); `jira` and `gitlab` need their URL in the config.
 
-GitLab is available as `workctl gitlab ...`, with project and merge-request lookups plus guarded raw requests. Project
-paths are supplied on the command line or in neutral local configuration; the repository contains no organization or
-project defaults.
+## Quick start
 
 ```powershell
-workctl --url https://service.example --token-env SERVICE_TOKEN raw GET /api/status
-workctl --config config.json raw POST /api/items --data '{"name":"demo"}'
-workctl bitbucket
+go build -trimpath -ldflags "-s -w" -o workctl.exe .      # or scripts\build.ps1
+
+workctl azure pr list -p "MyProject" --mine --status active
+workctl azure pr threads 123 -p "MyProject" -e
+workctl atlassian jql "project = ABC AND sprint in openSprints()"
+workctl atlassian issue get ABC-123
+workctl doctor
 ```
 
-Global options:
+`azure` and `atlassian` are full command trees compiled into the binary; `ado` and `atl` stay as short aliases. They keep
+their config files (`%APPDATA%\ado\config.yaml`, `%APPDATA%\atl\config.yaml`) and OS keyring entries, so profiles and
+tokens made earlier keep working.
 
-- `--config FILE`: load JSON configuration;
-- `--url URL`: override the configured API base URL;
-- `--token-env NAME`: read a bearer token from an environment variable;
-- `--timeout SECONDS`: set the request timeout;
-- `--insecure`: explicitly disable TLS verification.
+## Policy: read-only unless allowed
 
-Absolute URLs are rejected by `raw`, redirects to another host are blocked, and response bodies are formatted as JSON
-when possible. Tests that exercise the public CLI live under `tests/`.
+Writes are blocked until the config contains `"policy": {"allow_write": true}`. For `azure` and `atlassian` a command counts as a
+read only if it is on the read list in `modules.go` (`get`, `list`, `threads`, `diff`, `jql`, ...); every other command,
+including any command a future version adds, counts as a write. Matching uses the command the CLI itself resolves, so
+aliases (`azure pullrequest ...`) and flags before the command (`azure -p X pr list`) are handled. `raw` is a read only for
+GET/HEAD without a body. `shell` counts as a write, because it can run anything.
 
-Planned modules are listed in `planned.go`. Provider-specific modules will keep the same global option conventions.
+The MCP surface is stricter, because it is what an agent can reach. It also refuses `config`, `setup`, `shell`,
+`completion`, every `open` (it starts a browser), the `--config` and `--insecure` flags, and `raw` with a full URL (so
+the credential cannot be sent to another host).
+
+## MCP
+
+```powershell
+workctl --config C:\tools\workctl\workctl.json mcp
+```
+
+Tools: `azure` and `atlassian` (one each; the argument is the command line as an array, for example
+`["pr","get","123","-p","MyProject"]`), plus `jira_*`, `gitlab_*` and `task_get_context` for the backends that are
+configured. Write tools of `jira`/`gitlab` appear only with `allow_write`; the `azure`/`atlassian` tools refuse writes until then.
+Each `azure`/`atlassian` call runs as a child process of workctl with its own timeout (`modules.timeout_seconds`).
+`examples/vscode-mcp-no-tokens.json` is a `.vscode/mcp.json` that needs no tokens in the file.
+
+The server speaks the legacy handshake-era MCP protocol on purpose; clients that probe `server/discover` fall back to
+`initialize`. Do not pin a client to modern-only mode.
+
+## Setup and credentials
+
+Every module has its own guided setup, and all of them keep tokens in the OS keyring (Windows Credential Manager,
+macOS Keychain, Secret Service), never in the config file:
+
+```powershell
+workctl init                 # walks through all modules, then asks about write access
+workctl jira init            # URL, auth, TLS, token (hidden prompt) -> keyring, then a connection test
+workctl gitlab init
+workctl azure init           # same as `workctl azure config init`
+workctl atlassian init
+workctl jira set-token       # replace a token later (also gitlab, azure, atlassian)
+```
+
+For scripts: `workctl jira init --non-interactive --url https://jira.example.com --token-stdin < token.txt`. A token is
+never accepted as an argument (it would end up in shell history and process lists). Where there is no keyring (a
+headless Linux box), set the environment variable instead: `WORKCTL_JIRA_TOKEN`, `WORKCTL_GITLAB_TOKEN`, `ADO_PAT`,
+`ATL_API_TOKEN`. The variable wins over the keyring. A plaintext `token` in an old config file is still read last;
+running the module's `init` again moves it into the keyring and removes it from the file.
+
+## Config
+
+`%APPDATA%\workctl\config.json` (Linux: `~/.config/workctl/config.json`), or `--config FILE`, or `WORKCTL_CONFIG`.
+See `config.example.json`. Only the parts you use are needed.
+
+```json
+{
+  "version": 1,
+  "timeout_seconds": 30,
+  "modules": { "timeout_seconds": 120 },
+  "policy": { "allow_write": false },
+  "mcp": { "max_output_bytes": 500000 }
+}
+```
+
+`jira` (Server/DC) and `gitlab` take `url`, `auth`, `token_env`, `verify_tls`, `ca_file`; the token is looked up in the
+environment variable `token_env`, then in the keyring (service `workctl`, account `<module>:<url>`).
+`workctl setup --non-interactive` writes the file from flags; `workctl init` is the guided way.
+
+## Build and test
+
+```powershell
+go vet ./... ; go test ./... ; go build -trimpath -ldflags "-s -w" -o workctl.exe .
+```
+
+Go 1.26. Third-party modules come in only through the two built-in modules (cobra, go-keyring, go-prompt, survey, yaml).
+The azure and atlassian packages' own tests run too; run them with `APPDATA`/`USERPROFILE` pointing at a scratch directory if you
+want to be sure nothing touches your real config.
+
+## Planned
+
+- **`github` module:** pull requests, review threads and checks of GitHub repositories, with the token in the OS keyring
+  or an environment variable, under the same read/write policy.
+- **Implement `bitbucket` and `asana`:** replace the entry in `planned.go` with a real module and its MCP tools.
+- **Macros as MCP tools:** a named, parameterised sequence of module calls defined in a JSON file, for example
+  "everything about ticket X" (Jira issue, matching pull requests, their open threads) in one call. A macro is one MCP
+  tool (`macro_run`, with `macro_list` to discover them); it counts as a read only if every step is a read, and its steps
+  go through the same policy and child-process path as the single `azure`/`atlassian` tools. `task ISSUE-KEY` is the
+  hand-written ancestor of this.
 
 ## License
 

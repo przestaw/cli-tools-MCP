@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "workctl": {
+      "type": "stdio",
+      "command": "C:\\tools\\workctl\\workctl.exe",
+      "args": ["--config", "C:\\tools\\workctl\\workctl.json", "mcp"]
+    }
+  }
+}
