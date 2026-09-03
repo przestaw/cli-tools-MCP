@@ -21,6 +21,15 @@
     "default_project": "group/project",
     "projects": ["group/project"]
   },
+  "github": {
+    "url": "https://api.github.com",
+    "auth": "bearer",
+    "token_env": "WORKCTL_GITHUB_TOKEN",
+    "verify_tls": true,
+    "ca_file": "",
+    "default_repo": "owner/name",
+    "repos": ["owner/name"]
+  },
   "policy": {
     "allow_write": false
   },

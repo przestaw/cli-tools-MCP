@@ -78,7 +78,7 @@ func newAPIClient(cfg EndpointConfig, prefix string, timeout time.Duration) (*AP
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.1.4")
+	h.Set("User-Agent", "workctl/0.1.5")
 	return &APIClient{baseURL: base, prefix: prefix, client: c, headers: h}, nil
 }
 
@@ -131,6 +131,24 @@ func newGitLabClient(cfg *Config) (*APIClient, error) {
 	case "bearer":
 		c.headers.Set("Authorization", "Bearer "+sec)
 	}
+	return c, nil
+}
+
+func newGitHubClient(cfg *Config) (*APIClient, error) {
+	if !cfg.hasGitHub() {
+		return nil, fmt.Errorf("github is not configured: set github.url (run `workctl github init`)")
+	}
+	c, err := newAPIClient(cfg.GitHub.EndpointConfig, "", time.Duration(cfg.TimeoutSeconds)*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	sec, err := resolveSecret("github", cfg.GitHub.EndpointConfig)
+	if err != nil {
+		return nil, err
+	}
+	c.headers.Set("Authorization", "Bearer "+sec)
+	c.headers.Set("Accept", "application/vnd.github+json")
+	c.headers.Set("X-GitHub-Api-Version", "2022-11-28")
 	return c, nil
 }
 

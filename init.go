@@ -26,6 +26,7 @@ type endpointSpec struct {
 	tokenPrompt string
 	tokenHelp   string
 	ec          *EndpointConfig
+	defaultURL  string
 	// extra asks for module-specific settings; it is not called with --non-interactive.
 	extra func(r *bufio.Reader)
 	// verify makes one authenticated request and says who we are.
@@ -84,6 +85,34 @@ func endpointSpecFor(cfg *Config, module string) (*endpointSpec, error) {
 			cfg.GitLab.DefaultProject = prompt.Ask(r, "Default project", cfg.GitLab.DefaultProject)
 		}
 		return s, nil
+	case "github":
+		s := &endpointSpec{
+			module: "github", label: "GitHub", auths: []string{"bearer"},
+			defaultURL:  "https://api.github.com",
+			tokenPrompt: "Access token",
+			tokenHelp:   "Create a fine-grained token under Settings > Developer settings (read access to contents, pull requests, actions and checks; write only if you allow writes).",
+			ec:          &cfg.GitHub.EndpointConfig,
+			verify: func(ctx context.Context, cfg *Config) (string, error) {
+				c, err := newGitHubClient(cfg)
+				if err != nil {
+					return "", err
+				}
+				b, err := githubUser(ctx, c)
+				if err != nil {
+					return "", err
+				}
+				var u struct {
+					Login string `json:"login"`
+				}
+				_ = json.Unmarshal(b, &u)
+				return "connected as " + firstNonEmpty(u.Login, "(unknown user)"), nil
+			},
+		}
+		s.extra = func(r *bufio.Reader) {
+			cfg.GitHub.Repos = parseCommaList(prompt.Ask(r, "Repositories to search (owner/name, comma separated)", strings.Join(cfg.GitHub.Repos, ",")))
+			cfg.GitHub.DefaultRepo = prompt.Ask(r, "Default repository", cfg.GitHub.DefaultRepo)
+		}
+		return s, nil
 	}
 	return nil, fmt.Errorf("no setup for module %q", module)
 }
@@ -117,8 +146,8 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 	insecure := fs.Bool("insecure", false, "do not verify TLS certificates")
 	tokenStdin := fs.Bool("token-stdin", false, "read the token from the first line of stdin")
 	nonInteractive := fs.Bool("non-interactive", false, "do not prompt")
-	projects := fs.String("projects", "", "comma-separated group/project paths (gitlab)")
-	defProject := fs.String("default-project", "", "default group/project (gitlab)")
+	projects := fs.String("projects", "", "comma-separated group/project (gitlab) or owner/name (github) paths")
+	defProject := fs.String("default-project", "", "default group/project (gitlab) or owner/name (github)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -154,6 +183,17 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 			cfg.GitLab.DefaultProject = *defProject
 		}
 	}
+	if module == "github" {
+		if *projects != "" {
+			cfg.GitHub.Repos = parseCommaList(*projects)
+		}
+		if *defProject != "" {
+			cfg.GitHub.DefaultRepo = *defProject
+		}
+	}
+	if ec.URL == "" {
+		ec.URL = s.defaultURL
+	}
 	if r == nil {
 		r = bufio.NewReader(stdin)
 	}
@@ -167,7 +207,10 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 	} else {
 		fmt.Printf("\n%s\n", s.label)
 		ec.URL = prompt.Ask(r, "Base URL", ec.URL)
-		ec.Auth = prompt.AskChoice(r, "Authentication", s.auths, ec.Auth)
+		ec.Auth = s.auths[0]
+		if len(s.auths) > 1 {
+			ec.Auth = prompt.AskChoice(r, "Authentication", s.auths, ec.Auth)
+		}
 		if strings.EqualFold(ec.Auth, "basic") {
 			ec.Username = prompt.Ask(r, "Username", ec.Username)
 		}
@@ -190,6 +233,9 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 	}
 	if module == "gitlab" && cfg.GitLab.DefaultProject == "" && len(cfg.GitLab.Projects) > 0 {
 		cfg.GitLab.DefaultProject = cfg.GitLab.Projects[0]
+	}
+	if module == "github" && cfg.GitHub.DefaultRepo == "" && len(cfg.GitHub.Repos) > 0 {
+		cfg.GitHub.DefaultRepo = cfg.GitHub.Repos[0]
 	}
 	if err := validateConfig(cfg); err != nil {
 		return err
@@ -254,6 +300,7 @@ func cmdEndpointSetToken(path, module string, r *bufio.Reader) error {
 var initModules = []struct{ name, label string }{
 	{"jira", "Jira"},
 	{"gitlab", "GitLab"},
+	{"github", "GitHub"},
 	{"azure", "Azure DevOps"},
 	{"atlassian", "Jira and Confluence Cloud"},
 }
@@ -261,12 +308,12 @@ var initModules = []struct{ name, label string }{
 // initModule runs the setup of one module.
 func initModule(path, name string, r *bufio.Reader) error {
 	switch name {
-	case "jira", "gitlab":
+	case "jira", "gitlab", "github":
 		return cmdEndpointInit(path, name, nil, r)
 	case "azure", "atlassian":
 		return cliModules[name].run([]string{"config", "init"})
 	}
-	return fmt.Errorf("unknown module %q (modules: jira, gitlab, azure, atlassian)", name)
+	return fmt.Errorf("unknown module %q (modules: jira, gitlab, github, azure, atlassian)", name)
 }
 
 // cmdInit is `workctl init [module...]`: with no module it walks through all of them.

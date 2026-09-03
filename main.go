@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const version = "0.1.4"
+const version = "0.1.5"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence and GitLab
@@ -27,6 +27,7 @@ Usage:
   workctl [--config FILE] atlassian ...  Jira and Confluence Cloud (alias: atl)
   workctl [--config FILE] jira ...     Jira
   workctl [--config FILE] gitlab ...   GitLab
+  workctl [--config FILE] github ...   GitHub
   workctl [--config FILE] task ISSUE-KEY
   workctl [--config FILE] mcp
 
@@ -72,7 +73,7 @@ func run(args []string) error {
 		return cmdSetup(*configPath, rest)
 	case "init":
 		return cmdInit(*configPath, rest)
-	case "jira", "gitlab":
+	case "jira", "gitlab", "github":
 		if len(rest) > 0 && rest[0] == "init" {
 			return cmdEndpointInit(*configPath, cmd, rest[1:], nil)
 		}
@@ -95,6 +96,8 @@ func run(args []string) error {
 		return cmdJira(cfg, rest)
 	case "gitlab":
 		return cmdGitLab(cfg, rest)
+	case "github":
+		return cmdGitHub(cfg, rest)
 	case "bitbucket", "asana":
 		return cmdPlanned(cmd)
 	case "task":
@@ -236,6 +239,7 @@ func cmdConfig(path string, args []string) error {
 		cp := *cfg
 		cp.Jira.Token = ""
 		cp.GitLab.Token = ""
+		cp.GitHub.Token = ""
 		cp.path = ""
 		b, _ := json.MarshalIndent(cp, "", "  ")
 		return printBody(b)
@@ -280,6 +284,15 @@ func cmdDoctor(cfg *Config) error {
 			result["gitlab"] = check{OK: true, Detail: json.RawMessage(ver)}
 		}
 	}
+	if !cfg.hasGitHub() {
+		result["github"] = check{OK: true, Detail: "not configured; skipped"}
+	} else if hc, err := newGitHubClient(cfg); err != nil {
+		result["github"] = check{Error: err.Error()}
+	} else if u, e := githubUser(ctx, hc); e != nil {
+		result["github"] = check{Error: e.Error()}
+	} else {
+		result["github"] = check{OK: true, Detail: json.RawMessage(u)}
+	}
 	// The embedded CLIs report their own connectivity; this is informational and does not change the exit code.
 	for _, name := range []string{"azure", "atlassian"} {
 		out, err := runModuleProcess(ctx, cfg, name, []string{"config", "test"})
@@ -291,7 +304,7 @@ func cmdDoctor(cfg *Config) error {
 	}
 	b, _ := json.MarshalIndent(result, "", "  ")
 	_ = printBody(b)
-	if !result["jira"].OK || !result["gitlab"].OK {
+	if !result["jira"].OK || !result["gitlab"].OK || !result["github"].OK {
 		return fmt.Errorf("one or more connectivity checks failed")
 	}
 	return nil
