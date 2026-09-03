@@ -61,6 +61,8 @@ func toolAvailable(cfg *Config, name string) bool {
 		return cfg.hasJira()
 	case strings.HasPrefix(name, "gitlab_"):
 		return cfg.hasGitLab()
+	case strings.HasPrefix(name, "github_"):
+		return cfg.hasGitHub()
 	case strings.HasPrefix(name, "task_"):
 		return cfg.hasJira() && cfg.hasGitLab()
 	}
@@ -98,6 +100,9 @@ func mcpTools(cfg *Config) []mcpTool {
 		if toolAvailable(cfg, t.Name) {
 			tools = append(tools, t)
 		}
+	}
+	if cfg.hasGitHub() {
+		tools = append(tools, githubTools(cfg)...)
 	}
 	return append(tools, moduleTools(cfg)...)
 }
@@ -169,7 +174,7 @@ func runMCP(ctx context.Context, cfg *Config) error {
 				"protocolVersion": pv,
 				"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 				"serverInfo":      map[string]any{"name": "workctl", "version": version},
-				"instructions":    "Azure DevOps (azure), Jira and Confluence Cloud (atlassian), Jira Server and GitLab through workctl. Everything is read-only unless policy.allow_write=true in the config file.",
+				"instructions":    "Azure DevOps (azure), Jira and Confluence Cloud (atlassian), Jira Server, GitLab and GitHub through workctl. Everything is read-only unless policy.allow_write=true in the config file.",
 			}
 		case "ping":
 			result = map[string]any{}
@@ -234,6 +239,9 @@ func argBool(m map[string]any, k string) bool { v, _ := m[k].(bool); return v }
 func callMCPTool(ctx context.Context, cfg *Config, jc, gc *APIClient, name string, a map[string]any) ([]byte, error) {
 	if !toolAvailable(cfg, name) {
 		return nil, fmt.Errorf("tool %q is not available: its backend is not configured", name)
+	}
+	if strings.HasPrefix(name, "github_") {
+		return callGitHubTool(ctx, cfg, name, a)
 	}
 	project, projectErr := glProject(cfg, argString(a, "project"))
 	requireProject := func() error { return projectErr }

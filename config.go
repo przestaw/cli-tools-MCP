@@ -26,6 +26,13 @@ type GitLabConfig struct {
 	Projects       []string `json:"projects,omitempty"`
 }
 
+// GitHubConfig URL is the API base, for example https://api.github.com.
+type GitHubConfig struct {
+	EndpointConfig
+	DefaultRepo string   `json:"default_repo,omitempty"`
+	Repos       []string `json:"repos,omitempty"`
+}
+
 type PolicyConfig struct {
 	AllowWrite bool `json:"allow_write"`
 }
@@ -44,6 +51,7 @@ type Config struct {
 	TimeoutSeconds int            `json:"timeout_seconds"`
 	Jira           EndpointConfig `json:"jira"`
 	GitLab         GitLabConfig   `json:"gitlab"`
+	GitHub         GitHubConfig   `json:"github"`
 	Modules        ModulesConfig  `json:"modules"`
 	Policy         PolicyConfig   `json:"policy"`
 	MCP            MCPConfig      `json:"mcp"`
@@ -63,6 +71,13 @@ func defaultConfig() *Config {
 			EndpointConfig: EndpointConfig{
 				Auth:      "private-token",
 				TokenEnv:  "WORKCTL_GITLAB_TOKEN",
+				VerifyTLS: true,
+			},
+		},
+		GitHub: GitHubConfig{
+			EndpointConfig: EndpointConfig{
+				Auth:      "bearer",
+				TokenEnv:  "WORKCTL_GITHUB_TOKEN",
 				VerifyTLS: true,
 			},
 		},
@@ -168,6 +183,7 @@ func normalizeBaseURL(s string) string {
 
 func (c *Config) hasJira() bool   { return normalizeBaseURL(c.Jira.URL) != "" }
 func (c *Config) hasGitLab() bool { return normalizeBaseURL(c.GitLab.URL) != "" }
+func (c *Config) hasGitHub() bool { return normalizeBaseURL(c.GitHub.URL) != "" }
 
 // validateConfig checks the endpoints that are configured. Jira and GitLab are each optional.
 func validateConfig(cfg *Config) error {
@@ -177,6 +193,9 @@ func validateConfig(cfg *Config) error {
 		default:
 			return fmt.Errorf("unsupported jira.auth %q (use bearer or basic)", cfg.Jira.Auth)
 		}
+	}
+	if cfg.hasGitHub() && strings.ToLower(cfg.GitHub.Auth) != "bearer" {
+		return fmt.Errorf("unsupported github.auth %q (use bearer)", cfg.GitHub.Auth)
 	}
 	if cfg.hasGitLab() {
 		switch strings.ToLower(cfg.GitLab.Auth) {

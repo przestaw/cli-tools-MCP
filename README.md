@@ -11,11 +11,12 @@ for local AI agents (VS Code, Claude Code, Cline, Cursor). Read-only by default;
 | `atlassian` (`atl`) | Jira Cloud and Confluence Cloud | `internal/atlassian` |
 | `jira` | Jira (REST v2) | `jira.go` |
 | `gitlab` | GitLab (REST v4) | `gitlab.go` |
+| `github` | GitHub (REST) | `github.go` |
 | `bitbucket` | Bitbucket | reserved, not implemented yet |
 | `asana` | Asana | reserved, not implemented yet |
 
 `workctl bitbucket ...` and `workctl asana ...` only say that the module does not exist yet (`planned.go`); the names are
-reserved so the command line stays stable. A GitHub module and macros are planned too (see the end).
+reserved so the command line stays stable. Macros are planned too (see the end).
 
 Every module is optional. With no config file at all, `workctl azure ...` and `workctl atlassian ...` work as long as those
 CLIs are set up (`workctl azure config init`); `jira` and `gitlab` need their URL in the config.
@@ -55,8 +56,8 @@ workctl --config C:\tools\workctl\workctl.json mcp
 ```
 
 Tools: `azure` and `atlassian` (one each; the argument is the command line as an array, for example
-`["pr","get","123","-p","MyProject"]`), plus `jira_*`, `gitlab_*` and `task_get_context` for the backends that are
-configured. Write tools of `jira`/`gitlab` appear only with `allow_write`; the `azure`/`atlassian` tools refuse writes until then.
+`["pr","get","123","-p","MyProject"]`), plus `jira_*`, `gitlab_*`, `github_*` and `task_get_context` for the backends that are
+configured. Write tools of `jira`/`gitlab`/`github` appear only with `allow_write`; the `azure`/`atlassian` tools refuse writes until then.
 Each `azure`/`atlassian` call runs as a child process of workctl with its own timeout (`modules.timeout_seconds`).
 `examples/vscode-mcp-no-tokens.json` is a `.vscode/mcp.json` that needs no tokens in the file.
 
@@ -72,14 +73,15 @@ macOS Keychain, Secret Service), never in the config file:
 workctl init                 # walks through all modules, then asks about write access
 workctl jira init            # URL, auth, TLS, token (hidden prompt) -> keyring, then a connection test
 workctl gitlab init
+workctl github init
 workctl azure init           # same as `workctl azure config init`
 workctl atlassian init
-workctl jira set-token       # replace a token later (also gitlab, azure, atlassian)
+workctl jira set-token       # replace a token later (also gitlab, github, azure, atlassian)
 ```
 
 For scripts: `workctl jira init --non-interactive --url https://jira.example.com --token-stdin < token.txt`. A token is
 never accepted as an argument (it would end up in shell history and process lists). Where there is no keyring (a
-headless Linux box), set the environment variable instead: `WORKCTL_JIRA_TOKEN`, `WORKCTL_GITLAB_TOKEN`, `ADO_PAT`,
+headless Linux box), set the environment variable instead: `WORKCTL_JIRA_TOKEN`, `WORKCTL_GITLAB_TOKEN`, `WORKCTL_GITHUB_TOKEN`, `ADO_PAT`,
 `ATL_API_TOKEN`. The variable wins over the keyring. A plaintext `token` in an old config file is still read last;
 running the module's `init` again moves it into the keyring and removes it from the file.
 
@@ -98,7 +100,7 @@ See `config.example.json`. Only the parts you use are needed.
 }
 ```
 
-`jira` (Server/DC) and `gitlab` take `url`, `auth`, `token_env`, `verify_tls`, `ca_file`; the token is looked up in the
+`jira` (Server/DC), `gitlab` and `github` take `url`, `auth`, `token_env`, `verify_tls`, `ca_file`; the token is looked up in the
 environment variable `token_env`, then in the keyring (service `workctl`, account `<module>:<url>`).
 `workctl setup --non-interactive` writes the file from flags; `workctl init` is the guided way.
 
@@ -112,10 +114,22 @@ Go 1.26. Third-party modules come in only through the two built-in modules (cobr
 The azure and atlassian packages' own tests run too; run them with `APPDATA`/`USERPROFILE` pointing at a scratch directory if you
 want to be sure nothing touches your real config.
 
+## GitHub
+
+```powershell
+workctl github pr get 42 --repo owner/name
+workctl github pr comments 42        # inline review threads; `discussion` is the conversation, `reviews` the verdicts
+workctl github pr checks 42
+workctl github pr list --state open --search "fix login"
+workctl github runs --branch main    # GitHub Actions; `run get|jobs ID` for one run
+workctl github file get --ref main docs/README.md
+```
+
+`--repo` defaults to `github.default_repo`. Lists return the first 100 items. Job logs are not offered: GitHub serves them
+from another host, which workctl refuses to follow with the token. Writes (`pr comment add`, `pr create`) need `allow_write`.
+
 ## Planned
 
-- **`github` module:** pull requests, review threads and checks of GitHub repositories, with the token in the OS keyring
-  or an environment variable, under the same read/write policy.
 - **Implement `bitbucket` and `asana`:** replace the entry in `planned.go` with a real module and its MCP tools.
 - **Macros as MCP tools:** a named, parameterised sequence of module calls defined in a JSON file, for example
   "everything about ticket X" (Jira issue, matching pull requests, their open threads) in one call. A macro is one MCP
