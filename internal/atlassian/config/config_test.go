@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/zalando/go-keyring"
+	"workctl/internal/secret"
 )
 
 func TestLoadMissingFileYieldsDefault(t *testing.T) {
@@ -60,6 +63,17 @@ func TestResolveTokenEnvWins(t *testing.T) {
 	got, err := ResolveToken("default", "a@b.c")
 	if err != nil || got != "tok-from-env" {
 		t.Fatalf("ResolveToken = %q, %v", got, err)
+	}
+}
+
+func TestResolveTokenUsesSharedStore(t *testing.T) {
+	keyring.MockInit()
+	if err := store.Set(secret.Account("atlassian", "default"), "shared"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ResolveToken("default", "a@b.c")
+	if err != nil || got != "shared" {
+		t.Fatalf("shared token = %q, %v", got, err)
 	}
 }
 
