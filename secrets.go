@@ -42,3 +42,25 @@ func resolveSecret(module string, ec EndpointConfig) (string, error) {
 	}
 	return "", errors.New(msg)
 }
+
+// resolveProfileSecret resolves credentials for a v2 profile without consulting
+// endpoint-specific or legacy keyring entries.
+func resolveProfileSecret(name string, profile Profile) (string, error) {
+	if profile.TokenEnv != "" {
+		if value := os.Getenv(profile.TokenEnv); value != "" {
+			return value, nil
+		}
+	}
+	value, err := tokenStore.Get(secret.Account(profile.Kind, name))
+	if err == nil && value != "" {
+		return value, nil
+	}
+	message := fmt.Sprintf("no credential for profile %q: run `workctl auth set-token --profile %s --stdin`", name, name)
+	if profile.TokenEnv != "" {
+		message += fmt.Sprintf(" or set %s", profile.TokenEnv)
+	}
+	if err != nil && !errors.Is(err, secret.ErrNotFound) {
+		message += " (" + strings.TrimSpace(err.Error()) + ")"
+	}
+	return "", errors.New(message)
+}

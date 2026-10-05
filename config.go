@@ -4,11 +4,40 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 )
+
+// Profile is one named provider connection. New unified commands use profiles
+// exclusively; the profile name is also the stable keyring identity.
+type Profile struct {
+	Kind           string   `json:"kind"`
+	URL            string   `json:"url"`
+	Auth           string   `json:"auth,omitempty"`
+	Username       string   `json:"username,omitempty"`
+	TokenEnv       string   `json:"token_env,omitempty"`
+	VerifyTLS      bool     `json:"verify_tls"`
+	CAFile         string   `json:"ca_file,omitempty"`
+	DefaultRepo    string   `json:"default_repo,omitempty"`
+	DefaultProject string   `json:"default_project,omitempty"`
+	Repos          []string `json:"repos,omitempty"`
+	Projects       []string `json:"projects,omitempty"`
+	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
+}
+
+func (p Profile) endpoint() EndpointConfig {
+	return EndpointConfig{
+		URL:       p.URL,
+		Auth:      p.Auth,
+		Username:  p.Username,
+		TokenEnv:  p.TokenEnv,
+		VerifyTLS: p.VerifyTLS,
+		CAFile:    p.CAFile,
+	}
+}
 
 type EndpointConfig struct {
 	URL       string `json:"url"`
@@ -47,21 +76,25 @@ type ModulesConfig struct {
 }
 
 type Config struct {
-	Version        int            `json:"version"`
-	TimeoutSeconds int            `json:"timeout_seconds"`
-	Jira           EndpointConfig `json:"jira"`
-	GitLab         GitLabConfig   `json:"gitlab"`
-	GitHub         GitHubConfig   `json:"github"`
-	Modules        ModulesConfig  `json:"modules"`
-	Policy         PolicyConfig   `json:"policy"`
-	MCP            MCPConfig      `json:"mcp"`
+	Version        int                `json:"version"`
+	TimeoutSeconds int                `json:"timeout_seconds"`
+	Defaults       map[string]string  `json:"defaults,omitempty"`
+	Profiles       map[string]Profile `json:"profiles,omitempty"`
+	Jira           EndpointConfig     `json:"jira"`
+	GitLab         GitLabConfig       `json:"gitlab"`
+	GitHub         GitHubConfig       `json:"github"`
+	Modules        ModulesConfig      `json:"modules"`
+	Policy         PolicyConfig       `json:"policy"`
+	MCP            MCPConfig          `json:"mcp"`
 	path           string
 }
 
 func defaultConfig() *Config {
 	return &Config{
-		Version:        1,
+		Version:        2,
 		TimeoutSeconds: 30,
+		Defaults:       map[string]string{},
+		Profiles:       map[string]Profile{},
 		Jira: EndpointConfig{
 			Auth:      "bearer",
 			TokenEnv:  "WORKCTL_JIRA_TOKEN",
@@ -130,6 +163,12 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.MCP.MaxOutputBytes <= 0 {
 		cfg.MCP.MaxOutputBytes = 500000
 	}
+	if cfg.Defaults == nil {
+		cfg.Defaults = map[string]string{}
+	}
+	if cfg.Profiles == nil {
+		cfg.Profiles = map[string]Profile{}
+	}
 	return cfg, nil
 }
 
@@ -168,7 +207,7 @@ func (c *Config) save() error {
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
 		return err
 	}
-	c.Version = 1
+	c.Version = 2
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
@@ -187,6 +226,23 @@ func (c *Config) hasGitHub() bool { return normalizeBaseURL(c.GitHub.URL) != "" 
 
 // validateConfig checks the endpoints that are configured. Jira and GitLab are each optional.
 func validateConfig(cfg *Config) error {
+	for name, profile := range cfg.Profiles {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("profile name cannot be empty")
+		}
+		if err := validateProfile(name, profile); err != nil {
+			return err
+		}
+	}
+	for kind, name := range cfg.Defaults {
+		profile, ok := cfg.Profiles[name]
+		if !ok {
+			return fmt.Errorf("defaults.%s references unknown profile %q", kind, name)
+		}
+		if profile.Kind != kind {
+			return fmt.Errorf("defaults.%s references profile %q of kind %q", kind, name, profile.Kind)
+		}
+	}
 	if cfg.hasJira() {
 		switch strings.ToLower(cfg.Jira.Auth) {
 		case "bearer", "basic":
@@ -203,6 +259,29 @@ func validateConfig(cfg *Config) error {
 		default:
 			return fmt.Errorf("unsupported gitlab.auth %q (use private-token or bearer)", cfg.GitLab.Auth)
 		}
+	}
+	return nil
+}
+
+func validateProfile(name string, profile Profile) error {
+	kind := strings.ToLower(strings.TrimSpace(profile.Kind))
+	switch kind {
+	case "github", "gitlab", "azure", "jira", "atlassian":
+	default:
+		return fmt.Errorf("profiles.%s.kind %q is unsupported", name, profile.Kind)
+	}
+	parsed, err := url.Parse(normalizeBaseURL(profile.URL))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return fmt.Errorf("profiles.%s.url must be an absolute https URL", name)
+	}
+	if profile.CAFile != "" && !filepath.IsAbs(os.ExpandEnv(profile.CAFile)) {
+		return fmt.Errorf("profiles.%s.ca_file must be absolute", name)
+	}
+	if kind == "github" && profile.Auth != "" && strings.ToLower(profile.Auth) != "bearer" {
+		return fmt.Errorf("profiles.%s.auth %q is unsupported for github", name, profile.Auth)
+	}
+	if (kind == "jira" || kind == "atlassian") && profile.DefaultRepo != "" {
+		return fmt.Errorf("profiles.%s.default_repo is not valid for %s", name, kind)
 	}
 	return nil
 }

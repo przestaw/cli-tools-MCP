@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const version = "0.2.0"
+const version = "0.2.1"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence and GitLab
@@ -28,6 +28,7 @@ Usage:
   workctl [--config FILE] jira ...     Jira
   workctl [--config FILE] gitlab ...   GitLab
   workctl [--config FILE] github ...   GitHub
+	workctl [--config FILE] pr|mr ...    provider-neutral pull/merge requests
   workctl [--config FILE] task ISSUE-KEY
   workctl [--config FILE] mcp
 
@@ -98,6 +99,8 @@ func run(args []string) error {
 		return cmdGitLab(cfg, rest)
 	case "github":
 		return cmdGitHub(cfg, rest)
+	case "pr", "mr":
+		return cmdPullRequest(cfg, rest)
 	case "bitbucket", "asana":
 		return cmdPlanned(cmd)
 	case "task":
