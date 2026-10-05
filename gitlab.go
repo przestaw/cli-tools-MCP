@@ -11,16 +11,8 @@ import (
 )
 
 func glProject(cfg *Config, project string) (string, error) {
-	if project != "" {
-		return project, nil
-	}
-	if cfg.GitLab.DefaultProject != "" {
-		return cfg.GitLab.DefaultProject, nil
-	}
-	if len(cfg.GitLab.Projects) == 1 {
-		return cfg.GitLab.Projects[0], nil
-	}
-	return "", fmt.Errorf("GitLab project not specified and gitlab.default_project is empty")
+	_, profile, _ := cfg.profileOf("gitlab")
+	return profileRepository(profile, project)
 }
 
 func glProjectID(project string) string { return url.PathEscape(project) }
@@ -147,9 +139,10 @@ func getTaskContext(ctx context.Context, cfg *Config, jc, gc *APIClient, key str
 	} else {
 		out.Jira = json.RawMessage(issue)
 	}
-	projects := cfg.GitLab.Projects
-	if len(projects) == 0 && cfg.GitLab.DefaultProject != "" {
-		projects = []string{cfg.GitLab.DefaultProject}
+	_, profile, _ := cfg.profileOf("gitlab")
+	projects := profile.Projects
+	if len(projects) == 0 && profile.DefaultProject != "" {
+		projects = []string{profile.DefaultProject}
 	}
 	for _, project := range projects {
 		pc := taskProjectContext{Project: project}

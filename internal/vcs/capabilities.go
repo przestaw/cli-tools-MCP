@@ -5,12 +5,13 @@ import "context"
 // PullRequestReader is implemented by providers that can list and read pull requests.
 type PullRequestReader interface {
 	ListPullRequests(context.Context, ListOptions) (Result, error)
-	GetPullRequest(context.Context, string, int) (PullRequest, error)
+	GetPullRequest(context.Context, ListOptions, int) (PullRequest, error)
 }
 
 // ListOptions are provider-neutral filters for a pull request listing.
 type ListOptions struct {
 	Repository string
+	Project    string
 	State      string
 	Search     string
 	Limit      int

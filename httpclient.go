@@ -38,7 +38,7 @@ type APIClient struct {
 	headers http.Header
 }
 
-func newAPIClient(cfg EndpointConfig, prefix string, timeout time.Duration) (*APIClient, error) {
+func newAPIClient(cfg Profile, prefix string, timeout time.Duration) (*APIClient, error) {
 	base := normalizeBaseURL(cfg.URL)
 	u, err := url.Parse(base)
 	if err != nil || u.Scheme == "" || u.Host == "" {
@@ -78,78 +78,17 @@ func newAPIClient(cfg EndpointConfig, prefix string, timeout time.Duration) (*AP
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.2.2")
+	h.Set("User-Agent", "workctl/0.3.0")
 	return &APIClient{baseURL: base, prefix: prefix, client: c, headers: h}, nil
 }
 
-func newJiraClient(cfg *Config) (*APIClient, error) {
-	if !cfg.hasJira() {
-		return nil, fmt.Errorf("jira is not configured: set jira.url (run `workctl jira init`)")
-	}
-	if err := validateConfig(cfg); err != nil {
-		return nil, err
-	}
-	c, err := newAPIClient(cfg.Jira, "/rest/api/2", time.Duration(cfg.TimeoutSeconds)*time.Second)
+// newKindClient connects to the default profile of a kind (jira, gitlab, github).
+func newKindClient(cfg *Config, kind string) (*APIClient, error) {
+	name, profile, err := cfg.profileOf(kind)
 	if err != nil {
 		return nil, err
 	}
-	sec, err := resolveSecret("jira", cfg.Jira)
-	if err != nil {
-		return nil, err
-	}
-	switch strings.ToLower(cfg.Jira.Auth) {
-	case "bearer":
-		c.headers.Set("Authorization", "Bearer "+sec)
-	case "basic":
-		if cfg.Jira.Username == "" {
-			return nil, fmt.Errorf("jira.username is required for basic auth")
-		}
-		raw := cfg.Jira.Username + ":" + sec
-		c.headers.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(raw)))
-	}
-	return c, nil
-}
-
-func newGitLabClient(cfg *Config) (*APIClient, error) {
-	if !cfg.hasGitLab() {
-		return nil, fmt.Errorf("gitlab is not configured: set gitlab.url (run `workctl gitlab init`)")
-	}
-	if err := validateConfig(cfg); err != nil {
-		return nil, err
-	}
-	c, err := newAPIClient(cfg.GitLab.EndpointConfig, "/api/v4", time.Duration(cfg.TimeoutSeconds)*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	sec, err := resolveSecret("gitlab", cfg.GitLab.EndpointConfig)
-	if err != nil {
-		return nil, err
-	}
-	switch strings.ToLower(cfg.GitLab.Auth) {
-	case "private-token":
-		c.headers.Set("PRIVATE-TOKEN", sec)
-	case "bearer":
-		c.headers.Set("Authorization", "Bearer "+sec)
-	}
-	return c, nil
-}
-
-func newGitHubClient(cfg *Config) (*APIClient, error) {
-	if !cfg.hasGitHub() {
-		return nil, fmt.Errorf("github is not configured: set github.url (run `workctl github init`)")
-	}
-	c, err := newAPIClient(cfg.GitHub.EndpointConfig, "", time.Duration(cfg.TimeoutSeconds)*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	sec, err := resolveSecret("github", cfg.GitHub.EndpointConfig)
-	if err != nil {
-		return nil, err
-	}
-	c.headers.Set("Authorization", "Bearer "+sec)
-	c.headers.Set("Accept", "application/vnd.github+json")
-	c.headers.Set("X-GitHub-Api-Version", "2022-11-28")
-	return c, nil
+	return newProfileClient(cfg, name, profile)
 }
 
 func profileTimeout(cfg *Config, profile Profile) time.Duration {
@@ -161,7 +100,10 @@ func profileTimeout(cfg *Config, profile Profile) time.Duration {
 }
 
 func newProfileClient(cfg *Config, name string, profile Profile) (*APIClient, error) {
-	client, err := newAPIClient(profile.endpoint(), "", profileTimeout(cfg, profile))
+	if err := validateProfile(name, profile); err != nil {
+		return nil, err
+	}
+	client, err := newAPIClient(profile, "", profileTimeout(cfg, profile))
 	if err != nil {
 		return nil, err
 	}
@@ -169,21 +111,26 @@ func newProfileClient(cfg *Config, name string, profile Profile) (*APIClient, er
 	if err != nil {
 		return nil, err
 	}
+	auth := strings.ToLower(profile.Auth)
 	switch profile.Kind {
 	case "github":
 		client.headers.Set("Authorization", "Bearer "+credential)
 		client.headers.Set("Accept", "application/vnd.github+json")
 		client.headers.Set("X-GitHub-Api-Version", "2022-11-28")
 	case "gitlab":
-		switch strings.ToLower(profile.Auth) {
-		case "", "private-token":
-			client.headers.Set("PRIVATE-TOKEN", credential)
-		case "bearer":
+		if auth == "bearer" {
 			client.headers.Set("Authorization", "Bearer "+credential)
-		default:
-			return nil, fmt.Errorf("profiles.%s.auth %q is unsupported for gitlab", name, profile.Auth)
+		} else {
+			client.headers.Set("PRIVATE-TOKEN", credential)
 		}
 		client.prefix = "/api/v4"
+	case "jira":
+		if auth == "basic" {
+			client.headers.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(profile.Username+":"+credential)))
+		} else {
+			client.headers.Set("Authorization", "Bearer "+credential)
+		}
+		client.prefix = "/rest/api/2"
 	default:
 		return nil, fmt.Errorf("profile %q has unsupported HTTP provider %q", name, profile.Kind)
 	}

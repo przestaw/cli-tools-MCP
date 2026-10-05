@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,33 +33,30 @@ func TestJiraInitStoresTokenInKeyringNotInConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Jira.Token != "" {
+	if b, _ := os.ReadFile(path); strings.Contains(string(b), "s3cret") {
 		t.Fatal("the token must not be written to the config file")
 	}
-	got, err := resolveSecret("jira", cfg.Jira)
+	got, err := resolveProfileSecret("jira", cfg.Profiles["jira"])
 	if err != nil || got != "s3cret" {
-		t.Fatalf("resolveSecret = %q, %v", got, err)
+		t.Fatalf("resolveProfileSecret = %q, %v", got, err)
 	}
 }
 
-func TestResolveSecretOrder(t *testing.T) {
+func TestResolveProfileSecretOrder(t *testing.T) {
 	keyring.MockInit()
-	ec := EndpointConfig{URL: "https://x.test", TokenEnv: "WORKCTL_TEST_TOKEN", Token: "legacy"}
+	p := Profile{Kind: "jira", URL: "https://x.test", TokenEnv: "WORKCTL_TEST_TOKEN"}
 	t.Setenv("WORKCTL_TEST_TOKEN", "")
-	if v, _ := resolveSecret("jira", ec); v != "legacy" {
-		t.Fatalf("config token last: %q", v)
+	if _, err := resolveProfileSecret("j", p); err == nil || !strings.Contains(err.Error(), "auth set-token --profile j") {
+		t.Fatalf("missing token error = %v", err)
 	}
-	if err := tokenStore.Set(keyringAccount("jira", ec), "ring"); err != nil {
+	if err := tokenStore.Set("jira:j", "ring"); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := resolveSecret("jira", ec); v != "ring" {
-		t.Fatalf("keyring before config token: %q", v)
+	if v, _ := resolveProfileSecret("j", p); v != "ring" {
+		t.Fatalf("keyring: %q", v)
 	}
 	t.Setenv("WORKCTL_TEST_TOKEN", "env")
-	if v, _ := resolveSecret("jira", ec); v != "env" {
+	if v, _ := resolveProfileSecret("j", p); v != "env" {
 		t.Fatalf("env first: %q", v)
-	}
-	if _, err := resolveSecret("gitlab", EndpointConfig{URL: "https://x.test"}); err == nil || !strings.Contains(err.Error(), "workctl gitlab init") {
-		t.Fatalf("missing token error = %v", err)
 	}
 }

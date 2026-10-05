@@ -12,9 +12,7 @@ import (
 
 func githubTestConfig(base string) *Config {
 	cfg := defaultConfig()
-	cfg.GitHub.URL = base
-	cfg.GitHub.TokenEnv = "TEST_GITHUB_TOKEN"
-	cfg.GitHub.DefaultRepo = "acme/app"
+	cfg.Profiles["gh"] = Profile{Kind: "github", URL: base, TokenEnv: "TEST_GITHUB_TOKEN", VerifyTLS: true, DefaultRepo: "acme/app"}
 	return cfg
 }
 
@@ -74,7 +72,7 @@ func TestGitHubRepoIsValidated(t *testing.T) {
 			t.Errorf("%q accepted", bad)
 		}
 	}
-	cfg.GitHub.DefaultRepo = ""
+	cfg.Profiles["gh"] = Profile{Kind: "github", URL: "https://api.example.test"}
 	if _, err := ghRepo(cfg, ""); err == nil {
 		t.Error("missing repository accepted")
 	}
@@ -116,7 +114,7 @@ func TestGitHubToolsOnlyWhenConfigured(t *testing.T) {
 	if has(cfg, "github_get_repo") {
 		t.Fatal("github tool advertised without configuration")
 	}
-	cfg.GitHub.URL = "https://api.github.com"
+	cfg.Profiles["gh"] = Profile{Kind: "github", URL: "https://api.github.com"}
 	if !has(cfg, "github_get_repo") || has(cfg, "github_create_pull_request") {
 		t.Fatal("expected read tools only")
 	}
