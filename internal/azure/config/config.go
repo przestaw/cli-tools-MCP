@@ -14,8 +14,7 @@ import (
 	"workctl/internal/secret"
 )
 
-// store keeps the tokens under the service name the standalone CLI used, so existing entries still resolve.
-var store = secret.Store{Service: "ado-cli"}
+var store = secret.Store{Service: secret.Service}
 
 // Profile holds the connection settings for one Azure DevOps organization.
 type Profile struct {
@@ -148,18 +147,18 @@ func (p Profile) TimeoutDuration() time.Duration {
 }
 
 // keyringAccount is the keyring key for a profile's PAT.
-func keyringAccount(profile, orgURL string) string {
-	return profile + ":" + orgURL
+func keyringAccount(profile string) string {
+	return secret.Account("azure", profile)
 }
 
 // SetToken stores the PAT for a profile in the OS keyring.
 func SetToken(profile, orgURL, token string) error {
-	return store.Set(keyringAccount(profile, orgURL), token)
+	return store.Set(keyringAccount(profile), token)
 }
 
 // DeleteToken removes a stored PAT from the keyring.
 func DeleteToken(profile, orgURL string) error {
-	return store.Delete(keyringAccount(profile, orgURL))
+	return store.Delete(keyringAccount(profile))
 }
 
 // ResolveToken returns the PAT for a profile.
@@ -172,7 +171,7 @@ func ResolveToken(profile, orgURL string) (string, error) {
 	if env := os.Getenv("AZURE_DEVOPS_EXT_PAT"); env != "" {
 		return env, nil
 	}
-	tok, err := store.Get(keyringAccount(profile, orgURL))
+	tok, err := store.Get(keyringAccount(profile))
 	if errors.Is(err, secret.ErrNotFound) {
 		return "", ErrNoToken
 	}

@@ -78,7 +78,7 @@ func newAPIClient(cfg EndpointConfig, prefix string, timeout time.Duration) (*AP
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.1.5")
+	h.Set("User-Agent", "workctl/0.2.0")
 	return &APIClient{baseURL: base, prefix: prefix, client: c, headers: h}, nil
 }
 

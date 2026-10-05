@@ -13,8 +13,7 @@ import (
 	"workctl/internal/secret"
 )
 
-// store keeps the tokens under the service name the standalone CLI used, so existing entries still resolve.
-var store = secret.Store{Service: "atl-cli"}
+var store = secret.Store{Service: secret.Service}
 
 // Profile holds the connection settings for one Atlassian Cloud site.
 type Profile struct {
@@ -157,18 +156,18 @@ func (p Profile) TimeoutDuration() time.Duration {
 }
 
 // keyringAccount is the keyring key for a profile's API token.
-func keyringAccount(profile, email string) string {
-	return profile + ":" + email
+func keyringAccount(profile string) string {
+	return secret.Account("atlassian", profile)
 }
 
 // SetToken stores the API token for a profile in the OS keyring.
 func SetToken(profile, email, token string) error {
-	return store.Set(keyringAccount(profile, email), token)
+	return store.Set(keyringAccount(profile), token)
 }
 
 // DeleteToken removes a stored API token from the keyring.
 func DeleteToken(profile, email string) error {
-	return store.Delete(keyringAccount(profile, email))
+	return store.Delete(keyringAccount(profile))
 }
 
 // ResolveToken returns the API token for a profile.
@@ -177,7 +176,7 @@ func ResolveToken(profile, email string) (string, error) {
 	if env := os.Getenv("ATL_API_TOKEN"); env != "" {
 		return env, nil
 	}
-	tok, err := store.Get(keyringAccount(profile, email))
+	tok, err := store.Get(keyringAccount(profile))
 	if errors.Is(err, secret.ErrNotFound) {
 		return "", ErrNoToken
 	}

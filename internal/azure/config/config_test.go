@@ -3,6 +3,9 @@ package config
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/zalando/go-keyring"
+	"workctl/internal/secret"
 )
 
 func TestLoadSaveRoundTrip(t *testing.T) {
@@ -45,6 +48,17 @@ func TestResolveTokenEnv(t *testing.T) {
 	tok, err := ResolveToken("default", "https://dev.azure.com/acme")
 	if err != nil || tok != "secret" {
 		t.Errorf("ResolveToken env = %q, %v", tok, err)
+	}
+}
+
+func TestResolveTokenUsesSharedStore(t *testing.T) {
+	keyring.MockInit()
+	if err := store.Set(secret.Account("azure", "default"), "shared"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ResolveToken("default", "https://dev.azure.com/acme")
+	if err != nil || got != "shared" {
+		t.Fatalf("shared token = %q, %v", got, err)
 	}
 }
 

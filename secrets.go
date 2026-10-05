@@ -11,10 +11,10 @@ import (
 
 // tokenStore holds the credentials of the Jira and GitLab modules. Azure DevOps and Atlassian Cloud keep theirs
 // under the service names of their original CLIs so that tokens stored earlier still resolve.
-var tokenStore = secret.Store{Service: "workctl"}
+var tokenStore = secret.Store{Service: secret.Service}
 
 func keyringAccount(module string, ec EndpointConfig) string {
-	return module + ":" + normalizeBaseURL(ec.URL)
+	return secret.Account(module, normalizeBaseURL(ec.URL))
 }
 
 // resolveSecret returns the credential of a module: the environment variable named by token_env, then the OS
