@@ -78,7 +78,7 @@ func newAPIClient(cfg EndpointConfig, prefix string, timeout time.Duration) (*AP
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.2.0")
+	h.Set("User-Agent", "workctl/0.2.1")
 	return &APIClient{baseURL: base, prefix: prefix, client: c, headers: h}, nil
 }
 
@@ -150,6 +150,44 @@ func newGitHubClient(cfg *Config) (*APIClient, error) {
 	c.headers.Set("Accept", "application/vnd.github+json")
 	c.headers.Set("X-GitHub-Api-Version", "2022-11-28")
 	return c, nil
+}
+
+func profileTimeout(cfg *Config, profile Profile) time.Duration {
+	seconds := profile.TimeoutSeconds
+	if seconds <= 0 {
+		seconds = cfg.TimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func newProfileClient(cfg *Config, name string, profile Profile) (*APIClient, error) {
+	client, err := newAPIClient(profile.endpoint(), "", profileTimeout(cfg, profile))
+	if err != nil {
+		return nil, err
+	}
+	credential, err := resolveProfileSecret(name, profile)
+	if err != nil {
+		return nil, err
+	}
+	switch profile.Kind {
+	case "github":
+		client.headers.Set("Authorization", "Bearer "+credential)
+		client.headers.Set("Accept", "application/vnd.github+json")
+		client.headers.Set("X-GitHub-Api-Version", "2022-11-28")
+	case "gitlab":
+		switch strings.ToLower(profile.Auth) {
+		case "", "private-token":
+			client.headers.Set("PRIVATE-TOKEN", credential)
+		case "bearer":
+			client.headers.Set("Authorization", "Bearer "+credential)
+		default:
+			return nil, fmt.Errorf("profiles.%s.auth %q is unsupported for gitlab", name, profile.Auth)
+		}
+		client.prefix = "/api/v4"
+	default:
+		return nil, fmt.Errorf("profile %q has unsupported HTTP provider %q", name, profile.Kind)
+	}
+	return client, nil
 }
 
 func (c *APIClient) endpoint(path string) (string, error) {
