@@ -8,11 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"sort"
 	"strings"
 )
 
-// Profile is one named provider connection. New unified commands use profiles
-// exclusively; the profile name is also the stable keyring identity.
+// Profile is one named provider connection; the profile name is also the keyring identity.
 type Profile struct {
 	Kind           string   `json:"kind"`
 	URL            string   `json:"url"`
@@ -26,40 +27,6 @@ type Profile struct {
 	Repos          []string `json:"repos,omitempty"`
 	Projects       []string `json:"projects,omitempty"`
 	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
-}
-
-func (p Profile) endpoint() EndpointConfig {
-	return EndpointConfig{
-		URL:       p.URL,
-		Auth:      p.Auth,
-		Username:  p.Username,
-		TokenEnv:  p.TokenEnv,
-		VerifyTLS: p.VerifyTLS,
-		CAFile:    p.CAFile,
-	}
-}
-
-type EndpointConfig struct {
-	URL       string `json:"url"`
-	Auth      string `json:"auth,omitempty"`
-	Username  string `json:"username,omitempty"`
-	Token     string `json:"token,omitempty"`
-	TokenEnv  string `json:"token_env,omitempty"`
-	VerifyTLS bool   `json:"verify_tls"`
-	CAFile    string `json:"ca_file,omitempty"`
-}
-
-type GitLabConfig struct {
-	EndpointConfig
-	DefaultProject string   `json:"default_project,omitempty"`
-	Projects       []string `json:"projects,omitempty"`
-}
-
-// GitHubConfig URL is the API base, for example https://api.github.com.
-type GitHubConfig struct {
-	EndpointConfig
-	DefaultRepo string   `json:"default_repo,omitempty"`
-	Repos       []string `json:"repos,omitempty"`
 }
 
 type PolicyConfig struct {
@@ -80,9 +47,6 @@ type Config struct {
 	TimeoutSeconds int                `json:"timeout_seconds"`
 	Defaults       map[string]string  `json:"defaults,omitempty"`
 	Profiles       map[string]Profile `json:"profiles,omitempty"`
-	Jira           EndpointConfig     `json:"jira"`
-	GitLab         GitLabConfig       `json:"gitlab"`
-	GitHub         GitHubConfig       `json:"github"`
 	Modules        ModulesConfig      `json:"modules"`
 	Policy         PolicyConfig       `json:"policy"`
 	MCP            MCPConfig          `json:"mcp"`
@@ -95,28 +59,9 @@ func defaultConfig() *Config {
 		TimeoutSeconds: 30,
 		Defaults:       map[string]string{},
 		Profiles:       map[string]Profile{},
-		Jira: EndpointConfig{
-			Auth:      "bearer",
-			TokenEnv:  "WORKCTL_JIRA_TOKEN",
-			VerifyTLS: true,
-		},
-		GitLab: GitLabConfig{
-			EndpointConfig: EndpointConfig{
-				Auth:      "private-token",
-				TokenEnv:  "WORKCTL_GITLAB_TOKEN",
-				VerifyTLS: true,
-			},
-		},
-		GitHub: GitHubConfig{
-			EndpointConfig: EndpointConfig{
-				Auth:      "bearer",
-				TokenEnv:  "WORKCTL_GITHUB_TOKEN",
-				VerifyTLS: true,
-			},
-		},
-		Modules: ModulesConfig{TimeoutSeconds: 120},
-		Policy:  PolicyConfig{AllowWrite: false},
-		MCP:     MCPConfig{MaxOutputBytes: 500000},
+		Modules:        ModulesConfig{TimeoutSeconds: 120},
+		Policy:         PolicyConfig{AllowWrite: false},
+		MCP:            MCPConfig{MaxOutputBytes: 500000},
 	}
 }
 
@@ -148,13 +93,18 @@ func loadConfig(path string) (*Config, error) {
 	cfg.path = path
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return cfg, fmt.Errorf("config file %s does not exist; run `workctl --config %q setup`", path, path)
+		return cfg, fmt.Errorf("config file %s does not exist; run `workctl --config %q init`", path, path)
 	}
 	if err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(b, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	var v1 struct{ Jira, GitLab, GitHub json.RawMessage }
+	_ = json.Unmarshal(b, &v1)
+	if cfg.Version != 2 || v1.Jira != nil || v1.GitLab != nil || v1.GitHub != nil {
+		return nil, fmt.Errorf("config %s is not version 2 (top-level jira/gitlab/github are gone): move them to profiles, see config.example.json", path)
 	}
 	cfg.path = path
 	if cfg.TimeoutSeconds <= 0 {
@@ -169,30 +119,6 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.Profiles == nil {
 		cfg.Profiles = map[string]Profile{}
 	}
-	return cfg, nil
-}
-
-func loadConfigForSetup(path string) (*Config, error) {
-	if path == "" {
-		var err error
-		path, err = defaultConfigPath()
-		if err != nil {
-			return nil, err
-		}
-	}
-	cfg := defaultConfig()
-	cfg.path = path
-	b, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return cfg, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(b, cfg); err != nil {
-		return nil, fmt.Errorf("parse existing config %s: %w", path, err)
-	}
-	cfg.path = path
 	return cfg, nil
 }
 
@@ -220,11 +146,41 @@ func normalizeBaseURL(s string) string {
 	return strings.TrimRight(strings.TrimSpace(os.ExpandEnv(s)), "/")
 }
 
-func (c *Config) hasJira() bool   { return normalizeBaseURL(c.Jira.URL) != "" }
-func (c *Config) hasGitLab() bool { return normalizeBaseURL(c.GitLab.URL) != "" }
-func (c *Config) hasGitHub() bool { return normalizeBaseURL(c.GitHub.URL) != "" }
+var prKinds = map[string]bool{"github": true, "gitlab": true, "azure": true}
 
-// validateConfig checks the endpoints that are configured. Jira and GitLab are each optional.
+// profileOf picks defaults.<kind>, else the only profile of that kind; an empty kind means any pull request provider.
+func (c *Config) profileOf(kind string) (string, Profile, error) {
+	if name := c.Defaults[kind]; name != "" {
+		return name, c.Profiles[name], nil
+	}
+	var names []string
+	for name, p := range c.Profiles {
+		if p.Kind == kind || kind == "" && prKinds[p.Kind] {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	switch len(names) {
+	case 1:
+		return names[0], c.Profiles[names[0]], nil
+	case 0:
+		if kind == "" {
+			kind = "github, gitlab or azure"
+		}
+		return "", Profile{}, fmt.Errorf("%s is not configured: add a profile of that kind (see config.example.json)", kind)
+	}
+	return "", Profile{}, fmt.Errorf("several profiles match (%s); pass --profile or set defaults.<kind>", strings.Join(names, ", "))
+}
+
+func (c *Config) has(kind string) bool {
+	for _, p := range c.Profiles {
+		if p.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func validateConfig(cfg *Config) error {
 	for name, profile := range cfg.Profiles {
 		if strings.TrimSpace(name) == "" {
@@ -243,23 +199,6 @@ func validateConfig(cfg *Config) error {
 			return fmt.Errorf("defaults.%s references profile %q of kind %q", kind, name, profile.Kind)
 		}
 	}
-	if cfg.hasJira() {
-		switch strings.ToLower(cfg.Jira.Auth) {
-		case "bearer", "basic":
-		default:
-			return fmt.Errorf("unsupported jira.auth %q (use bearer or basic)", cfg.Jira.Auth)
-		}
-	}
-	if cfg.hasGitHub() && strings.ToLower(cfg.GitHub.Auth) != "bearer" {
-		return fmt.Errorf("unsupported github.auth %q (use bearer)", cfg.GitHub.Auth)
-	}
-	if cfg.hasGitLab() {
-		switch strings.ToLower(cfg.GitLab.Auth) {
-		case "private-token", "bearer":
-		default:
-			return fmt.Errorf("unsupported gitlab.auth %q (use private-token or bearer)", cfg.GitLab.Auth)
-		}
-	}
 	return nil
 }
 
@@ -271,14 +210,22 @@ func validateProfile(name string, profile Profile) error {
 		return fmt.Errorf("profiles.%s.kind %q is unsupported", name, profile.Kind)
 	}
 	parsed, err := url.Parse(normalizeBaseURL(profile.URL))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		return fmt.Errorf("profiles.%s.url must be an absolute https URL", name)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+		return fmt.Errorf("profiles.%s.url must be an absolute http or https URL", name)
+	}
+	if parsed.Scheme == "http" && profile.VerifyTLS && parsed.Hostname() != "localhost" && parsed.Hostname() != "127.0.0.1" {
+		return fmt.Errorf("profiles.%s.url: http is only allowed for localhost or when verify_tls is false", name)
 	}
 	if profile.CAFile != "" && !filepath.IsAbs(os.ExpandEnv(profile.CAFile)) {
 		return fmt.Errorf("profiles.%s.ca_file must be absolute", name)
 	}
-	if kind == "github" && profile.Auth != "" && strings.ToLower(profile.Auth) != "bearer" {
-		return fmt.Errorf("profiles.%s.auth %q is unsupported for github", name, profile.Auth)
+	// The first scheme is the default when auth is empty.
+	auths := map[string][]string{"github": {"bearer"}, "gitlab": {"private-token", "bearer"}, "jira": {"bearer", "basic"}}[kind]
+	if auth := strings.ToLower(profile.Auth); auth != "" && auths != nil && !slices.Contains(auths, auth) {
+		return fmt.Errorf("profiles.%s.auth %q is unsupported for %s (use %s)", name, profile.Auth, kind, strings.Join(auths, " or "))
+	}
+	if strings.EqualFold(profile.Auth, "basic") && profile.Username == "" {
+		return fmt.Errorf("profiles.%s.username is required for basic auth", name)
 	}
 	if (kind == "jira" || kind == "atlassian") && profile.DefaultRepo != "" {
 		return fmt.Errorf("profiles.%s.default_repo is not valid for %s", name, kind)

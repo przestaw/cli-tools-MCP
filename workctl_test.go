@@ -13,43 +13,45 @@ import (
 
 func testConfig(base string) *Config {
 	cfg := defaultConfig()
-	cfg.Jira.URL = base
-	cfg.GitLab.URL = base
-	cfg.Jira.TokenEnv = "TEST_JIRA_TOKEN"
-	cfg.GitLab.TokenEnv = "TEST_GITLAB_TOKEN"
-	cfg.GitLab.DefaultProject = "group/project"
-	cfg.GitLab.Projects = []string{"group/project"}
+	cfg.Profiles = map[string]Profile{
+		"jira":   {Kind: "jira", URL: base, TokenEnv: "TEST_JIRA_TOKEN", VerifyTLS: true},
+		"gitlab": {Kind: "gitlab", URL: base, TokenEnv: "TEST_GITLAB_TOKEN", VerifyTLS: true, DefaultProject: "group/project", Projects: []string{"group/project"}},
+	}
 	return cfg
 }
 
-func TestSetupNonInteractiveWritesConfig(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "company.json")
-	err := cmdSetup(path, []string{
-		"--non-interactive",
-		"--jira-url", "https://jira.example.test",
-		"--gitlab-url", "https://gitlab.example.test",
-		"--gitlab-projects", "team/a,team/b",
-		"--gitlab-default-project", "team/a",
-	})
-	if err != nil {
+func TestGitLabInitWritesProfile(t *testing.T) {
+	t.Setenv("WORKCTL_GITLAB_TOKEN", "x")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"version":"17.0"}`))
+	}))
+	defer srv.Close()
+	path := filepath.Join(t.TempDir(), "company.json")
+	if err := cmdEndpointInit(path, "gitlab", []string{"--non-interactive", "--url", srv.URL, "--projects", "team/a,team/b"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := loadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Jira.URL != "https://jira.example.test" {
-		t.Fatalf("jira url = %q", cfg.Jira.URL)
-	}
-	if cfg.GitLab.URL != "https://gitlab.example.test" {
-		t.Fatalf("gitlab url = %q", cfg.GitLab.URL)
-	}
-	if cfg.GitLab.DefaultProject != "team/a" || len(cfg.GitLab.Projects) != 2 {
-		t.Fatalf("projects = %#v", cfg.GitLab)
+	p := cfg.Profiles["gitlab"]
+	if p.Kind != "gitlab" || p.URL != srv.URL || p.DefaultProject != "team/a" || len(p.Projects) != 2 || cfg.Defaults["gitlab"] != "gitlab" {
+		t.Fatalf("config = %+v", cfg)
 	}
 	if cfg.Policy.AllowWrite {
 		t.Fatal("writes should be disabled by default")
+	}
+}
+
+func TestV1ConfigIsRejected(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v1.json")
+	for _, body := range []string{`{"version":1}`, `{"version":2,"jira":{"url":"https://jira.test"}}`} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadConfig(path); err == nil || !strings.Contains(err.Error(), "version 2") {
+			t.Fatalf("%s: err = %v", body, err)
+		}
 	}
 }
 
@@ -68,7 +70,7 @@ func TestJiraBearerAuthAndIssuePath(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := testConfig(srv.URL)
-	c, err := newJiraClient(cfg)
+	c, err := newKindClient(cfg, "jira")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +98,7 @@ func TestGitLabPrivateTokenAndEscapedProject(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := testConfig(srv.URL)
-	c, err := newGitLabClient(cfg)
+	c, err := newKindClient(cfg, "gitlab")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,8 +124,8 @@ func TestTaskContextAggregatesJiraBranchesAndMRs(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := testConfig(srv.URL)
-	jc, _ := newJiraClient(cfg)
-	gc, _ := newGitLabClient(cfg)
+	jc, _ := newKindClient(cfg, "jira")
+	gc, _ := newKindClient(cfg, "gitlab")
 	b, err := getTaskContext(context.Background(), cfg, jc, gc, "DEMO-1")
 	if err != nil {
 		t.Fatal(err)
@@ -152,24 +154,5 @@ func TestWritePolicy(t *testing.T) {
 	cfg.Policy.AllowWrite = true
 	if err := requireWrite(cfg); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestConfigShowDoesNotNeedTokenExpansion(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.Jira.URL = "https://jira.example"
-	cfg.GitLab.URL = "https://gitlab.example"
-	cfg.Jira.Token = "literal-secret"
-	cfg.GitLab.Token = "literal-gl-secret"
-	cfg.path = filepath.Join(t.TempDir(), "cfg.json")
-	if err := cfg.save(); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(cfg.path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), "literal-secret") {
-		t.Fatal("save should support literal token")
 	}
 }

@@ -13,108 +13,80 @@ import (
 	"time"
 
 	"workctl/internal/prompt"
+	"workctl/internal/secret"
 )
 
 // stdin is where the wizards read answers and piped tokens from; tests replace it.
 var stdin io.Reader = os.Stdin
 
-// endpointSpec describes what differs between the modules that share the endpoint wizard (Jira, GitLab).
+// endpointSpec describes what differs between the modules that share the endpoint wizard.
 type endpointSpec struct {
-	module      string
-	label       string
-	auths       []string
-	tokenPrompt string
-	tokenHelp   string
-	ec          *EndpointConfig
-	defaultURL  string
-	// extra asks for module-specific settings; it is not called with --non-interactive.
-	extra func(r *bufio.Reader)
+	label         string
+	auths         []string
+	tokenPrompt   string
+	tokenHelp     string
+	defaultURL    string
+	listPrompt    string // repositories (github) or projects (gitlab); empty for jira
+	defaultPrompt string
 	// verify makes one authenticated request and says who we are.
-	verify func(ctx context.Context, cfg *Config) (string, error)
+	verify func(ctx context.Context, c *APIClient) (string, error)
 }
 
-func endpointSpecFor(cfg *Config, module string) (*endpointSpec, error) {
-	switch module {
-	case "jira":
-		return &endpointSpec{
-			module: "jira", label: "Jira", auths: []string{"bearer", "basic"},
-			tokenPrompt: "Personal access token (password for basic auth)",
-			tokenHelp:   "Create a personal access token in Jira under Profile > Personal Access Tokens.",
-			ec:          &cfg.Jira,
-			verify: func(ctx context.Context, cfg *Config) (string, error) {
-				c, err := newJiraClient(cfg)
-				if err != nil {
-					return "", err
-				}
-				b, err := jiraMyself(ctx, c)
-				if err != nil {
-					return "", err
-				}
-				var me struct {
-					DisplayName string `json:"displayName"`
-					Name        string `json:"name"`
-				}
-				_ = json.Unmarshal(b, &me)
-				return "connected as " + firstNonEmpty(me.DisplayName, me.Name, "(unknown user)"), nil
-			},
-		}, nil
-	case "gitlab":
-		s := &endpointSpec{
-			module: "gitlab", label: "GitLab", auths: []string{"private-token", "bearer"},
-			tokenPrompt: "Access token",
-			tokenHelp:   "Create an access token under User settings > Access tokens (scope read_api; api only if you allow writes).",
-			ec:          &cfg.GitLab.EndpointConfig,
-			verify: func(ctx context.Context, cfg *Config) (string, error) {
-				c, err := newGitLabClient(cfg)
-				if err != nil {
-					return "", err
-				}
-				b, err := gitlabVersion(ctx, c)
-				if err != nil {
-					return "", err
-				}
-				var v struct {
-					Version string `json:"version"`
-				}
-				_ = json.Unmarshal(b, &v)
-				return "connected, GitLab " + firstNonEmpty(v.Version, "(unknown version)"), nil
-			},
-		}
-		s.extra = func(r *bufio.Reader) {
-			cfg.GitLab.Projects = parseCommaList(prompt.Ask(r, "Projects to search (group/project, comma separated)", strings.Join(cfg.GitLab.Projects, ",")))
-			cfg.GitLab.DefaultProject = prompt.Ask(r, "Default project", cfg.GitLab.DefaultProject)
-		}
-		return s, nil
-	case "github":
-		s := &endpointSpec{
-			module: "github", label: "GitHub", auths: []string{"bearer"},
-			defaultURL:  "https://api.github.com",
-			tokenPrompt: "Access token",
-			tokenHelp:   "Create a fine-grained token under Settings > Developer settings (read access to contents, pull requests, actions and checks; write only if you allow writes).",
-			ec:          &cfg.GitHub.EndpointConfig,
-			verify: func(ctx context.Context, cfg *Config) (string, error) {
-				c, err := newGitHubClient(cfg)
-				if err != nil {
-					return "", err
-				}
-				b, err := githubUser(ctx, c)
-				if err != nil {
-					return "", err
-				}
-				var u struct {
-					Login string `json:"login"`
-				}
-				_ = json.Unmarshal(b, &u)
-				return "connected as " + firstNonEmpty(u.Login, "(unknown user)"), nil
-			},
-		}
-		s.extra = func(r *bufio.Reader) {
-			cfg.GitHub.Repos = parseCommaList(prompt.Ask(r, "Repositories to search (owner/name, comma separated)", strings.Join(cfg.GitHub.Repos, ",")))
-			cfg.GitHub.DefaultRepo = prompt.Ask(r, "Default repository", cfg.GitHub.DefaultRepo)
-		}
-		return s, nil
-	}
-	return nil, fmt.Errorf("no setup for module %q", module)
+var endpointSpecs = map[string]endpointSpec{
+	"jira": {
+		label: "Jira", auths: []string{"bearer", "basic"},
+		tokenPrompt: "Personal access token (password for basic auth)",
+		tokenHelp:   "Create a personal access token in Jira under Profile > Personal Access Tokens.",
+		verify: func(ctx context.Context, c *APIClient) (string, error) {
+			b, err := jiraMyself(ctx, c)
+			if err != nil {
+				return "", err
+			}
+			var me struct {
+				DisplayName string `json:"displayName"`
+				Name        string `json:"name"`
+			}
+			_ = json.Unmarshal(b, &me)
+			return "connected as " + firstNonEmpty(me.DisplayName, me.Name, "(unknown user)"), nil
+		},
+	},
+	"gitlab": {
+		label: "GitLab", auths: []string{"private-token", "bearer"},
+		tokenPrompt:   "Access token",
+		tokenHelp:     "Create an access token under User settings > Access tokens (scope read_api; api only if you allow writes).",
+		listPrompt:    "Projects to search (group/project, comma separated)",
+		defaultPrompt: "Default project",
+		verify: func(ctx context.Context, c *APIClient) (string, error) {
+			b, err := gitlabVersion(ctx, c)
+			if err != nil {
+				return "", err
+			}
+			var v struct {
+				Version string `json:"version"`
+			}
+			_ = json.Unmarshal(b, &v)
+			return "connected, GitLab " + firstNonEmpty(v.Version, "(unknown version)"), nil
+		},
+	},
+	"github": {
+		label: "GitHub", auths: []string{"bearer"},
+		defaultURL:    "https://api.github.com",
+		tokenPrompt:   "Access token",
+		tokenHelp:     "Create a fine-grained token under Settings > Developer settings (read access to contents, pull requests, actions and checks; write only if you allow writes).",
+		listPrompt:    "Repositories to search (owner/name, comma separated)",
+		defaultPrompt: "Default repository",
+		verify: func(ctx context.Context, c *APIClient) (string, error) {
+			b, err := githubUser(ctx, c)
+			if err != nil {
+				return "", err
+			}
+			var u struct {
+				Login string `json:"login"`
+			}
+			_ = json.Unmarshal(b, &u)
+			return "connected as " + firstNonEmpty(u.Login, "(unknown user)"), nil
+		},
+	},
 }
 
 func firstNonEmpty(items ...string) string {
@@ -126,19 +98,15 @@ func firstNonEmpty(items ...string) string {
 	return ""
 }
 
-// storeToken puts a credential in the OS keyring and drops any plaintext copy from the config.
-func storeToken(s *endpointSpec, tok string) error {
-	if err := tokenStore.Set(keyringAccount(s.module, *s.ec), tok); err != nil {
-		return fmt.Errorf("%w\nuse the environment variable %s instead", err, s.ec.TokenEnv)
-	}
-	s.ec.Token = ""
-	return nil
-}
-
-// cmdEndpointInit is `workctl jira init` and `workctl gitlab init`: ask for the connection, keep the token in the
-// keyring, write the config (never the token) and check the connection.
+// cmdEndpointInit is `workctl jira|gitlab|github init`: write the profile (never the token), keep the token in the
+// keyring and check the connection.
 func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error {
+	s, ok := endpointSpecs[module]
+	if !ok {
+		return fmt.Errorf("no setup for module %q", module)
+	}
 	fs := flag.NewFlagSet(module+" init", flag.ContinueOnError)
+	profileFlag := fs.String("profile", "", "profile name (default: defaults."+module+", else "+module+")")
 	urlFlag := fs.String("url", "", "base URL")
 	authFlag := fs.String("auth", "", "authentication scheme")
 	user := fs.String("user", "", "username (basic auth)")
@@ -151,48 +119,44 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cfg, err := loadConfigForSetup(path)
+	cfg, err := loadConfigOrDefault(path)
 	if err != nil {
 		return err
 	}
-	s, err := endpointSpecFor(cfg, module)
-	if err != nil {
-		return err
+	name := firstNonEmpty(*profileFlag, cfg.Defaults[module], module)
+	p, ok := cfg.Profiles[name]
+	if !ok {
+		p = Profile{Kind: module, URL: s.defaultURL, Auth: s.auths[0], TokenEnv: "WORKCTL_" + strings.ToUpper(module) + "_TOKEN", VerifyTLS: true}
 	}
-	ec := s.ec
+	if p.Kind != module {
+		return fmt.Errorf("profile %q is %s, not %s", name, p.Kind, module)
+	}
 	if *urlFlag != "" {
-		ec.URL = *urlFlag
+		p.URL = *urlFlag
 	}
 	if *authFlag != "" {
-		ec.Auth = *authFlag
+		p.Auth = *authFlag
 	}
 	if *user != "" {
-		ec.Username = *user
+		p.Username = *user
 	}
 	if *ca != "" {
-		ec.CAFile = *ca
+		p.CAFile = *ca
 	}
 	if *insecure {
-		ec.VerifyTLS = false
+		p.VerifyTLS = false
 	}
-	if module == "gitlab" {
-		if *projects != "" {
-			cfg.GitLab.Projects = parseCommaList(*projects)
-		}
-		if *defProject != "" {
-			cfg.GitLab.DefaultProject = *defProject
-		}
-	}
+	list, def := &p.Projects, &p.DefaultProject
 	if module == "github" {
+		list, def = &p.Repos, &p.DefaultRepo
+	}
+	if s.listPrompt != "" {
 		if *projects != "" {
-			cfg.GitHub.Repos = parseCommaList(*projects)
+			*list = parseCommaList(*projects)
 		}
 		if *defProject != "" {
-			cfg.GitHub.DefaultRepo = *defProject
+			*def = *defProject
 		}
-	}
-	if ec.URL == "" {
-		ec.URL = s.defaultURL
 	}
 	if r == nil {
 		r = bufio.NewReader(stdin)
@@ -205,19 +169,19 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 			tok = strings.TrimSpace(line)
 		}
 	} else {
-		fmt.Printf("\n%s\n", s.label)
-		ec.URL = prompt.Ask(r, "Base URL", ec.URL)
-		ec.Auth = s.auths[0]
+		fmt.Printf("\n%s (profile %s)\n", s.label, name)
+		p.URL = prompt.Ask(r, "Base URL", p.URL)
 		if len(s.auths) > 1 {
-			ec.Auth = prompt.AskChoice(r, "Authentication", s.auths, ec.Auth)
+			p.Auth = prompt.AskChoice(r, "Authentication", s.auths, firstNonEmpty(p.Auth, s.auths[0]))
 		}
-		if strings.EqualFold(ec.Auth, "basic") {
-			ec.Username = prompt.Ask(r, "Username", ec.Username)
+		if strings.EqualFold(p.Auth, "basic") {
+			p.Username = prompt.Ask(r, "Username", p.Username)
 		}
-		ec.VerifyTLS = prompt.AskBool(r, "Verify TLS certificates", ec.VerifyTLS)
-		ec.CAFile = prompt.Ask(r, "Custom CA bundle, PEM file (optional)", ec.CAFile)
-		if s.extra != nil {
-			s.extra(r)
+		p.VerifyTLS = prompt.AskBool(r, "Verify TLS certificates", p.VerifyTLS)
+		p.CAFile = prompt.Ask(r, "Custom CA bundle, PEM file (optional)", p.CAFile)
+		if s.listPrompt != "" {
+			*list = parseCommaList(prompt.Ask(r, s.listPrompt, strings.Join(*list, ",")))
+			*def = prompt.Ask(r, s.defaultPrompt, *def)
 		}
 		fmt.Println(s.tokenHelp)
 		fmt.Println("The token goes to the OS keyring; leave it empty to keep the one already stored.")
@@ -225,17 +189,18 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 			return err
 		}
 	}
-	if normalizeBaseURL(ec.URL) == "" {
+	if normalizeBaseURL(p.URL) == "" {
 		return fmt.Errorf("%s: a base URL is required", module)
 	}
-	if u, err := url.Parse(normalizeBaseURL(ec.URL)); err == nil && u.Scheme == "http" {
+	if u, err := url.Parse(normalizeBaseURL(p.URL)); err == nil && u.Scheme == "http" {
 		fmt.Fprintln(os.Stderr, "warning: http:// sends the credential unencrypted")
 	}
-	if module == "gitlab" && cfg.GitLab.DefaultProject == "" && len(cfg.GitLab.Projects) > 0 {
-		cfg.GitLab.DefaultProject = cfg.GitLab.Projects[0]
+	if s.listPrompt != "" && *def == "" && len(*list) > 0 {
+		*def = (*list)[0]
 	}
-	if module == "github" && cfg.GitHub.DefaultRepo == "" && len(cfg.GitHub.Repos) > 0 {
-		cfg.GitHub.DefaultRepo = cfg.GitHub.Repos[0]
+	cfg.Profiles[name] = p
+	if cfg.Defaults[module] == "" {
+		cfg.Defaults[module] = name
 	}
 	if err := validateConfig(cfg); err != nil {
 		return err
@@ -243,7 +208,9 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 
 	var tokErr error
 	if tok != "" {
-		tokErr = storeToken(s, tok)
+		if tokErr = tokenStore.Set(secret.Account(module, name), tok); tokErr != nil {
+			tokErr = fmt.Errorf("%w\nuse the environment variable %s instead", tokErr, p.TokenEnv)
+		}
 	}
 	if err := cfg.save(); err != nil {
 		return err
@@ -258,43 +225,17 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
 	defer cancel()
-	who, err := s.verify(ctx, cfg)
+	c, err := newProfileClient(cfg, name, p)
+	who := ""
+	if err == nil {
+		who, err = s.verify(ctx, c)
+	}
 	if err != nil {
 		fmt.Printf("connection test FAILED: %v\n", err)
 		return nil
 	}
 	fmt.Println(who)
 	return nil
-}
-
-// cmdEndpointSetToken replaces the stored token of a configured module.
-func cmdEndpointSetToken(path, module string, r *bufio.Reader) error {
-	cfg, err := loadConfig(path)
-	if err != nil {
-		return err
-	}
-	s, err := endpointSpecFor(cfg, module)
-	if err != nil {
-		return err
-	}
-	if normalizeBaseURL(s.ec.URL) == "" {
-		return fmt.Errorf("%s is not configured: run `workctl %s init`", module, module)
-	}
-	if r == nil {
-		r = bufio.NewReader(stdin)
-	}
-	tok, err := prompt.AskSecret(r, s.tokenPrompt)
-	if err != nil {
-		return err
-	}
-	if tok == "" {
-		return fmt.Errorf("empty token, nothing stored")
-	}
-	if err := storeToken(s, tok); err != nil {
-		return err
-	}
-	fmt.Println("token stored in the OS keyring")
-	return cfg.save()
 }
 
 var initModules = []struct{ name, label string }{
@@ -340,7 +281,7 @@ func cmdInit(path string, args []string) error {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", m.name, err)
 		}
 	}
-	cfg, err := loadConfigForSetup(path)
+	cfg, err := loadConfigOrDefault(path)
 	if err != nil {
 		return err
 	}

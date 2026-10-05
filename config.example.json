@@ -1,34 +1,48 @@
 {
-  "version": 1,
+  "version": 2,
   "timeout_seconds": 30,
+  "defaults": {
+    "github": "github.com",
+    "gitlab": "gitlab.com",
+    "azure": "dev.azure.com",
+    "jira": "jira"
+  },
+  "profiles": {
+    "jira": {
+      "kind": "jira",
+      "url": "https://jira.company.local",
+      "auth": "bearer",
+      "token_env": "WORKCTL_JIRA_TOKEN",
+      "verify_tls": true
+    },
+    "github.com": {
+      "kind": "github",
+      "url": "https://api.github.com",
+      "auth": "bearer",
+      "token_env": "WORKCTL_GITHUB_TOKEN",
+      "verify_tls": true,
+      "default_repo": "owner/name",
+      "repos": ["owner/name"]
+    },
+    "gitlab.com": {
+      "kind": "gitlab",
+      "url": "https://gitlab.com",
+      "auth": "private-token",
+      "token_env": "WORKCTL_GITLAB_TOKEN",
+      "verify_tls": true,
+      "default_project": "group/project",
+      "projects": ["group/project"]
+    },
+    "dev.azure.com": {
+      "kind": "azure",
+      "url": "https://dev.azure.com/my-org",
+      "token_env": "WORKCTL_AZURE_TOKEN",
+      "verify_tls": true,
+      "default_project": "MyProject"
+    }
+  },
   "modules": {
     "timeout_seconds": 120
-  },
-  "jira": {
-    "url": "https://jira.company.local",
-    "auth": "bearer",
-    "username": "",
-    "token_env": "WORKCTL_JIRA_TOKEN",
-    "verify_tls": true,
-    "ca_file": ""
-  },
-  "gitlab": {
-    "url": "https://gitlab.company.local",
-    "auth": "private-token",
-    "token_env": "WORKCTL_GITLAB_TOKEN",
-    "verify_tls": true,
-    "ca_file": "",
-    "default_project": "group/project",
-    "projects": ["group/project"]
-  },
-  "github": {
-    "url": "https://api.github.com",
-    "auth": "bearer",
-    "token_env": "WORKCTL_GITHUB_TOKEN",
-    "verify_tls": true,
-    "ca_file": "",
-    "default_repo": "owner/name",
-    "repos": ["owner/name"]
   },
   "policy": {
     "allow_write": false

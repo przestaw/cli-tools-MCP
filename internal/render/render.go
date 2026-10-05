@@ -30,8 +30,8 @@ func ParseFormat(value string) (Format, error) {
 	}
 }
 
-// PullRequests writes a pull request result and emits partial-result notices to diagnostics.
-func PullRequests(stdout, stderr io.Writer, result vcs.Result, format Format) error {
+// PullRequests writes a pull request result; detail adds URL and description (pr show). Partial-result notices go to stderr.
+func PullRequests(stdout, stderr io.Writer, result vcs.Result, format Format, detail bool) error {
 	if format == FormatJSON {
 		body, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
@@ -45,8 +45,32 @@ func PullRequests(stdout, stderr io.Writer, result vcs.Result, format Format) er
 		if item.SourceBranch == "" && item.TargetBranch == "" {
 			branches = ""
 		}
-		if _, err := fmt.Fprintf(stdout, "%s #%d %s [%s] %s\n", item.Provider, item.ID, item.Title, item.State, branches); err != nil {
+		author := ""
+		if item.Author != "" {
+			author = " by @" + item.Author
+		}
+		draft := ""
+		if item.Draft {
+			draft = " [draft]"
+		}
+		branchPart := ""
+		if branches != "" {
+			branchPart = " " + branches
+		}
+		if _, err := fmt.Fprintf(stdout, "%s #%d %s [%s]%s%s%s\n", item.Provider, item.ID, item.Title, item.State, draft, branchPart, author); err != nil {
 			return err
+		}
+		if detail {
+			if item.URL != "" {
+				if _, err := fmt.Fprintf(stdout, "URL: %s\n", item.URL); err != nil {
+					return err
+				}
+			}
+			if desc := strings.TrimSpace(item.Description); desc != "" {
+				if _, err := fmt.Fprintf(stdout, "\n%s\n", desc); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	for _, warning := range result.Warnings {

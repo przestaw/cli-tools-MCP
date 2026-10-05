@@ -2,12 +2,15 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+
+	"workctl/internal/render"
 )
 
 type rpcRequest struct {
@@ -57,14 +60,16 @@ func boolProp(desc string) map[string]any {
 // toolAvailable reports whether the backend of an MCP tool is configured (Jira and GitLab are each optional).
 func toolAvailable(cfg *Config, name string) bool {
 	switch {
+	case name == "pr_list" || name == "pr_show":
+		return cfg.has("github") || cfg.has("gitlab") || cfg.has("azure")
 	case strings.HasPrefix(name, "jira_"):
-		return cfg.hasJira()
+		return cfg.has("jira")
 	case strings.HasPrefix(name, "gitlab_"):
-		return cfg.hasGitLab()
+		return cfg.has("gitlab")
 	case strings.HasPrefix(name, "github_"):
-		return cfg.hasGitHub()
+		return cfg.has("github")
 	case strings.HasPrefix(name, "task_"):
-		return cfg.hasJira() && cfg.hasGitLab()
+		return cfg.has("jira") && cfg.has("gitlab")
 	}
 	return true
 }
@@ -101,8 +106,27 @@ func mcpTools(cfg *Config) []mcpTool {
 			tools = append(tools, t)
 		}
 	}
-	if cfg.hasGitHub() {
+	if cfg.has("github") {
 		tools = append(tools, githubTools(cfg)...)
+	}
+	if toolAvailable(cfg, "pr_list") {
+		tools = append(tools,
+			mcpTool{"pr_list", "List pull requests or merge requests from GitHub, GitLab, or Azure DevOps using unified profiles.", objSchema(map[string]any{
+				"profile": strProp("Profile name (optional if default profile exists)"),
+				"repo":    strProp("Repository name or path (optional if default_repo is set)"),
+				"project": strProp("Project name (required for Azure DevOps unless set in profile)"),
+				"state":   strProp("Filter state: open, closed, merged, all"),
+				"search":  strProp("Search text (title and description)"),
+				"format":  strProp("Output format: json or text (default json)"),
+			})},
+			mcpTool{"pr_show", "Get details and description of a pull request or merge request.", objSchema(map[string]any{
+				"id":      intProp("Pull request or merge request number"),
+				"profile": strProp("Profile name (optional if default profile exists)"),
+				"repo":    strProp("Repository name or path (optional if default_repo is set)"),
+				"project": strProp("Project name (required for Azure DevOps unless set in profile)"),
+				"format":  strProp("Output format: json or text (default json)"),
+			}, "id")},
+		)
 	}
 	return append(tools, moduleTools(cfg)...)
 }
@@ -121,13 +145,13 @@ func sendRPC(w *bufio.Writer, resp rpcResponse) error {
 func runMCP(ctx context.Context, cfg *Config) error {
 	var jc, gc *APIClient
 	var err error
-	if cfg.hasJira() {
-		if jc, err = newJiraClient(cfg); err != nil {
+	if cfg.has("jira") {
+		if jc, err = newKindClient(cfg, "jira"); err != nil {
 			return fmt.Errorf("jira client: %w", err)
 		}
 	}
-	if cfg.hasGitLab() {
-		if gc, err = newGitLabClient(cfg); err != nil {
+	if cfg.has("gitlab") {
+		if gc, err = newKindClient(cfg, "gitlab"); err != nil {
 			return fmt.Errorf("gitlab client: %w", err)
 		}
 	}
@@ -246,6 +270,30 @@ func callMCPTool(ctx context.Context, cfg *Config, jc, gc *APIClient, name strin
 	project, projectErr := glProject(cfg, argString(a, "project"))
 	requireProject := func() error { return projectErr }
 	switch name {
+	case "pr_list", "pr_show":
+		id := 0
+		if name == "pr_show" {
+			if id = argInt(a, "id", 0); id <= 0 {
+				return nil, fmt.Errorf("id must be a positive integer")
+			}
+		}
+		pName, profile, err := prProfile(cfg, argString(a, "profile"), "")
+		if err != nil {
+			return nil, err
+		}
+		res, err := fetchPullRequests(ctx, cfg, pName, profile, argString(a, "repo"), argString(a, "project"), argString(a, "search"), argString(a, "state"), id)
+		if err != nil {
+			return nil, err
+		}
+		format, err := render.ParseFormat(firstNonEmpty(argString(a, "format"), "json"))
+		if err != nil {
+			return nil, err
+		}
+		var stdout, stderr bytes.Buffer
+		if err := render.PullRequests(&stdout, &stderr, res, format, id > 0); err != nil {
+			return nil, err
+		}
+		return stdout.Bytes(), nil
 	case "azure", "atlassian":
 		args, err := argStrings(a, "args")
 		if err != nil {

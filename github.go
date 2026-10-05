@@ -16,16 +16,12 @@ import (
 // The owner cannot start with a dot, so ".." never gets into a request path; a repository may be named ".github".
 var ghRepoRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+$`)
 
-// ghRepo picks the repository (owner/name) of a call: the argument, then github.default_repo, then the only listed one.
+// ghRepo picks the repository (owner/name) of a call: the argument, then the github profile defaults.
 func ghRepo(cfg *Config, repo string) (string, error) {
-	if repo == "" {
-		repo = cfg.GitHub.DefaultRepo
-	}
-	if repo == "" && len(cfg.GitHub.Repos) == 1 {
-		repo = cfg.GitHub.Repos[0]
-	}
-	if repo == "" {
-		return "", fmt.Errorf("GitHub repository not specified (owner/name) and github.default_repo is empty")
+	_, profile, _ := cfg.profileOf("github")
+	repo, err := profileRepository(profile, repo)
+	if err != nil {
+		return "", err
 	}
 	if !ghRepoRe.MatchString(repo) || strings.HasSuffix(repo, "/.") || strings.HasSuffix(repo, "/..") {
 		return "", fmt.Errorf("invalid repository %q, expected owner/name", repo)
@@ -177,9 +173,9 @@ func repoFlagSet(name string) (*flag.FlagSet, *string) {
 
 func cmdGitHub(cfg *Config, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("github commands: init, set-token, repo, pr, branches, runs, run, file, raw")
+		return fmt.Errorf("github commands: init, repo, pr, branches, runs, run, file, raw")
 	}
-	c, err := newGitHubClient(cfg)
+	c, err := newKindClient(cfg, "github")
 	if err != nil {
 		return err
 	}
@@ -418,7 +414,7 @@ func callGitHubTool(ctx context.Context, cfg *Config, name string, a map[string]
 	if !toolAvailable(cfg, name) {
 		return nil, fmt.Errorf("tool %q is not available: its backend is not configured", name)
 	}
-	c, err := newGitHubClient(cfg)
+	c, err := newKindClient(cfg, "github")
 	if err != nil {
 		return nil, err
 	}

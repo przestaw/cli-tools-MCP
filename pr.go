@@ -50,7 +50,11 @@ func cmdPullRequest(cfg *Config, args []string) error {
 		if fs.NArg() != 0 {
 			return fmt.Errorf("usage: pr list [--profile PROFILE] [--repo REPOSITORY] [--project PROJECT] [--state STATE] [--search TEXT]")
 		}
-		return printPullRequests(ctx, cfg, name, profile, *repository, *project, *search, *state, 0, format)
+		res, err := fetchPullRequests(ctx, cfg, name, profile, *repository, *project, *search, *state, 0)
+		if err != nil {
+			return err
+		}
+		return render.PullRequests(os.Stdout, os.Stderr, res, format, false)
 	case "show", "get":
 		if fs.NArg() != 1 {
 			return fmt.Errorf("usage: pr show [--profile PROFILE] [--repo REPOSITORY] [--project PROJECT] NUMBER")
@@ -59,7 +63,11 @@ func cmdPullRequest(cfg *Config, args []string) error {
 		if err != nil || id <= 0 {
 			return fmt.Errorf("NUMBER must be a positive integer")
 		}
-		return printPullRequests(ctx, cfg, name, profile, *repository, *project, "", "", id, format)
+		res, err := fetchPullRequests(ctx, cfg, name, profile, *repository, *project, "", "", id)
+		if err != nil {
+			return err
+		}
+		return render.PullRequests(os.Stdout, os.Stderr, res, format, true)
 	default:
 		return fmt.Errorf("unknown pr action %q", args[0])
 	}
@@ -79,25 +87,7 @@ func prProfile(cfg *Config, requestedName, requestedKind string) (string, Profil
 		}
 		return requestedName, profile, nil
 	}
-	if requestedKind != "" {
-		if name := cfg.Defaults[requestedKind]; name != "" {
-			return name, cfg.Profiles[name], nil
-		}
-	}
-	candidates := make([]string, 0, len(cfg.Profiles))
-	for name, profile := range cfg.Profiles {
-		if requestedKind == "" || profile.Kind == requestedKind {
-			candidates = append(candidates, name)
-		}
-	}
-	if len(candidates) == 1 {
-		name := candidates[0]
-		return name, cfg.Profiles[name], nil
-	}
-	if len(candidates) == 0 {
-		return "", Profile{}, fmt.Errorf("no matching profile is configured")
-	}
-	return "", Profile{}, fmt.Errorf("multiple profiles match; specify --profile %s", strings.Join(candidates, " or "))
+	return cfg.profileOf(requestedKind)
 }
 
 func profileRepository(profile Profile, repository string) (string, error) {
@@ -119,49 +109,190 @@ func profileRepository(profile Profile, repository string) (string, error) {
 	return "", fmt.Errorf("repository is required; pass --repo or set a default in the profile")
 }
 
-func printPullRequests(ctx context.Context, cfg *Config, name string, profile Profile, repository, project, search, state string, id int, format render.Format) error {
-	var (
-		body []byte
-		err  error
-	)
-	repository, err = profileRepository(profile, repository)
-	if err != nil {
-		return err
+// fetchPullRequests lists (id 0) or gets one; state is open, closed (not merged), merged or all.
+func fetchPullRequests(ctx context.Context, cfg *Config, name string, profile Profile, repository, project, search, state string, id int) (vcs.Result, error) {
+	switch state {
+	case "":
+		state = "all"
+	case "open", "closed", "merged", "all":
+	default:
+		return vcs.Result{}, fmt.Errorf("unsupported state %q (use open, closed, merged or all)", state)
 	}
+	if profile.Kind != "azure" {
+		var err error
+		if repository, err = profileRepository(profile, repository); err != nil {
+			return vcs.Result{}, err
+		}
+	}
+	reader, err := newPullRequestReader(ctx, cfg, name, profile)
+	if err != nil {
+		return vcs.Result{}, err
+	}
+	opt := vcs.ListOptions{Repository: repository, Project: project, Search: search, State: state}
+	if id > 0 {
+		item, err := reader.GetPullRequest(ctx, opt, id)
+		if err != nil {
+			return vcs.Result{}, err
+		}
+		return vcs.Result{Items: []vcs.PullRequest{item}}, nil
+	}
+	return reader.ListPullRequests(ctx, opt)
+}
+
+func newPullRequestReader(ctx context.Context, cfg *Config, name string, profile Profile) (vcs.PullRequestReader, error) {
 	switch profile.Kind {
 	case "github":
-		client, clientErr := newProfileClient(cfg, name, profile)
-		if clientErr != nil {
-			return clientErr
+		c, err := newProfileClient(cfg, name, profile)
+		if err != nil {
+			return nil, err
 		}
-		if id > 0 {
-			body, err = githubGetPR(ctx, client, repository, id)
-		} else {
-			body, err = githubListPRs(ctx, client, repository, search, state)
-		}
+		return &githubPRReader{client: c}, nil
 	case "gitlab":
-		client, clientErr := newProfileClient(cfg, name, profile)
-		if clientErr != nil {
-			return clientErr
+		c, err := newProfileClient(cfg, name, profile)
+		if err != nil {
+			return nil, err
 		}
-		if id > 0 {
-			body, err = gitlabGetMR(ctx, client, repository, id)
-		} else {
-			body, err = gitlabListMRs(ctx, client, repository, search, state)
-		}
+		return &gitlabPRReader{client: c}, nil
 	case "azure":
-		return printAzurePullRequests(ctx, cfg, name, profile, project, repository, state, id, format)
+		cred, err := resolveProfileSecret(name, profile)
+		if err != nil {
+			return nil, err
+		}
+		c := azureclient.New(azureclient.Options{
+			OrgURL:    profile.URL,
+			Token:     cred,
+			Timeout:   profileTimeout(cfg, profile),
+			VerifyTLS: profile.VerifyTLS,
+		})
+		return &azurePRReader{client: c, defaultProject: profile.DefaultProject}, nil
 	default:
-		return fmt.Errorf("profile %q has unsupported provider %q", name, profile.Kind)
+		return nil, vcs.UnsupportedCapabilityError{Provider: profile.Kind, Capability: "pull requests"}
 	}
+}
+
+type githubPRReader struct {
+	client *APIClient
+}
+
+func (g *githubPRReader) ListPullRequests(ctx context.Context, opt vcs.ListOptions) (vcs.Result, error) {
+	state := opt.State
+	if state == "merged" && opt.Search == "" {
+		state = "closed" // the pulls endpoint has no merged state
+	}
+	body, err := githubListPRs(ctx, g.client, opt.Repository, opt.Search, state)
 	if err != nil {
-		return err
+		return vcs.Result{}, err
 	}
-	result, err := normalizePullRequests(profile.Kind, repository, body)
+	res, err := normalizePullRequests("github", opt.Repository, body)
+	if err != nil || (opt.State != "closed" && opt.State != "merged") {
+		return res, err
+	}
+	kept := res.Items[:0]
+	for _, item := range res.Items {
+		d := item.Details
+		if pr, ok := d["pull_request"].(map[string]any); ok {
+			d = pr // search results nest merged_at
+		}
+		if (d["merged_at"] != nil) == (opt.State == "merged") {
+			kept = append(kept, item)
+		}
+	}
+	res.Items = kept
+	return res, nil
+}
+
+func (g *githubPRReader) GetPullRequest(ctx context.Context, opt vcs.ListOptions, id int) (vcs.PullRequest, error) {
+	body, err := githubGetPR(ctx, g.client, opt.Repository, id)
 	if err != nil {
-		return err
+		return vcs.PullRequest{}, err
 	}
-	return render.PullRequests(os.Stdout, os.Stderr, result, format)
+	res, err := normalizePullRequests("github", opt.Repository, body)
+	if err != nil {
+		return vcs.PullRequest{}, err
+	}
+	if len(res.Items) == 0 {
+		return vcs.PullRequest{}, fmt.Errorf("pull request %d not found", id)
+	}
+	return res.Items[0], nil
+}
+
+type gitlabPRReader struct {
+	client *APIClient
+}
+
+func (g *gitlabPRReader) ListPullRequests(ctx context.Context, opt vcs.ListOptions) (vcs.Result, error) {
+	state := opt.State
+	if state == "open" {
+		state = "opened"
+	}
+	body, err := gitlabListMRs(ctx, g.client, opt.Repository, opt.Search, state)
+	if err != nil {
+		return vcs.Result{}, err
+	}
+	return normalizePullRequests("gitlab", opt.Repository, body)
+}
+
+func (g *gitlabPRReader) GetPullRequest(ctx context.Context, opt vcs.ListOptions, id int) (vcs.PullRequest, error) {
+	body, err := gitlabGetMR(ctx, g.client, opt.Repository, id)
+	if err != nil {
+		return vcs.PullRequest{}, err
+	}
+	res, err := normalizePullRequests("gitlab", opt.Repository, body)
+	if err != nil {
+		return vcs.PullRequest{}, err
+	}
+	if len(res.Items) == 0 {
+		return vcs.PullRequest{}, fmt.Errorf("merge request %d not found", id)
+	}
+	return res.Items[0], nil
+}
+
+type azurePRReader struct {
+	client         *azureclient.Client
+	defaultProject string
+}
+
+func (a *azurePRReader) project(opt vcs.ListOptions) (string, error) {
+	if p := firstNonEmpty(opt.Project, a.defaultProject); p != "" {
+		return p, nil
+	}
+	return "", fmt.Errorf("Azure DevOps project is required; pass --project or set default_project in the profile")
+}
+
+func (a *azurePRReader) ListPullRequests(ctx context.Context, opt vcs.ListOptions) (vcs.Result, error) {
+	project, err := a.project(opt)
+	if err != nil {
+		return vcs.Result{}, err
+	}
+	status := map[string]string{"open": "active", "closed": "abandoned", "merged": "completed"}[opt.State]
+	items, err := a.client.PullRequests(ctx, project, opt.Repository, azureclient.PullRequestSearch{Status: firstNonEmpty(status, opt.State)}, false)
+	if err != nil {
+		return vcs.Result{}, err
+	}
+	result := vcs.Result{Items: make([]vcs.PullRequest, 0, len(items))}
+	for _, item := range items {
+		norm := normalizeAzurePullRequest(a.client, project, item)
+		if opt.Search != "" {
+			s := strings.ToLower(opt.Search)
+			if !strings.Contains(strings.ToLower(norm.Title), s) && !strings.Contains(strings.ToLower(norm.Description), s) {
+				continue
+			}
+		}
+		result.Items = append(result.Items, norm)
+	}
+	return result, nil
+}
+
+func (a *azurePRReader) GetPullRequest(ctx context.Context, opt vcs.ListOptions, id int) (vcs.PullRequest, error) {
+	project, err := a.project(opt)
+	if err != nil {
+		return vcs.PullRequest{}, err
+	}
+	item, err := a.client.PullRequest(ctx, project, id)
+	if err != nil {
+		return vcs.PullRequest{}, err
+	}
+	return normalizeAzurePullRequest(a.client, project, *item), nil
 }
 
 func normalizePullRequests(provider, repository string, body []byte) (vcs.Result, error) {
@@ -198,6 +329,7 @@ func normalizePullRequest(provider, repository string, value map[string]any) (vc
 	case "github":
 		pr.ID = jsonNumber(value["number"])
 		pr.Title, _ = value["title"].(string)
+		pr.Description, _ = value["body"].(string)
 		pr.State, _ = value["state"].(string)
 		pr.Draft, _ = value["draft"].(bool)
 		pr.URL, _ = value["html_url"].(string)
@@ -213,6 +345,7 @@ func normalizePullRequest(provider, repository string, value map[string]any) (vc
 	case "gitlab":
 		pr.ID = jsonNumber(value["iid"])
 		pr.Title, _ = value["title"].(string)
+		pr.Description, _ = value["description"].(string)
 		pr.State, _ = value["state"].(string)
 		pr.SourceBranch, _ = value["source_branch"].(string)
 		pr.TargetBranch, _ = value["target_branch"].(string)
@@ -241,46 +374,13 @@ func mustJSON(value any) []byte {
 	return body
 }
 
-func printAzurePullRequests(ctx context.Context, cfg *Config, name string, profile Profile, project, repository, state string, id int, format render.Format) error {
-	if project == "" {
-		project = profile.DefaultProject
-	}
-	if project == "" {
-		return fmt.Errorf("Azure DevOps project is required; pass --project or set default_project in the profile")
-	}
-	credential, err := resolveProfileSecret(name, profile)
-	if err != nil {
-		return err
-	}
-	client := azureclient.New(azureclient.Options{OrgURL: profile.URL, Token: credential, Timeout: profileTimeout(cfg, profile), VerifyTLS: profile.VerifyTLS})
-	if id > 0 {
-		item, err := client.PullRequest(ctx, project, id)
-		if err != nil {
-			return err
-		}
-		return render.PullRequests(os.Stdout, os.Stderr, vcs.Result{Items: []vcs.PullRequest{normalizeAzurePullRequest(client, project, *item)}}, format)
-	}
-	status := state
-	if status == "" || status == "open" {
-		status = "active"
-	}
-	items, err := client.PullRequests(ctx, project, repository, azureclient.PullRequestSearch{Status: status}, false)
-	if err != nil {
-		return err
-	}
-	result := vcs.Result{Items: make([]vcs.PullRequest, 0, len(items))}
-	for _, item := range items {
-		result.Items = append(result.Items, normalizeAzurePullRequest(client, project, item))
-	}
-	return render.PullRequests(os.Stdout, os.Stderr, result, format)
-}
-
 func normalizeAzurePullRequest(client *azureclient.Client, project string, item azureclient.PullRequest) vcs.PullRequest {
 	return vcs.PullRequest{
 		Provider:     "azure",
 		Repository:   item.Repository.Name,
 		ID:           item.PullRequestID,
 		Title:        item.Title,
+		Description:  item.Description,
 		State:        item.Status,
 		Draft:        item.IsDraft,
 		Author:       item.CreatedBy.DisplayName,

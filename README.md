@@ -72,37 +72,31 @@ macOS Keychain, Secret Service), never in the config file:
 ```powershell
 workctl init                 # walks through all modules, then asks about write access
 workctl jira init            # URL, auth, TLS, token (hidden prompt) -> keyring, then a connection test
-workctl gitlab init
+workctl gitlab init          # --profile NAME for a second instance
 workctl github init
 workctl azure init           # same as `workctl azure config init`
 workctl atlassian init
-workctl jira set-token       # replace a token later (also gitlab, github, azure, atlassian)
+workctl auth set-token --profile NAME   # replace a token later; `auth status`, `auth logout`
 ```
 
 For scripts: `workctl jira init --non-interactive --url https://jira.example.com --token-stdin < token.txt`. A token is
 never accepted as an argument (it would end up in shell history and process lists). Where there is no keyring (a
-headless Linux box), set the environment variable instead: `WORKCTL_JIRA_TOKEN`, `WORKCTL_GITLAB_TOKEN`, `WORKCTL_GITHUB_TOKEN`, `ADO_PAT`,
-`ATL_API_TOKEN`. The variable wins over the keyring. A plaintext `token` in an old config file is still read last;
-running the module's `init` again moves it into the keyring and removes it from the file.
+headless Linux box), set the profile's `token_env` variable instead (`init` defaults it to `WORKCTL_JIRA_TOKEN`,
+`WORKCTL_GITLAB_TOKEN`, `WORKCTL_GITHUB_TOKEN`); azure and atlassian use `ADO_PAT` and `ATL_API_TOKEN`. The variable
+wins over the keyring.
 
 ## Config
 
 `%APPDATA%\workctl\config.json` (Linux: `~/.config/workctl/config.json`), or `--config FILE`, or `WORKCTL_CONFIG`.
-See `config.example.json`. Only the parts you use are needed.
+Only `"version": 2` is accepted; see `config.example.json`.
 
-```json
-{
-  "version": 1,
-  "timeout_seconds": 30,
-  "modules": { "timeout_seconds": 120 },
-  "policy": { "allow_write": false },
-  "mcp": { "max_output_bytes": 500000 }
-}
-```
+Every connection is a named entry in `profiles` with `kind` (`jira`, `gitlab`, `github`, `azure`), `url`, `auth`,
+`username`, `token_env`, `verify_tls`, `ca_file` and, where it applies, `default_repo`/`repos` or
+`default_project`/`projects`. `defaults.<kind>` names the profile used when there is more than one of a kind. The token
+is read from `token_env`, then from the keyring (service `workctl`, account `<kind>:<profile>`).
 
-`jira` (Server/DC), `gitlab` and `github` take `url`, `auth`, `token_env`, `verify_tls`, `ca_file`; the token is looked up in the
-environment variable `token_env`, then in the keyring (service `workctl`, account `<module>:<url>`).
-`workctl setup --non-interactive` writes the file from flags; `workctl init` is the guided way.
+Top-level `jira`/`gitlab`/`github` blocks (version 1) are rejected: move them into profiles. Tokens stored by version 1
+(account `<kind>:<url>`) are not read; store them again with `workctl auth set-token --profile NAME`.
 
 ## Build and test
 
@@ -120,12 +114,12 @@ want to be sure nothing touches your real config.
 workctl github pr get 42 --repo owner/name
 workctl github pr comments 42        # inline review threads; `discussion` is the conversation, `reviews` the verdicts
 workctl github pr checks 42
-workctl github pr list --state open --search "fix login"
+workctl github pr list --state open --search "TASK-1234"
 workctl github runs --branch main    # GitHub Actions; `run get|jobs ID` for one run
 workctl github file get --ref main docs/README.md
 ```
 
-`--repo` defaults to `github.default_repo`. Lists return the first 100 items. Job logs are not offered: GitHub serves them
+`--repo` defaults to the github profile's `default_repo`. Lists return the first 100 items. Job logs are not offered: GitHub serves them
 from another host, which workctl refuses to follow with the token. Writes (`pr comment add`, `pr create`) need `allow_write`.
 
 ## Planned

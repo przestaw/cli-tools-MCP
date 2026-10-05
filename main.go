@@ -13,14 +13,14 @@ import (
 	"time"
 )
 
-const version = "0.2.2"
+const version = "0.3.0"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence and GitLab
 
 Usage:
-  workctl [--config FILE] init [module...]   guided setup; tokens go to the OS keyring
-  workctl [--config FILE] setup [options]    non-interactive config from flags
+  workctl [--config FILE] init [module...]   guided setup (alias: setup); tokens go to the OS keyring
+  workctl [--config FILE] auth set-token|status|logout   profile credentials in OS keyring
   workctl [--config FILE] doctor
   workctl [--config FILE] config show|path
   workctl [--config FILE] azure ...      Azure DevOps (alias: ado)
@@ -28,7 +28,7 @@ Usage:
   workctl [--config FILE] jira ...     Jira
   workctl [--config FILE] gitlab ...   GitLab
   workctl [--config FILE] github ...   GitHub
-	workctl [--config FILE] pr|mr ...    provider-neutral pull/merge requests
+  workctl [--config FILE] pr|mr ...    provider-neutral pull/merge requests
   workctl [--config FILE] task ISSUE-KEY
   workctl [--config FILE] mcp
 
@@ -70,16 +70,13 @@ func run(args []string) error {
 	case "version":
 		fmt.Println(version)
 		return nil
-	case "setup":
-		return cmdSetup(*configPath, rest)
-	case "init":
+	case "init", "setup":
 		return cmdInit(*configPath, rest)
+	case "auth":
+		return cmdAuth(*configPath, rest)
 	case "jira", "gitlab", "github":
 		if len(rest) > 0 && rest[0] == "init" {
 			return cmdEndpointInit(*configPath, cmd, rest[1:], nil)
-		}
-		if len(rest) > 0 && rest[0] == "set-token" {
-			return cmdEndpointSetToken(*configPath, cmd, nil)
 		}
 	case "config":
 		return cmdConfig(*configPath, rest)
@@ -107,11 +104,11 @@ func run(args []string) error {
 		if len(rest) != 1 {
 			return fmt.Errorf("usage: workctl task ISSUE-KEY")
 		}
-		jc, err := newJiraClient(cfg)
+		jc, err := newKindClient(cfg, "jira")
 		if err != nil {
 			return err
 		}
-		gc, err := newGitLabClient(cfg)
+		gc, err := newKindClient(cfg, "gitlab")
 		if err != nil {
 			return err
 		}
@@ -127,96 +124,6 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", cmd)
 	}
-}
-
-func cmdSetup(path string, args []string) error {
-	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
-	jiraURL := fs.String("jira-url", "", "Jira base URL")
-	jiraAuth := fs.String("jira-auth", "", "bearer or basic")
-	jiraUser := fs.String("jira-user", "", "Jira username for basic auth")
-	jiraTokenEnv := fs.String("jira-token-env", "", "environment variable holding Jira credential")
-	jiraCA := fs.String("jira-ca", "", "custom PEM CA bundle")
-	gitlabURL := fs.String("gitlab-url", "", "GitLab base URL")
-	gitlabAuth := fs.String("gitlab-auth", "", "private-token or bearer")
-	gitlabTokenEnv := fs.String("gitlab-token-env", "", "environment variable holding GitLab token")
-	gitlabProjects := fs.String("gitlab-projects", "", "comma-separated group/project paths")
-	gitlabDefault := fs.String("gitlab-default-project", "", "default group/project")
-	gitlabCA := fs.String("gitlab-ca", "", "custom PEM CA bundle")
-	timeout := fs.Int("timeout", 0, "HTTP timeout seconds")
-	insecure := fs.Bool("insecure", false, "disable TLS verification for both endpoints")
-	allowWrite := fs.Bool("allow-write", false, "allow write commands and MCP write tools")
-	nonInteractive := fs.Bool("non-interactive", false, "do not prompt; require URLs via flags or existing config")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if !*nonInteractive && fs.NFlag() == 0 {
-		return cmdInit(path, nil)
-	}
-	cfg, err := loadConfigForSetup(path)
-	if err != nil {
-		return err
-	}
-	if *jiraURL != "" {
-		cfg.Jira.URL = *jiraURL
-	}
-	if *jiraAuth != "" {
-		cfg.Jira.Auth = *jiraAuth
-	}
-	if *jiraUser != "" {
-		cfg.Jira.Username = *jiraUser
-	}
-	if *jiraTokenEnv != "" {
-		cfg.Jira.TokenEnv = *jiraTokenEnv
-	}
-	if *jiraCA != "" {
-		cfg.Jira.CAFile = *jiraCA
-	}
-	if *gitlabURL != "" {
-		cfg.GitLab.URL = *gitlabURL
-	}
-	if *gitlabAuth != "" {
-		cfg.GitLab.Auth = *gitlabAuth
-	}
-	if *gitlabTokenEnv != "" {
-		cfg.GitLab.TokenEnv = *gitlabTokenEnv
-	}
-	if *gitlabProjects != "" {
-		cfg.GitLab.Projects = parseCommaList(*gitlabProjects)
-	}
-	if *gitlabDefault != "" {
-		cfg.GitLab.DefaultProject = *gitlabDefault
-	}
-	if *gitlabCA != "" {
-		cfg.GitLab.CAFile = *gitlabCA
-	}
-	if *timeout > 0 {
-		cfg.TimeoutSeconds = *timeout
-	}
-	if *insecure {
-		cfg.Jira.VerifyTLS = false
-		cfg.GitLab.VerifyTLS = false
-	}
-	if *allowWrite {
-		cfg.Policy.AllowWrite = true
-	}
-
-	if cfg.GitLab.DefaultProject == "" && len(cfg.GitLab.Projects) > 0 {
-		cfg.GitLab.DefaultProject = cfg.GitLab.Projects[0]
-	}
-	if err := validateConfig(cfg); err != nil {
-		return err
-	}
-	if err := cfg.save(); err != nil {
-		return err
-	}
-	fmt.Printf("saved: %s\n", cfg.path)
-	if cfg.hasJira() {
-		fmt.Println("store the Jira token with: workctl jira set-token")
-	}
-	if cfg.hasGitLab() {
-		fmt.Println("store the GitLab token with: workctl gitlab set-token")
-	}
-	return nil
 }
 
 func cmdConfig(path string, args []string) error {
@@ -240,9 +147,6 @@ func cmdConfig(path string, args []string) error {
 			return err
 		}
 		cp := *cfg
-		cp.Jira.Token = ""
-		cp.GitLab.Token = ""
-		cp.GitHub.Token = ""
 		cp.path = ""
 		b, _ := json.MarshalIndent(cp, "", "  ")
 		return printBody(b)
@@ -260,9 +164,9 @@ func cmdDoctor(cfg *Config) error {
 	result := map[string]check{}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
 	defer cancel()
-	if !cfg.hasJira() {
+	if !cfg.has("jira") {
 		result["jira"] = check{OK: true, Detail: "not configured; skipped"}
-	} else if jc, err := newJiraClient(cfg); err != nil {
+	} else if jc, err := newKindClient(cfg, "jira"); err != nil {
 		result["jira"] = check{Error: err.Error()}
 	} else {
 		info, e1 := jiraServerInfo(ctx, jc)
@@ -275,9 +179,9 @@ func cmdDoctor(cfg *Config) error {
 			result["jira"] = check{OK: true, Detail: map[string]json.RawMessage{"server": info, "user": me}}
 		}
 	}
-	if !cfg.hasGitLab() {
+	if !cfg.has("gitlab") {
 		result["gitlab"] = check{OK: true, Detail: "not configured; skipped"}
-	} else if gc, err := newGitLabClient(cfg); err != nil {
+	} else if gc, err := newKindClient(cfg, "gitlab"); err != nil {
 		result["gitlab"] = check{Error: err.Error()}
 	} else {
 		ver, e := gitlabVersion(ctx, gc)
@@ -287,9 +191,9 @@ func cmdDoctor(cfg *Config) error {
 			result["gitlab"] = check{OK: true, Detail: json.RawMessage(ver)}
 		}
 	}
-	if !cfg.hasGitHub() {
+	if !cfg.has("github") {
 		result["github"] = check{OK: true, Detail: "not configured; skipped"}
-	} else if hc, err := newGitHubClient(cfg); err != nil {
+	} else if hc, err := newKindClient(cfg, "github"); err != nil {
 		result["github"] = check{Error: err.Error()}
 	} else if u, e := githubUser(ctx, hc); e != nil {
 		result["github"] = check{Error: e.Error()}
@@ -317,7 +221,7 @@ func cmdJira(cfg *Config, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("jira commands: issue, search, comments, transitions, transition, comment, myself, server-info, raw")
 	}
-	c, err := newJiraClient(cfg)
+	c, err := newKindClient(cfg, "jira")
 	if err != nil {
 		return err
 	}
@@ -438,7 +342,7 @@ func cmdGitLab(cfg *Config, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("gitlab commands: project, mr, pipelines, pipeline, job, branches, file, raw")
 	}
-	c, err := newGitLabClient(cfg)
+	c, err := newKindClient(cfg, "gitlab")
 	if err != nil {
 		return err
 	}
