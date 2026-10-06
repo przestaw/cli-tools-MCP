@@ -9,3 +9,7 @@ case ":$PATH:" in
   *":$dest:"*) ;;
   *) echo "add to PATH: export PATH=\"$dest:\$PATH\"" ;;
 esac
+if [ "${1:-}" = "--vscode" ]; then
+  code --add-mcp "{\"name\":\"workctl\",\"type\":\"stdio\",\"command\":\"$dest/workctl\",\"args\":[\"mcp\"]}"
+  echo "workctl MCP server added to the VS Code user profile"
+fi
