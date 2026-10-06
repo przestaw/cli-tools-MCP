@@ -75,7 +75,7 @@ func cmdPullRequest(cfg *Config, args []string) error {
 
 func prProfile(cfg *Config, requestedName, requestedKind string) (string, Profile, error) {
 	if requestedName == "" {
-		requestedName = strings.TrimSpace(os.Getenv("WORKCTL_PROFILE"))
+		requestedName = firstNonEmpty(cfg.profile, strings.TrimSpace(os.Getenv("WORKCTL_PROFILE")))
 	}
 	if requestedName != "" {
 		profile, ok := cfg.Profiles[requestedName]

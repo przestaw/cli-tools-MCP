@@ -407,12 +407,24 @@ func githubTools(cfg *Config) []mcpTool {
 			mcpTool{"github_create_pull_request", "Create a pull request. Enabled only when policy.allow_write=true.", objSchema(map[string]any{"repo": repo, "head": strProp("Source branch"), "base": strProp("Target branch"), "title": strProp("Title"), "body": strProp("Description"), "draft": boolProp("Create as draft")}, "head", "base", "title")},
 		)
 	}
+	profile := strProp("GitHub profile (account); omit to use defaults.github")
+	for _, t := range tools {
+		t.InputSchema["properties"].(map[string]any)["profile"] = profile
+	}
 	return tools
 }
 
 func callGitHubTool(ctx context.Context, cfg *Config, name string, a map[string]any) ([]byte, error) {
 	if !toolAvailable(cfg, name) {
 		return nil, fmt.Errorf("tool %q is not available: its backend is not configured", name)
+	}
+	if p := argString(a, "profile"); p != "" {
+		if cfg.Profiles[p].Kind != "github" {
+			return nil, fmt.Errorf("profile %q is not a configured github profile", p)
+		}
+		scoped := *cfg
+		scoped.profile = p
+		cfg = &scoped
 	}
 	c, err := newKindClient(cfg, "github")
 	if err != nil {

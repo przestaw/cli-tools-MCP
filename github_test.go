@@ -16,6 +16,40 @@ func githubTestConfig(base string) *Config {
 	return cfg
 }
 
+func TestGitHubSecondAccountByProfile(t *testing.T) {
+	t.Setenv("TEST_GITHUB_TOKEN", "first")
+	t.Setenv("TEST_GITHUB_TOKEN_2", "second")
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header.Get("Authorization")+" "+r.URL.Path)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	cfg := githubTestConfig(srv.URL)
+	cfg.Profiles["work"] = Profile{Kind: "github", URL: srv.URL, TokenEnv: "TEST_GITHUB_TOKEN_2", VerifyTLS: true, DefaultRepo: "corp/svc"}
+	cfg.Defaults["github"] = "gh"
+	ctx := context.Background()
+	for _, args := range []map[string]any{{}, {"profile": "work"}} {
+		if _, err := callMCPTool(ctx, cfg, nil, nil, "github_get_repo", args); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg.profile = "work" // global --profile
+	if _, err := ghRepo(cfg, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := callMCPTool(ctx, cfg, nil, nil, "github_get_repo", nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "Bearer first /repos/acme/app|Bearer second /repos/corp/svc|Bearer second /repos/corp/svc"
+	if strings.Join(got, "|") != want {
+		t.Fatalf("requests = %v", got)
+	}
+	if _, err := callMCPTool(ctx, cfg, nil, nil, "github_get_repo", map[string]any{"profile": "nope"}); err == nil {
+		t.Fatal("unknown profile must be rejected")
+	}
+}
+
 func TestGitHubAuthHeadersAndPaths(t *testing.T) {
 	t.Setenv("TEST_GITHUB_TOKEN", "gh-secret")
 	var paths []string
