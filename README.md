@@ -128,6 +128,9 @@ workctl github file get --ref main docs/README.md
 `--repo` defaults to the github profile's `default_repo`. Lists return the first 100 items. Job logs are not offered: GitHub serves them
 from another host, which workctl refuses to follow with the token. Writes (`pr comment add`, `pr create`) need `allow_write`.
 
+Two accounts: `workctl github init --profile NAME` once per account (the first becomes `defaults.github`), then
+`workctl --profile NAME github ...` on the CLI, or `"profile": "NAME"` in any `github_*` / `pr_*` MCP call.
+
 ## Planned
 
 - **Implement `bitbucket` and `asana`:** replace the entry in `planned.go` with a real module and its MCP tools.

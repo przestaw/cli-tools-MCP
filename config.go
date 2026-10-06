@@ -51,6 +51,7 @@ type Config struct {
 	Policy         PolicyConfig       `json:"policy"`
 	MCP            MCPConfig          `json:"mcp"`
 	path           string
+	profile        string // --profile: replaces defaults.<kind> for the kind of that profile
 }
 
 func defaultConfig() *Config {
@@ -150,6 +151,9 @@ var prKinds = map[string]bool{"github": true, "gitlab": true, "azure": true}
 
 // profileOf picks defaults.<kind>, else the only profile of that kind; an empty kind means any pull request provider.
 func (c *Config) profileOf(kind string) (string, Profile, error) {
+	if p, ok := c.Profiles[c.profile]; ok && (p.Kind == kind || kind == "" && prKinds[p.Kind]) {
+		return c.profile, p, nil
+	}
 	if name := c.Defaults[kind]; name != "" {
 		return name, c.Profiles[name], nil
 	}

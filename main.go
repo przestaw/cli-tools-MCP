@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const version = "0.3.3"
+const version = "0.3.4"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence and GitLab
@@ -34,6 +34,7 @@ Usage:
 
 Global:
   --config FILE     config path (or WORKCTL_CONFIG)
+  --profile NAME    use this profile instead of defaults.<kind> for its kind
 
 Run workctl help or see README.md for command examples.
 `, version)
@@ -50,6 +51,7 @@ func run(args []string) error {
 	global := flag.NewFlagSet("workctl", flag.ContinueOnError)
 	global.SetOutput(os.Stderr)
 	configPath := global.String("config", "", "config file")
+	profile := global.String("profile", "", "profile to use instead of the default of its kind")
 	if err := global.Parse(args); err != nil {
 		return err
 	}
@@ -84,6 +86,12 @@ func run(args []string) error {
 	cfg, err := loadConfigOrDefault(*configPath)
 	if err != nil {
 		return err
+	}
+	if *profile != "" {
+		if _, ok := cfg.Profiles[*profile]; !ok {
+			return fmt.Errorf("profile %q is not configured", *profile)
+		}
+		cfg.profile = *profile
 	}
 	switch cmd {
 	case "doctor":
