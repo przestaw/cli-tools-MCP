@@ -55,6 +55,10 @@ the credential cannot be sent to another host).
 workctl --config C:\tools\workctl\workctl.json mcp
 ```
 
+VS Code: `scripts\install.ps1 -VSCode` (or `scripts/install.sh --vscode`) builds the binary into `~/.local/bin` and adds
+it to the VS Code user profile as the MCP server `workctl` (`workctl mcp`, default config path, tokens from the keyring).
+Then start it under **MCP: List Servers** and enable its tools in agent mode; restart it after changing the config.
+
 Tools: `azure` and `atlassian` (one each; the argument is the command line as an array, for example
 `["pr","get","123","-p","MyProject"]`), plus `jira_*`, `gitlab_*`, `github_*` and `task_get_context` for the backends that are
 configured. Write tools of `jira`/`gitlab`/`github` appear only with `allow_write`; the `azure`/`atlassian` tools refuse writes until then.
