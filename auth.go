@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -157,4 +158,39 @@ func resolveAuthProfileName(cfg *Config, requested string) string {
 		}
 	}
 	return ""
+}
+
+// cmdGitCredential is a git credential helper: git gets the profile token straight from the keyring.
+func cmdGitCredential(cfg *Config, args []string, in io.Reader, out io.Writer) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: workctl --profile NAME git-credential get")
+	}
+	if args[0] != "get" {
+		return nil // store/erase: the token is managed with `workctl auth`
+	}
+	profile, ok := cfg.Profiles[cfg.profile]
+	if !ok || !prKinds[profile.Kind] {
+		return fmt.Errorf("git-credential needs --profile with a github, gitlab or azure profile")
+	}
+	req := map[string]string{}
+	sc := bufio.NewScanner(in)
+	for sc.Scan() && sc.Text() != "" {
+		k, v, _ := strings.Cut(sc.Text(), "=")
+		req[k] = v
+	}
+	u, err := url.Parse(normalizeBaseURL(profile.URL))
+	if err != nil {
+		return err
+	}
+	// api.github.com serves the API; git talks to github.com.
+	if req["protocol"] != "https" || !strings.EqualFold(req["host"], strings.TrimPrefix(u.Host, "api.")) {
+		return nil
+	}
+	token, err := resolveProfileSecret(cfg.profile, profile)
+	if err != nil {
+		return err
+	}
+	user := map[string]string{"github": "x-access-token", "gitlab": "oauth2"}[profile.Kind]
+	_, err = fmt.Fprintf(out, "username=%s\npassword=%s\n", firstNonEmpty(user, "workctl"), token)
+	return err
 }

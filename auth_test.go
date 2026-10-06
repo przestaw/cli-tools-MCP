@@ -9,6 +9,30 @@ import (
 	"workctl/internal/secret"
 )
 
+func TestGitCredentialAnswersOnlyForItsHost(t *testing.T) {
+	t.Setenv("TEST_GH_CRED", "tok")
+	cfg := defaultConfig()
+	cfg.Profiles["gh"] = Profile{Kind: "github", URL: "https://api.github.com", TokenEnv: "TEST_GH_CRED"}
+	cfg.profile = "gh"
+	get := func(host string) string {
+		var out strings.Builder
+		if err := cmdGitCredential(cfg, []string{"get"}, strings.NewReader("protocol=https\nhost="+host+"\n\n"), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	if got := get("github.com"); got != "username=x-access-token\npassword=tok\n" {
+		t.Fatalf("github.com: %q", got)
+	}
+	if got := get("evil.example"); got != "" {
+		t.Fatalf("other host got a credential: %q", got)
+	}
+	cfg.profile = ""
+	if err := cmdGitCredential(cfg, []string{"get"}, strings.NewReader(""), &strings.Builder{}); err == nil {
+		t.Fatal("a profile must be required")
+	}
+}
+
 func TestAuthSetTokenAndStatusAndLogout(t *testing.T) {
 	keyring.MockInit()
 	dir := t.TempDir()
