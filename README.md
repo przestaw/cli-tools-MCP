@@ -59,7 +59,9 @@ Tools: `azure` and `atlassian` (one each; the argument is the command line as an
 `["pr","get","123","-p","MyProject"]`), plus `jira_*`, `gitlab_*`, `github_*` and `task_get_context` for the backends that are
 configured. Write tools of `jira`/`gitlab`/`github` appear only with `allow_write`; the `azure`/`atlassian` tools refuse writes until then.
 Each `azure`/`atlassian` call runs as a child process of workctl with its own timeout (`modules.timeout_seconds`).
-`examples/vscode-mcp-no-tokens.json` is a `.vscode/mcp.json` that needs no tokens in the file.
+`examples/vscode-mcp-no-tokens.json` is a `.vscode/mcp.json` that needs no tokens in the file. `examples/vscode-mcp.json` and
+`examples/generic-mcp.json` pass tokens as `WORKCTL_JIRA_TOKEN`/`WORKCTL_GITLAB_TOKEN`; that works only for profiles whose
+`token_env` has that name (the default written by `workctl jira|gitlab init`).
 
 The server speaks the legacy handshake-era MCP protocol on purpose; clients that probe `server/discover` fall back to
 `initialize`. Do not pin a client to modern-only mode.
