@@ -131,6 +131,19 @@ from another host, which workctl refuses to follow with the token. Writes (`pr c
 Two accounts: `workctl github init --profile NAME` once per account (the first becomes `defaults.github`), then
 `workctl --profile NAME github ...` on the CLI, or `"profile": "NAME"` in any `github_*` / `pr_*` MCP call.
 
+## Git push with a profile token
+
+`workctl --profile NAME git-credential get` is a git credential helper: git gets the token of a github, gitlab or azure
+profile straight from the keyring, only for https and the profile's host (`api.github.com` serves `github.com`). Per
+repository, replacing the global helper for that host:
+
+```powershell
+git config --add credential.https://github.com.helper '""'    # drop helpers configured globally
+git config --add credential.https://github.com.helper "!workctl --profile gmail git-credential"
+```
+
+It is a CLI command only; the MCP server does not offer it.
+
 ## Planned
 
 - **Implement `bitbucket` and `asana`:** replace the entry in `planned.go` with a real module and its MCP tools.
