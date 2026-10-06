@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const version = "0.3.5"
+const version = "0.3.6"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence and GitLab
@@ -31,6 +31,7 @@ Usage:
   workctl [--config FILE] pr|mr ...    provider-neutral pull/merge requests
   workctl [--config FILE] task ISSUE-KEY
   workctl [--config FILE] mcp
+  workctl --profile NAME git-credential get   git credential helper (token from the keyring)
 
 Global:
   --config FILE     config path (or WORKCTL_CONFIG)
@@ -129,6 +130,8 @@ func run(args []string) error {
 		return printBody(b)
 	case "mcp":
 		return runMCP(context.Background(), cfg)
+	case "git-credential":
+		return cmdGitCredential(cfg, rest, os.Stdin, os.Stdout)
 	default:
 		return fmt.Errorf("unknown command %q", cmd)
 	}
