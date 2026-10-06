@@ -14,22 +14,6 @@ type ListOptions struct {
 	Project    string
 	State      string
 	Search     string
-	Limit      int
-}
-
-// PullRequestWriter is implemented only by providers that can change pull requests.
-type PullRequestWriter interface {
-	CreatePullRequest(context.Context, CreateOptions) (PullRequest, error)
-}
-
-// CreateOptions holds the common data needed to open a pull request.
-type CreateOptions struct {
-	Repository   string
-	SourceBranch string
-	TargetBranch string
-	Title        string
-	Description  string
-	Draft        bool
 }
 
 // UnsupportedCapabilityError means that a provider intentionally does not implement an operation.
