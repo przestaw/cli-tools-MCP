@@ -126,7 +126,11 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 	name := firstNonEmpty(*profileFlag, cfg.Defaults[module], module)
 	p, ok := cfg.Profiles[name]
 	if !ok {
-		p = Profile{Kind: module, URL: s.defaultURL, Auth: s.auths[0], TokenEnv: "WORKCTL_" + strings.ToUpper(module) + "_TOKEN", VerifyTLS: true}
+		p = Profile{Kind: module, URL: s.defaultURL, Auth: s.auths[0], VerifyTLS: true}
+		if !cfg.has(module) {
+			// A second profile of the same kind must not share the first one's variable.
+			p.TokenEnv = "WORKCTL_" + strings.ToUpper(module) + "_TOKEN"
+		}
 	}
 	if p.Kind != module {
 		return fmt.Errorf("profile %q is %s, not %s", name, p.Kind, module)
