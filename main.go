@@ -8,15 +8,18 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	azureclient "workctl/internal/azure/client"
 )
 
-const version = "0.3.8"
+const version = "0.3.9"
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence and GitLab
+	fmt.Fprintf(os.Stdout, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence, GitLab and GitHub
 
 Usage:
   workctl [--config FILE] init [module...]   guided setup (alias: setup); tokens go to the OS keyring
@@ -76,7 +79,7 @@ func run(args []string) error {
 	case "init", "setup":
 		return cmdInit(*configPath, rest)
 	case "auth":
-		return cmdAuth(*configPath, rest)
+		return cmdAuth(*configPath, *profile, rest)
 	case "jira", "gitlab", "github":
 		if len(rest) > 0 && rest[0] == "init" {
 			return cmdEndpointInit(*configPath, cmd, rest[1:], nil)
@@ -94,47 +97,44 @@ func run(args []string) error {
 		}
 		cfg.profile = *profile
 	}
-	switch cmd {
-	case "doctor":
-		return cmdDoctor(cfg)
-	case "azure", "atlassian":
-		return cmdModule(cfg, cmd, rest)
-	case "jira":
-		return cmdJira(cfg, rest)
-	case "gitlab":
-		return cmdGitLab(cfg, rest)
-	case "github":
-		return cmdGitHub(cfg, rest)
-	case "pr", "mr":
-		return cmdPullRequest(cfg, rest)
-	case "bitbucket", "asana":
-		return cmdPlanned(cmd)
-	case "task":
-		if len(rest) != 1 {
-			return fmt.Errorf("usage: workctl task ISSUE-KEY")
-		}
-		jc, err := newKindClient(cfg, "jira")
-		if err != nil {
-			return err
-		}
-		gc, err := newKindClient(cfg, "gitlab")
-		if err != nil {
-			return err
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds*3)*time.Second)
-		defer cancel()
-		b, err := getTaskContext(ctx, cfg, jc, gc, rest[0])
-		if err != nil {
-			return err
-		}
-		return printBody(b)
-	case "mcp":
-		return runMCP(context.Background(), cfg)
-	case "git-credential":
-		return cmdGitCredential(cfg, rest, os.Stdin, os.Stdout)
-	default:
-		return fmt.Errorf("unknown command %q", cmd)
+	return dispatchCommand(cfg, cmd, rest)
+}
+
+func commandHandlers() map[string]func(*Config, []string) error {
+	handlers := map[string]func(*Config, []string) error{
+		"doctor": func(cfg *Config, _ []string) error { return cmdDoctor(cfg) },
+		"jira":   cmdJira, "gitlab": cmdGitLab, "github": cmdGitHub,
+		"pr": cmdPullRequest, "mr": cmdPullRequest, "task": cmdTask,
+		"mcp":            func(cfg *Config, _ []string) error { return runMCP(context.Background(), cfg) },
+		"git-credential": func(cfg *Config, args []string) error { return cmdGitCredential(cfg, args, os.Stdin, os.Stdout) },
 	}
+	for name := range cliModules {
+		handlers[name] = func(cfg *Config, args []string) error { return cmdModule(cfg, name, args) }
+	}
+	for name := range plannedModules {
+		handlers[name] = func(_ *Config, _ []string) error { return cmdPlanned(name) }
+	}
+	return handlers
+}
+
+func dispatchCommand(cfg *Config, name string, args []string) error {
+	if handler := commandHandlers()[name]; handler != nil {
+		return handler(cfg, args)
+	}
+	return fmt.Errorf("unknown command %q", name)
+}
+
+func cmdTask(cfg *Config, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: workctl task ISSUE-KEY")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds*3)*time.Second)
+	defer cancel()
+	body, err := getTaskContext(ctx, cfg, args[0])
+	if err != nil {
+		return err
+	}
+	return printBody(body)
 }
 
 func cmdConfig(path string, args []string) error {
@@ -166,66 +166,104 @@ func cmdConfig(path string, args []string) error {
 	}
 }
 
+type doctorCheck struct {
+	OK     bool   `json:"ok"`
+	Detail any    `json:"detail,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
 func cmdDoctor(cfg *Config) error {
-	type check struct {
-		OK     bool   `json:"ok"`
-		Detail any    `json:"detail,omitempty"`
-		Error  string `json:"error,omitempty"`
-	}
-	result := map[string]check{}
+	result := map[string]doctorCheck{}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
 	defer cancel()
-	if !cfg.has("jira") {
-		result["jira"] = check{OK: true, Detail: "not configured; skipped"}
-	} else if jc, err := newKindClient(cfg, "jira"); err != nil {
-		result["jira"] = check{Error: err.Error()}
-	} else {
-		info, e1 := jiraServerInfo(ctx, jc)
-		me, e2 := jiraMyself(ctx, jc)
-		if e1 != nil {
-			result["jira"] = check{Error: e1.Error()}
-		} else if e2 != nil {
-			result["jira"] = check{Error: e2.Error()}
+	allOK := true
+
+	names := make([]string, 0, len(cfg.Profiles))
+	for name := range cfg.Profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if cfg.Profiles[name].Kind == "atlassian" {
+			continue // Atlassian Cloud is verified via the embedded module below
+		}
+		detail, err := doctorCheckProfile(ctx, cfg, name, cfg.Profiles[name])
+		if err != nil {
+			result[name] = doctorCheck{Error: err.Error()}
+			allOK = false
 		} else {
-			result["jira"] = check{OK: true, Detail: map[string]json.RawMessage{"server": info, "user": me}}
+			result[name] = doctorCheck{OK: true, Detail: detail}
 		}
 	}
-	if !cfg.has("gitlab") {
-		result["gitlab"] = check{OK: true, Detail: "not configured; skipped"}
-	} else if gc, err := newKindClient(cfg, "gitlab"); err != nil {
-		result["gitlab"] = check{Error: err.Error()}
-	} else {
-		ver, e := gitlabVersion(ctx, gc)
-		if e != nil {
-			result["gitlab"] = check{Error: e.Error()}
-		} else {
-			result["gitlab"] = check{OK: true, Detail: json.RawMessage(ver)}
-		}
-	}
-	if !cfg.has("github") {
-		result["github"] = check{OK: true, Detail: "not configured; skipped"}
-	} else if hc, err := newKindClient(cfg, "github"); err != nil {
-		result["github"] = check{Error: err.Error()}
-	} else if u, e := githubUser(ctx, hc); e != nil {
-		result["github"] = check{Error: e.Error()}
-	} else {
-		result["github"] = check{OK: true, Detail: json.RawMessage(u)}
-	}
-	// The embedded CLIs report their own connectivity; this is informational and does not change the exit code.
+
+	// The embedded CLIs report their own connectivity; informational, does not change the exit code.
 	for _, name := range []string{"azure", "atlassian"} {
 		out, err := runModuleProcess(ctx, cfg, name, []string{"config", "test"})
+		key := name + " (module)"
 		if err != nil {
-			result[name] = check{Error: err.Error()}
+			result[key] = doctorCheck{Error: err.Error()}
 		} else {
-			result[name] = check{OK: true, Detail: strings.TrimSpace(string(out))}
+			result[key] = doctorCheck{OK: true, Detail: strings.TrimSpace(string(out))}
 		}
 	}
 	b, _ := json.MarshalIndent(result, "", "  ")
 	_ = printBody(b)
-	if !result["jira"].OK || !result["gitlab"].OK || !result["github"].OK {
+	if !allOK {
 		return fmt.Errorf("one or more connectivity checks failed")
 	}
 	return nil
+}
+
+// doctorCheckProfile makes one lightweight authenticated call and returns a compact identity detail.
+func doctorCheckProfile(ctx context.Context, cfg *Config, name string, profile Profile) (any, error) {
+	if profile.Kind == "azure" {
+		cred, err := resolveProfileSecret(name, profile)
+		if err != nil {
+			return nil, err
+		}
+		c := azureclient.New(azureclient.Options{OrgURL: profile.URL, Token: cred, Timeout: profileTimeout(cfg, profile), VerifyTLS: profile.VerifyTLS})
+		cd, err := c.ConnectionData(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"kind": "azure", "user": cd.AuthenticatedUser.ProviderDisplayName}, nil
+	}
+	c, err := newProfileClient(cfg, name, profile)
+	if err != nil {
+		return nil, err
+	}
+	switch profile.Kind {
+	case "github":
+		u, err := githubUser(ctx, c)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"kind": "github", "login": jsonField(u, "login")}, nil
+	case "gitlab":
+		ver, err := gitlabVersion(ctx, c)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"kind": "gitlab", "version": jsonField(ver, "version")}, nil
+	case "jira":
+		me, err := jiraMyself(ctx, c)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"kind": "jira", "user": firstNonEmpty(jsonField(me, "name"), jsonField(me, "displayName"))}, nil
+	default:
+		return nil, fmt.Errorf("unsupported profile kind %q", profile.Kind)
+	}
+}
+
+// jsonField returns one top-level string field of a JSON object, or "".
+func jsonField(b []byte, key string) string {
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return ""
+	}
+	s, _ := m[key].(string)
+	return s
 }
 
 func cmdJira(cfg *Config, args []string) error {

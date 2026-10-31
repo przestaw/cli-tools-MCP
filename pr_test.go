@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,6 +24,116 @@ func TestPRProfileRequiresExplicitChoiceForMultipleProfiles(t *testing.T) {
 	name, profile, err := prProfile(cfg, "azure", "azure")
 	if err != nil || name != "azure" || profile.Kind != "azure" {
 		t.Fatalf("profile = %q / %#v / %v", name, profile, err)
+	}
+}
+
+func TestPRStateMappingForEveryProvider(t *testing.T) {
+	t.Setenv("TEST_PR_TOKEN", "token")
+	for _, provider := range []string{"github", "gitlab", "azure"} {
+		for _, state := range []string{"open", "closed", "merged", "all"} {
+			t.Run(provider+"/"+state, func(t *testing.T) {
+				calls := 0
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls++
+					query := r.URL.Query()
+					switch provider {
+					case "github":
+						want := state
+						if state == "merged" {
+							want = "closed"
+						}
+						if query.Get("state") != want || query.Get("per_page") != "100" {
+							t.Error(query)
+						}
+						w.Write([]byte(`[{"number":1,"merged_at":"date"},{"number":2,"merged_at":null}]`))
+					case "gitlab":
+						want := state
+						if state == "open" {
+							want = "opened"
+						}
+						if query.Get("state") != want || query.Get("scope") != "all" || query.Get("per_page") != "100" {
+							t.Error(query)
+						}
+						w.Write([]byte(`[{"iid":3,"description":"body","author":{"username":"author"}}]`))
+					case "azure":
+						want := map[string]string{"open": "active", "closed": "abandoned", "merged": "completed", "all": "all"}[state]
+						if query.Get("searchCriteria.status") != want || !strings.Contains(r.URL.Path, "/Project/_apis/") {
+							t.Errorf("%s %v", r.URL.Path, query)
+						}
+						w.Write([]byte(`{"value":[{"pullRequestId":4,"title":"Title","description":"body","sourceRefName":"refs/heads/feat","targetRefName":"refs/heads/main","repository":{"name":"repo"}}]}`))
+					}
+				}))
+				defer srv.Close()
+				profile := Profile{Kind: provider, URL: srv.URL, TokenEnv: "TEST_PR_TOKEN", VerifyTLS: true, DefaultRepo: "o/r", DefaultProject: "Project"}
+				cfg := defaultConfig()
+				cfg.Profiles[provider] = profile
+				result, err := fetchPullRequests(context.Background(), cfg, provider, profile, "", "", "", state, 0)
+				if err != nil || calls != 1 {
+					t.Fatalf("result=%v calls=%d err=%v", result, calls, err)
+				}
+				if provider == "github" && state == "closed" && (len(result.Items) != 1 || result.Items[0].ID != 2) {
+					t.Fatal(result)
+				}
+				if provider == "github" && state == "merged" && (len(result.Items) != 1 || result.Items[0].ID != 1) {
+					t.Fatal(result)
+				}
+				if provider == "azure" && (result.Items[0].SourceBranch != "feat" || result.Items[0].TargetBranch != "main" || result.Items[0].Description != "body") {
+					t.Fatal(result)
+				}
+			})
+		}
+	}
+}
+
+func TestGitHubSearchEnvelopeAndStateFilter(t *testing.T) {
+	t.Setenv("TEST_PR_TOKEN", "token")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/search/issues" || !strings.Contains(r.URL.Query().Get("q"), "repo:o/r is:pr fix") {
+			t.Error(r.URL)
+		}
+		w.Write([]byte(`{"items":[{"number":1,"pull_request":{"merged_at":"date"}},{"number":2,"pull_request":{"merged_at":null}}]}`))
+	}))
+	defer srv.Close()
+	cfg := defaultConfig()
+	profile := Profile{Kind: "github", URL: srv.URL, TokenEnv: "TEST_PR_TOKEN", VerifyTLS: true, DefaultRepo: "o/r"}
+	for state, id := range map[string]int{"merged": 1, "closed": 2} {
+		result, err := fetchPullRequests(context.Background(), cfg, "gh", profile, "", "", "fix", state, 0)
+		if err != nil || len(result.Items) != 1 || result.Items[0].ID != id {
+			t.Fatalf("%s: %v %v", state, result, err)
+		}
+	}
+}
+
+func TestSinglePRResponseErrors(t *testing.T) {
+	requestErr := errors.New("request failed")
+	if _, err := singlePullRequest("github", "o/r", "not found", nil, requestErr); !errors.Is(err, requestErr) {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"github", "gitlab"} {
+		for _, body := range []string{`[]`, `null`, `not json`, `{}`, `{"number":1.5,"iid":1.5}`} {
+			if _, err := singlePullRequest(provider, "o/r", "not found", []byte(body), nil); err == nil {
+				t.Errorf("%s accepted %s", provider, body)
+			}
+		}
+	}
+}
+
+func TestAzurePRRequiresProjectAndFiltersSearch(t *testing.T) {
+	t.Setenv("TEST_PR_TOKEN", "token")
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`{"value":[{"pullRequestId":1,"title":"One","description":"MATCH"},{"pullRequestId":2,"title":"Two"}]}`))
+	}))
+	defer srv.Close()
+	cfg := defaultConfig()
+	profile := Profile{Kind: "azure", URL: srv.URL, TokenEnv: "TEST_PR_TOKEN", VerifyTLS: true}
+	if _, err := fetchPullRequests(context.Background(), cfg, "az", profile, "", "", "", "all", 0); err == nil || calls != 0 {
+		t.Fatalf("missing project: %v calls=%d", err, calls)
+	}
+	result, err := fetchPullRequests(context.Background(), cfg, "az", profile, "", "Explicit", "match", "all", 0)
+	if err != nil || len(result.Items) != 1 || result.Items[0].ID != 1 {
+		t.Fatalf("search: %v %v", result, err)
 	}
 }
 

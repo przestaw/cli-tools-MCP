@@ -82,7 +82,7 @@ workctl gitlab init          # --profile NAME for a second instance
 workctl github init
 workctl azure init           # same as `workctl azure config init`
 workctl atlassian init
-workctl auth set-token --profile NAME   # replace a token later; `auth status`, `auth logout`
+workctl auth set-token --profile NAME   # replace a token later; `auth status`, `auth logout`; `auth login` for cli profiles
 ```
 
 For scripts: `workctl jira init --non-interactive --url https://jira.example.com --token-stdin < token.txt`. A token is
@@ -101,6 +101,21 @@ Every connection is a named entry in `profiles` with `kind` (`jira`, `gitlab`, `
 `default_project`/`projects`. `defaults.<kind>` names the profile used when there is more than one of a kind. The token
 is read from `token_env`, then from the keyring (service `workctl`, account `<kind>:<profile>`).
 
+A `github` or `gitlab` profile may set `"backend": "cli"`: requests then go through `gh api` / `glab api`, which keep the login
+(no token in workctl). The URL must be `https://HOST` without a path, `verify_tls` must be `true`, and `token_env` and `ca_file` are
+refused. gh/glab environment overrides (`GH_TOKEN`, `GITLAB_TOKEN`, `GH_HOST`, ...) are not passed on. Source: `cli_backend.go`.
+
+```powershell
+workctl github init --profile personal --backend cli   # gh logs in on the terminal; no token is asked for
+workctl --profile personal auth login                  # log in again (and after switching accounts)
+workctl auth status                                    # "logged in as X via gh"
+```
+
+`init` and `auth login` store the logged-in account in the profile's `username`. A write (comment, create, edit) is refused
+when gh/glab is logged in as someone else; to move a profile to another account clear its `username` and log in again.
+`auth set-token` and `auth logout` do not apply to such a profile (use `gh auth logout`, which ends the session for every gh user).
+The login is one per host: two accounts on the same host need the native backend.
+
 Top-level `jira`/`gitlab`/`github` blocks (version 1) are rejected: move them into profiles. Tokens stored by version 1
 (account `<kind>:<url>`) are not read; store them again with `workctl auth set-token --profile NAME`.
 
@@ -118,6 +133,9 @@ want to be sure nothing touches your real config.
 
 ```powershell
 workctl github pr get 42 --repo owner/name
+workctl github pr reviewers 42       # requested reviewers (users and teams)
+workctl github pr edit 42 --add-reviewer user1,user2 --title "New title"
+workctl github pr create --head feat --base main --title "Feature" --reviewer user1,user2
 workctl github pr comments 42        # inline review threads; `discussion` is the conversation, `reviews` the verdicts
 workctl github pr checks 42
 workctl github pr list --state open --search "TASK-1234"
@@ -126,10 +144,10 @@ workctl github file get --ref main docs/README.md
 ```
 
 `--repo` defaults to the github profile's `default_repo`. Lists return the first 100 items. Job logs are not offered: GitHub serves them
-from another host, which workctl refuses to follow with the token. Writes (`pr comment add`, `pr create`) need `allow_write`.
+from another host, which workctl refuses to follow with the token. Writes (`pr comment add`, `pr create`, `pr edit`) need `allow_write`.
 
 Two accounts: `workctl github init --profile NAME` once per account (the first becomes `defaults.github`), then
-`workctl --profile NAME github ...` on the CLI, or `"profile": "NAME"` in any `github_*` / `pr_*` MCP call.
+`workctl --profile NAME github ...` on the CLI, or `"profile": "NAME"` in any `github_*`, `gitlab_*` or `pr_*` MCP call.
 
 ## Git push with a profile token
 

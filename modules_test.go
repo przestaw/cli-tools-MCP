@@ -224,7 +224,7 @@ func TestCallModuleReportsStderrOfAFailingCommand(t *testing.T) {
 
 func TestMCPToolCallConvertsNumbersAndUsesTheModule(t *testing.T) {
 	fakeChildProcess(t)
-	out, err := callMCPTool(context.Background(), defaultConfig(), nil, nil, "azure", map[string]any{
+	out, err := callMCPTool(context.Background(), defaultConfig(), "azure", map[string]any{
 		"args": []any{"pr", "get", float64(34438), "--json"},
 	})
 	if err != nil {
@@ -233,10 +233,10 @@ func TestMCPToolCallConvertsNumbersAndUsesTheModule(t *testing.T) {
 	if !strings.Contains(string(out), "azure|pr|get|34438|--json|--no-color") {
 		t.Fatalf("child saw %q", out)
 	}
-	if _, err := callMCPTool(context.Background(), defaultConfig(), nil, nil, "azure", map[string]any{"args": []any{"pr", map[string]any{}}}); err == nil {
+	if _, err := callMCPTool(context.Background(), defaultConfig(), "azure", map[string]any{"args": []any{"pr", map[string]any{}}}); err == nil {
 		t.Fatal("a non-scalar argument must be rejected")
 	}
-	if _, err := callMCPTool(context.Background(), defaultConfig(), nil, nil, "azure", map[string]any{}); err == nil {
+	if _, err := callMCPTool(context.Background(), defaultConfig(), "azure", map[string]any{}); err == nil {
 		t.Fatal("empty args must be rejected")
 	}
 }

@@ -47,16 +47,17 @@ func githubPRPath(repo string, n int, tail string) string {
 	return fmt.Sprintf("/repos/%s/pulls/%d%s", repo, n, tail)
 }
 
-func githubGetPR(ctx context.Context, c *APIClient, repo string, n int) ([]byte, error) {
-	return githubGet(ctx, c, githubPRPath(repo, n, ""), nil)
-}
-
 func githubPRFiles(ctx context.Context, c *APIClient, repo string, n int) ([]byte, error) {
 	return githubGet(ctx, c, githubPRPath(repo, n, "/files"), perPage100())
 }
 
 func githubPRReviews(ctx context.Context, c *APIClient, repo string, n int) ([]byte, error) {
 	return githubGet(ctx, c, githubPRPath(repo, n, "/reviews"), perPage100())
+}
+
+// githubPRRequestedReviewers lists the requested reviewers and teams of a pull request.
+func githubPRRequestedReviewers(ctx context.Context, c *APIClient, repo string, n int) ([]byte, error) {
+	return githubGet(ctx, c, githubPRPath(repo, n, "/requested_reviewers"), perPage100())
 }
 
 // githubPRComments are the inline review comments (the threads on the diff).
@@ -84,27 +85,6 @@ func githubPRChecks(ctx context.Context, c *APIClient, repo string, n int) ([]by
 		return nil, fmt.Errorf("pull request %d has no head commit", n)
 	}
 	return githubGet(ctx, c, "/repos/"+repo+"/commits/"+url.PathEscape(pr.Head.SHA)+"/check-runs", perPage100())
-}
-
-func githubListPRs(ctx context.Context, c *APIClient, repo, search, state string) ([]byte, error) {
-	if state == "" {
-		state = "all"
-	}
-	if search == "" {
-		q := perPage100()
-		q.Set("state", state)
-		return githubGet(ctx, c, "/repos/"+repo+"/pulls", q)
-	}
-	query := "repo:" + repo + " is:pr " + search
-	switch state {
-	case "open", "closed":
-		query += " is:" + state
-	case "merged":
-		query += " is:merged"
-	}
-	q := perPage100()
-	q.Set("q", query)
-	return githubGet(ctx, c, "/search/issues", q)
 }
 
 func githubListBranches(ctx context.Context, c *APIClient, repo, search string) ([]byte, error) {
@@ -161,9 +141,95 @@ func githubAddComment(ctx context.Context, c *APIClient, repo string, n int, tex
 	return bodyOnly(c.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, n), nil, payload, "application/json"))
 }
 
-func githubCreatePR(ctx context.Context, c *APIClient, repo, head, base, title, body string, draft bool) ([]byte, error) {
+func githubRequestReviewers(ctx context.Context, c *APIClient, repo string, n int, reviewers []string) ([]byte, error) {
+	payload, _ := json.Marshal(map[string]any{"reviewers": reviewers})
+	return bodyOnly(c.do(ctx, http.MethodPost, githubPRPath(repo, n, "/requested_reviewers"), nil, payload, "application/json"))
+}
+
+func githubRemoveReviewers(ctx context.Context, c *APIClient, repo string, n int, reviewers []string) ([]byte, error) {
+	payload, _ := json.Marshal(map[string]any{"reviewers": reviewers})
+	return bodyOnly(c.do(ctx, http.MethodDelete, githubPRPath(repo, n, "/requested_reviewers"), nil, payload, "application/json"))
+}
+
+func githubEditPR(ctx context.Context, c *APIClient, repo string, n int, fields map[string]any) ([]byte, error) {
+	payload, _ := json.Marshal(fields)
+	return bodyOnly(c.do(ctx, http.MethodPatch, githubPRPath(repo, n, ""), nil, payload, "application/json"))
+}
+
+func githubPREditFields(title, body, base, state string) map[string]any {
+	fields := map[string]any{}
+	for key, value := range map[string]string{"title": title, "body": body, "base": base, "state": state} {
+		if value != "" {
+			fields[key] = value
+		}
+	}
+	return fields
+}
+
+func githubApplyPREdit(ctx context.Context, c *APIClient, repo string, id int, fields map[string]any, add, remove []string) ([]byte, error) {
+	var last []byte
+	var err error
+	if len(fields) > 0 {
+		last, err = githubEditPR(ctx, c, repo, id, fields)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, operation := range []struct {
+		users []string
+		call  func(context.Context, *APIClient, string, int, []string) ([]byte, error)
+	}{{add, githubRequestReviewers}, {remove, githubRemoveReviewers}} {
+		if len(operation.users) > 0 {
+			last, err = operation.call(ctx, c, repo, id, operation.users)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return last, nil
+}
+
+func githubCreatePR(ctx context.Context, c *APIClient, repo, head, base, title, body string, draft bool, reviewers []string) ([]byte, error) {
 	payload, _ := json.Marshal(map[string]any{"head": head, "base": base, "title": title, "body": body, "draft": draft})
-	return bodyOnly(c.do(ctx, http.MethodPost, "/repos/"+repo+"/pulls", nil, payload, "application/json"))
+	res, err := bodyOnly(c.do(ctx, http.MethodPost, "/repos/"+repo+"/pulls", nil, payload, "application/json"))
+	if err != nil || len(reviewers) == 0 {
+		return res, err
+	}
+	var created struct {
+		Number int `json:"number"`
+	}
+	if err := json.Unmarshal(res, &created); err == nil && created.Number > 0 {
+		if _, revErr := githubRequestReviewers(ctx, c, repo, created.Number, reviewers); revErr != nil {
+			return res, fmt.Errorf("created pull request #%d, but failed to request reviewers: %w", created.Number, revErr)
+		}
+	}
+	return res, nil
+}
+
+func splitCommaList(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var res []string
+	for _, item := range strings.Split(s, ",") {
+		if t := strings.TrimSpace(item); t != "" {
+			res = append(res, t)
+		}
+	}
+	return res
+}
+
+// reorderIDToBack moves a leading integer argument to the back so flag.FlagSet can parse flags that follow it.
+func reorderIDToBack(args []string) []string {
+	if len(args) > 1 && !strings.HasPrefix(args[0], "-") {
+		if _, err := strconv.Atoi(args[0]); err == nil {
+			res := make([]string, 0, len(args))
+			res = append(res, args[1:]...)
+			res = append(res, args[0])
+			return res
+		}
+	}
+	return args
 }
 
 func repoFlagSet(name string) (*flag.FlagSet, *string) {
@@ -184,7 +250,7 @@ func cmdGitHub(cfg *Config, args []string) error {
 	// idCommand parses `<name> <action> [--repo R] ID` and calls fn.
 	idCommand := func(name string, rest []string, fn func(repo string, id int) ([]byte, error)) error {
 		fs, r := repoFlagSet("github " + name)
-		if err := fs.Parse(rest); err != nil {
+		if err := fs.Parse(reorderIDToBack(rest)); err != nil {
 			return err
 		}
 		if fs.NArg() != 1 {
@@ -291,94 +357,154 @@ func cmdGitHub(cfg *Config, args []string) error {
 	}
 }
 
+type githubPRRead struct {
+	tool string
+	read func(context.Context, *APIClient, string, int) ([]byte, error)
+}
+
+var githubPRReads = map[string]githubPRRead{
+	"get":        {"github_get_pull_request", githubGetPR},
+	"files":      {"github_get_pull_request_files", githubPRFiles},
+	"reviews":    {"github_get_pull_request_reviews", githubPRReviews},
+	"reviewers":  {"github_get_pull_request_reviewers", githubPRRequestedReviewers},
+	"comments":   {"github_get_pull_request_comments", githubPRComments},
+	"discussion": {"github_get_pull_request_discussion", githubPRDiscussion},
+	"checks":     {"github_get_pull_request_checks", githubPRChecks},
+}
+
 func cmdGitHubPR(ctx context.Context, c *APIClient, cfg *Config, args []string, idCommand func(string, []string, func(string, int) ([]byte, error)) error) error {
 	if len(args) == 0 {
-		return fmt.Errorf("pr actions: get, files, reviews, comments, discussion, checks, list, comment, create")
+		return fmt.Errorf("pr actions: get, files, reviews, reviewers, comments, discussion, checks, list, comment, create, edit")
 	}
 	action, rest := args[0], args[1:]
-	reads := map[string]func(string, int) ([]byte, error){
-		"get":        func(r string, n int) ([]byte, error) { return githubGetPR(ctx, c, r, n) },
-		"files":      func(r string, n int) ([]byte, error) { return githubPRFiles(ctx, c, r, n) },
-		"reviews":    func(r string, n int) ([]byte, error) { return githubPRReviews(ctx, c, r, n) },
-		"comments":   func(r string, n int) ([]byte, error) { return githubPRComments(ctx, c, r, n) },
-		"discussion": func(r string, n int) ([]byte, error) { return githubPRDiscussion(ctx, c, r, n) },
-		"checks":     func(r string, n int) ([]byte, error) { return githubPRChecks(ctx, c, r, n) },
+	if entry, ok := githubPRReads[action]; ok {
+		return idCommand("pr "+action, rest, func(repo string, id int) ([]byte, error) { return entry.read(ctx, c, repo, id) })
 	}
-	if fn, ok := reads[action]; ok {
-		return idCommand("pr "+action, rest, fn)
+	handlers := map[string]func(context.Context, *APIClient, *Config, []string) error{
+		"list": cmdGitHubPRList, "comment": cmdGitHubPRComment,
+		"create": cmdGitHubPRCreate, "edit": cmdGitHubPREdit,
 	}
-	switch action {
-	case "list":
-		fs, r := repoFlagSet("github pr list")
-		search := fs.String("search", "", "search text")
-		state := fs.String("state", "all", "open, closed, merged or all")
-		if err := fs.Parse(rest); err != nil {
-			return err
-		}
-		repo, err := ghRepo(cfg, *r)
-		if err != nil {
-			return err
-		}
-		b, err := githubListPRs(ctx, c, repo, *search, *state)
-		if err != nil {
-			return err
-		}
-		return printBody(b)
-	case "comment":
-		if len(rest) < 1 || rest[0] != "add" {
-			return fmt.Errorf("usage: github pr comment add [--repo R] --body TEXT NUMBER")
-		}
-		if err := requireWrite(cfg); err != nil {
-			return err
-		}
-		fs, r := repoFlagSet("github pr comment add")
-		body := fs.String("body", "", "comment body")
-		if err := fs.Parse(rest[1:]); err != nil {
-			return err
-		}
-		if fs.NArg() != 1 || *body == "" {
-			return fmt.Errorf("NUMBER and --body required")
-		}
-		n, err := strconv.Atoi(fs.Arg(0))
-		if err != nil {
-			return err
-		}
-		repo, err := ghRepo(cfg, *r)
-		if err != nil {
-			return err
-		}
-		b, err := githubAddComment(ctx, c, repo, n, *body)
-		if err != nil {
-			return err
-		}
-		return printBody(b)
-	case "create":
-		if err := requireWrite(cfg); err != nil {
-			return err
-		}
-		fs, r := repoFlagSet("github pr create")
-		head := fs.String("head", "", "source branch (or owner:branch)")
-		base := fs.String("base", "main", "target branch")
-		title := fs.String("title", "", "title")
-		body := fs.String("body", "", "description")
-		draft := fs.Bool("draft", true, "create a draft pull request")
-		if err := fs.Parse(rest); err != nil {
-			return err
-		}
-		if *head == "" || *title == "" {
-			return fmt.Errorf("--head and --title required")
-		}
-		repo, err := ghRepo(cfg, *r)
-		if err != nil {
-			return err
-		}
-		b, err := githubCreatePR(ctx, c, repo, *head, *base, *title, *body, *draft)
-		if err != nil {
-			return err
-		}
-		return printBody(b)
+	if handler := handlers[action]; handler != nil {
+		return handler(ctx, c, cfg, rest)
 	}
 	return fmt.Errorf("unknown pr action %q", action)
+}
+
+func cmdGitHubPRList(ctx context.Context, c *APIClient, cfg *Config, rest []string) error {
+	fs, r := repoFlagSet("github pr list")
+	search := fs.String("search", "", "search text")
+	state := fs.String("state", "all", "open, closed, merged or all")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	repo, err := ghRepo(cfg, *r)
+	if err != nil {
+		return err
+	}
+	b, err := githubListPRs(ctx, c, repo, *search, *state)
+	if err != nil {
+		return err
+	}
+	return printBody(b)
+}
+
+func cmdGitHubPRComment(ctx context.Context, c *APIClient, cfg *Config, rest []string) error {
+	if len(rest) < 1 || rest[0] != "add" {
+		return fmt.Errorf("usage: github pr comment add [--repo R] --body TEXT NUMBER")
+	}
+	if err := requireWrite(cfg); err != nil {
+		return err
+	}
+	fs, r := repoFlagSet("github pr comment add")
+	body := fs.String("body", "", "comment body")
+	if err := fs.Parse(reorderIDToBack(rest[1:])); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 || *body == "" {
+		return fmt.Errorf("NUMBER and --body required")
+	}
+	n, err := strconv.Atoi(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	repo, err := ghRepo(cfg, *r)
+	if err != nil {
+		return err
+	}
+	b, err := githubAddComment(ctx, c, repo, n, *body)
+	if err != nil {
+		return err
+	}
+	return printBody(b)
+}
+
+func cmdGitHubPRCreate(ctx context.Context, c *APIClient, cfg *Config, rest []string) error {
+	if err := requireWrite(cfg); err != nil {
+		return err
+	}
+	fs, r := repoFlagSet("github pr create")
+	head := fs.String("head", "", "source branch (or owner:branch)")
+	base := fs.String("base", "main", "target branch")
+	title := fs.String("title", "", "title")
+	body := fs.String("body", "", "description")
+	draft := fs.Bool("draft", true, "create a draft pull request")
+	reviewer := fs.String("reviewer", "", "comma-separated reviewers to request")
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	if *head == "" || *title == "" {
+		return fmt.Errorf("--head and --title required")
+	}
+	repo, err := ghRepo(cfg, *r)
+	if err != nil {
+		return err
+	}
+	b, err := githubCreatePR(ctx, c, repo, *head, *base, *title, *body, *draft, splitCommaList(*reviewer))
+	if err != nil {
+		return err
+	}
+	return printBody(b)
+}
+
+func cmdGitHubPREdit(ctx context.Context, c *APIClient, cfg *Config, rest []string) error {
+	if err := requireWrite(cfg); err != nil {
+		return err
+	}
+	fs, r := repoFlagSet("github pr edit")
+	title := fs.String("title", "", "new title")
+	body := fs.String("body", "", "new description")
+	base := fs.String("base", "", "new target branch")
+	state := fs.String("state", "", "state: open or closed")
+	addReviewers := fs.String("add-reviewer", "", "comma-separated reviewers to add")
+	removeReviewers := fs.String("remove-reviewer", "", "comma-separated reviewers to remove")
+	if err := fs.Parse(reorderIDToBack(rest)); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("usage: github pr edit [--repo R] [--title T] [--body B] [--base B] [--state open|closed] [--add-reviewer USERS] [--remove-reviewer USERS] NUMBER")
+	}
+	n, err := strconv.Atoi(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	repo, err := ghRepo(cfg, *r)
+	if err != nil {
+		return err
+	}
+	fields := githubPREditFields(*title, *body, *base, *state)
+	if *state != "" {
+		if *state != "open" && *state != "closed" {
+			return fmt.Errorf("invalid state %q, expected open or closed", *state)
+		}
+	}
+	if len(fields) == 0 && *addReviewers == "" && *removeReviewers == "" {
+		return fmt.Errorf("at least one edit flag is required (--title, --body, --base, --state, --add-reviewer, --remove-reviewer)")
+	}
+	lastResult, err := githubApplyPREdit(ctx, c, repo, n, fields, splitCommaList(*addReviewers), splitCommaList(*removeReviewers))
+	if err != nil {
+		return err
+	}
+	return printBody(lastResult)
 }
 
 // githubTools are the MCP tools of the GitHub module; write tools exist only with policy.allow_write.
@@ -391,6 +517,7 @@ func githubTools(cfg *Config) []mcpTool {
 		{"github_get_pull_request", "Get a GitHub pull request.", byNum},
 		{"github_get_pull_request_files", "Get the changed files and patches of a pull request.", byNum},
 		{"github_get_pull_request_reviews", "Get the reviews (approve, request changes, comment) of a pull request.", byNum},
+		{"github_get_pull_request_reviewers", "Get requested reviewers (users and teams) of a pull request.", byNum},
 		{"github_get_pull_request_comments", "Get the inline review comments (threads on the diff) of a pull request.", byNum},
 		{"github_get_pull_request_discussion", "Get the conversation comments of a pull request.", byNum},
 		{"github_get_pull_request_checks", "Get the check runs of the head commit of a pull request.", byNum},
@@ -404,27 +531,19 @@ func githubTools(cfg *Config) []mcpTool {
 	if cfg.Policy.AllowWrite {
 		tools = append(tools,
 			mcpTool{"github_add_pull_request_comment", "Add a comment to a pull request. Enabled only when policy.allow_write=true.", objSchema(map[string]any{"repo": repo, "number": num, "body": strProp("Comment body")}, "number", "body")},
-			mcpTool{"github_create_pull_request", "Create a pull request. Enabled only when policy.allow_write=true.", objSchema(map[string]any{"repo": repo, "head": strProp("Source branch"), "base": strProp("Target branch"), "title": strProp("Title"), "body": strProp("Description"), "draft": boolProp("Create as draft")}, "head", "base", "title")},
+			mcpTool{"github_create_pull_request", "Create a pull request. Enabled only when policy.allow_write=true.", objSchema(map[string]any{"repo": repo, "head": strProp("Source branch"), "base": strProp("Target branch"), "title": strProp("Title"), "body": strProp("Description"), "draft": boolProp("Create as draft"), "reviewers": strProp("Comma-separated reviewer usernames")}, "head", "base", "title")},
+			mcpTool{"github_request_reviewers", "Request reviewers for a pull request. Enabled only when policy.allow_write=true.", objSchema(map[string]any{"repo": repo, "number": num, "reviewers": strProp("Comma-separated reviewer usernames")}, "number", "reviewers")},
+			mcpTool{"github_edit_pull_request", "Edit a pull request title, body, state, base or reviewers. Enabled only when policy.allow_write=true.", objSchema(map[string]any{"repo": repo, "number": num, "title": strProp("New title"), "body": strProp("New description"), "base": strProp("New base branch"), "state": strProp("open or closed"), "add_reviewers": strProp("Comma-separated reviewer usernames to add"), "remove_reviewers": strProp("Comma-separated reviewer usernames to remove")}, "number")},
 		)
 	}
-	profile := strProp("GitHub profile (account); omit to use defaults.github")
-	for _, t := range tools {
-		t.InputSchema["properties"].(map[string]any)["profile"] = profile
-	}
+	withProfileArg(tools, "github_", "GitHub profile (account); omit to use defaults.github")
 	return tools
 }
 
 func callGitHubTool(ctx context.Context, cfg *Config, name string, a map[string]any) ([]byte, error) {
-	if !toolAvailable(cfg, name) {
-		return nil, fmt.Errorf("tool %q is not available: its backend is not configured", name)
-	}
-	if p := argString(a, "profile"); p != "" {
-		if cfg.Profiles[p].Kind != "github" {
-			return nil, fmt.Errorf("profile %q is not a configured github profile", p)
-		}
-		scoped := *cfg
-		scoped.profile = p
-		cfg = &scoped
+	cfg, err := scopedConfig(cfg, a, "github")
+	if err != nil {
+		return nil, err
 	}
 	c, err := newKindClient(cfg, "github")
 	if err != nil {
@@ -435,21 +554,14 @@ func callGitHubTool(ctx context.Context, cfg *Config, name string, a map[string]
 		return nil, err
 	}
 	n, id := argInt(a, "number", 0), argInt(a, "id", 0)
+	for _, entry := range githubPRReads {
+		if entry.tool == name {
+			return entry.read(ctx, c, repo, n)
+		}
+	}
 	switch name {
 	case "github_get_repo":
 		return githubGetRepo(ctx, c, repo)
-	case "github_get_pull_request":
-		return githubGetPR(ctx, c, repo, n)
-	case "github_get_pull_request_files":
-		return githubPRFiles(ctx, c, repo, n)
-	case "github_get_pull_request_reviews":
-		return githubPRReviews(ctx, c, repo, n)
-	case "github_get_pull_request_comments":
-		return githubPRComments(ctx, c, repo, n)
-	case "github_get_pull_request_discussion":
-		return githubPRDiscussion(ctx, c, repo, n)
-	case "github_get_pull_request_checks":
-		return githubPRChecks(ctx, c, repo, n)
 	case "github_list_pull_requests":
 		return githubListPRs(ctx, c, repo, argString(a, "search"), argString(a, "state"))
 	case "github_list_workflow_runs":
@@ -471,7 +583,25 @@ func callGitHubTool(ctx context.Context, cfg *Config, name string, a map[string]
 		if err := requireWrite(cfg); err != nil {
 			return nil, err
 		}
-		return githubCreatePR(ctx, c, repo, argString(a, "head"), argString(a, "base"), argString(a, "title"), argString(a, "body"), argBool(a, "draft"))
+		return githubCreatePR(ctx, c, repo, argString(a, "head"), argString(a, "base"), argString(a, "title"), argString(a, "body"), argBool(a, "draft"), splitCommaList(argString(a, "reviewers")))
+	case "github_request_reviewers":
+		if err := requireWrite(cfg); err != nil {
+			return nil, err
+		}
+		return githubRequestReviewers(ctx, c, repo, n, splitCommaList(argString(a, "reviewers")))
+	case "github_edit_pull_request":
+		if err := requireWrite(cfg); err != nil {
+			return nil, err
+		}
+		fields := githubPREditFields(argString(a, "title"), argString(a, "body"), argString(a, "base"), argString(a, "state"))
+		last, err := githubApplyPREdit(ctx, c, repo, n, fields, splitCommaList(argString(a, "add_reviewers")), splitCommaList(argString(a, "remove_reviewers")))
+		if err != nil {
+			return nil, err
+		}
+		if last == nil {
+			return nil, fmt.Errorf("at least one of title, body, base, state, add_reviewers or remove_reviewers must be provided")
+		}
+		return last, nil
 	}
 	return nil, fmt.Errorf("unknown tool %q", name)
 }

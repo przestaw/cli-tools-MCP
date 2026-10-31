@@ -107,6 +107,42 @@ func TestGitLabPrivateTokenAndEscapedProject(t *testing.T) {
 	}
 }
 
+func TestGitLabToolsUseTheProfileOfTheCall(t *testing.T) {
+	t.Setenv("TEST_GL_A", "token-a")
+	t.Setenv("TEST_GL_B", "token-b")
+	var hits []string
+	server := func(name string) string {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits = append(hits, name+" "+r.Header.Get("PRIVATE-TOKEN")+" "+r.URL.EscapedPath())
+			_, _ = w.Write([]byte(`{}`))
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+	cfg := defaultConfig()
+	cfg.Profiles["a"] = Profile{Kind: "gitlab", URL: server("A"), TokenEnv: "TEST_GL_A", VerifyTLS: true, DefaultProject: "g/a"}
+	cfg.Profiles["b"] = Profile{Kind: "gitlab", URL: server("B"), TokenEnv: "TEST_GL_B", VerifyTLS: true, DefaultProject: "g/b"}
+	cfg.Defaults["gitlab"] = "a"
+
+	ctx := context.Background()
+	for _, args := range []map[string]any{{}, {"profile": "b"}} {
+		if _, err := callMCPTool(ctx, cfg, "gitlab_get_project", args); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := "A token-a /api/v4/projects/g%2Fa|B token-b /api/v4/projects/g%2Fb"; strings.Join(hits, "|") != want {
+		t.Fatalf("requests = %v", hits)
+	}
+	if _, err := callMCPTool(ctx, cfg, "gitlab_get_project", map[string]any{"profile": "nope"}); err == nil {
+		t.Fatal("unknown profile accepted")
+	}
+	for _, tool := range mcpTools(cfg) {
+		if strings.HasPrefix(tool.Name, "gitlab_") && tool.InputSchema["properties"].(map[string]any)["profile"] == nil {
+			t.Errorf("%s has no profile argument", tool.Name)
+		}
+	}
+}
+
 func TestTaskContextAggregatesJiraBranchesAndMRs(t *testing.T) {
 	t.Setenv("TEST_JIRA_TOKEN", "jira-secret")
 	t.Setenv("TEST_GITLAB_TOKEN", "gl-secret")
@@ -124,9 +160,7 @@ func TestTaskContextAggregatesJiraBranchesAndMRs(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := testConfig(srv.URL)
-	jc, _ := newKindClient(cfg, "jira")
-	gc, _ := newKindClient(cfg, "gitlab")
-	b, err := getTaskContext(context.Background(), cfg, jc, gc, "DEMO-1")
+	b, err := getTaskContext(context.Background(), cfg, "DEMO-1")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,11 +21,6 @@ func gitlabGetProject(ctx context.Context, c *APIClient, project string) ([]byte
 	return bodyOnly(c.do(ctx, http.MethodGet, "/api/v4/projects/"+glProjectID(project), nil, nil, ""))
 }
 
-func gitlabGetMR(ctx context.Context, c *APIClient, project string, iid int) ([]byte, error) {
-	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d", glProjectID(project), iid)
-	return bodyOnly(c.do(ctx, http.MethodGet, p, nil, nil, ""))
-}
-
 func gitlabGetMRChanges(ctx context.Context, c *APIClient, project string, iid int) ([]byte, error) {
 	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/changes", glProjectID(project), iid)
 	return bodyOnly(c.do(ctx, http.MethodGet, p, nil, nil, ""))
@@ -90,20 +85,6 @@ func gitlabListBranches(ctx context.Context, c *APIClient, project, search strin
 	return bodyOnly(c.do(ctx, http.MethodGet, p, q, nil, ""))
 }
 
-func gitlabListMRs(ctx context.Context, c *APIClient, project, search, state string) ([]byte, error) {
-	q := url.Values{"per_page": {"100"}, "scope": {"all"}}
-	if search != "" {
-		q.Set("search", search)
-	}
-	if state != "" {
-		q.Set("state", state)
-	} else {
-		q.Set("state", "all")
-	}
-	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests", glProjectID(project))
-	return bodyOnly(c.do(ctx, http.MethodGet, p, q, nil, ""))
-}
-
 func gitlabGetFile(ctx context.Context, c *APIClient, project, filePath, ref string) ([]byte, error) {
 	if ref == "" {
 		ref = "HEAD"
@@ -115,6 +96,59 @@ func gitlabGetFile(ctx context.Context, c *APIClient, project, filePath, ref str
 
 func gitlabVersion(ctx context.Context, c *APIClient) ([]byte, error) {
 	return bodyOnly(c.do(ctx, http.MethodGet, "/api/v4/version", nil, nil, ""))
+}
+
+// callGitLabTool runs one gitlab_* MCP tool against the profile named by the call (default: defaults.gitlab).
+// The client is made per call, so a missing login fails only these tools.
+func callGitLabTool(ctx context.Context, cfg *Config, name string, a map[string]any) ([]byte, error) {
+	cfg, err := scopedConfig(cfg, a, "gitlab")
+	if err != nil {
+		return nil, err
+	}
+	project, err := glProject(cfg, argString(a, "project"))
+	if err != nil {
+		return nil, err
+	}
+	c, err := newKindClient(cfg, "gitlab")
+	if err != nil {
+		return nil, err
+	}
+	iid, id := argInt(a, "iid", 0), argInt(a, "id", 0)
+	switch name {
+	case "gitlab_get_project":
+		return gitlabGetProject(ctx, c, project)
+	case "gitlab_get_merge_request":
+		return gitlabGetMR(ctx, c, project, iid)
+	case "gitlab_get_merge_request_changes":
+		return gitlabGetMRChanges(ctx, c, project, iid)
+	case "gitlab_get_merge_request_notes":
+		return gitlabGetMRNotes(ctx, c, project, iid)
+	case "gitlab_list_merge_requests":
+		return gitlabListMRs(ctx, c, project, argString(a, "search"), argString(a, "state"))
+	case "gitlab_list_pipelines":
+		return gitlabListPipelines(ctx, c, project, argString(a, "ref"), argInt(a, "per_page", 30))
+	case "gitlab_get_pipeline":
+		return gitlabGetPipeline(ctx, c, project, id)
+	case "gitlab_get_pipeline_jobs":
+		return gitlabListPipelineJobs(ctx, c, project, id)
+	case "gitlab_get_job_trace":
+		return gitlabJobTrace(ctx, c, project, argInt(a, "job_id", 0))
+	case "gitlab_list_branches":
+		return gitlabListBranches(ctx, c, project, argString(a, "search"))
+	case "gitlab_get_file":
+		return gitlabGetFile(ctx, c, project, argString(a, "path"), argString(a, "ref"))
+	case "gitlab_add_merge_request_note":
+		if err := requireWrite(cfg); err != nil {
+			return nil, err
+		}
+		return gitlabAddMRNote(ctx, c, project, iid, argString(a, "body"))
+	case "gitlab_create_merge_request":
+		if err := requireWrite(cfg); err != nil {
+			return nil, err
+		}
+		return gitlabCreateMR(ctx, c, project, argString(a, "source"), argString(a, "target"), argString(a, "title"), argString(a, "description"), argBool(a, "draft"))
+	}
+	return nil, fmt.Errorf("unknown tool %q", name)
 }
 
 type taskProjectContext struct {
@@ -131,7 +165,16 @@ type taskContext struct {
 	Errors []string             `json:"errors,omitempty"`
 }
 
-func getTaskContext(ctx context.Context, cfg *Config, jc, gc *APIClient, key string) ([]byte, error) {
+// getTaskContext collects the Jira issue and the matching GitLab branches and merge requests of the default profiles.
+func getTaskContext(ctx context.Context, cfg *Config, key string) ([]byte, error) {
+	jc, err := newKindClient(cfg, "jira")
+	if err != nil {
+		return nil, err
+	}
+	gc, err := newKindClient(cfg, "gitlab")
+	if err != nil {
+		return nil, err
+	}
 	out := taskContext{Key: key}
 	issue, err := jiraGetIssue(ctx, jc, key, nil)
 	if err != nil {

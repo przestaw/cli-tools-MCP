@@ -61,6 +61,31 @@ func jiraDoTransition(ctx context.Context, c *APIClient, key, id string) ([]byte
 
 func bodyOnly(b []byte, _ string, err error) ([]byte, error) { return b, err }
 
+// callJiraTool runs one jira_* MCP tool. The client is made per call, so a missing login fails only these tools.
+func callJiraTool(ctx context.Context, cfg *Config, name string, a map[string]any) ([]byte, error) {
+	c, err := newKindClient(cfg, "jira")
+	if err != nil {
+		return nil, err
+	}
+	key := argString(a, "key")
+	switch name {
+	case "jira_get_issue":
+		return jiraGetIssue(ctx, c, key, nil)
+	case "jira_search":
+		return jiraSearch(ctx, c, argString(a, "jql"), argInt(a, "start_at", 0), mustPositive(argInt(a, "max_results", 50), 50))
+	case "jira_get_comments":
+		return jiraComments(ctx, c, key)
+	case "jira_get_transitions":
+		return jiraTransitions(ctx, c, key)
+	case "jira_add_comment":
+		if err := requireWrite(cfg); err != nil {
+			return nil, err
+		}
+		return jiraAddComment(ctx, c, key, argString(a, "body"))
+	}
+	return nil, fmt.Errorf("unknown tool %q", name)
+}
+
 func parseCommaList(s string) []string {
 	var out []string
 	for _, x := range strings.Split(s, ",") {

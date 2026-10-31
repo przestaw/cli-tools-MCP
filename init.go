@@ -114,6 +114,7 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 	insecure := fs.Bool("insecure", false, "do not verify TLS certificates")
 	tokenStdin := fs.Bool("token-stdin", false, "read the token from the first line of stdin")
 	nonInteractive := fs.Bool("non-interactive", false, "do not prompt")
+	backend := fs.String("backend", "", "native (default) or cli: gh or glab keeps the login and sends the requests (github, gitlab)")
 	projects := fs.String("projects", "", "comma-separated group/project (gitlab) or owner/name (github) paths")
 	defProject := fs.String("default-project", "", "default group/project (gitlab) or owner/name (github)")
 	if err := fs.Parse(args); err != nil {
@@ -164,6 +165,12 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 	}
 	if r == nil {
 		r = bufio.NewReader(stdin)
+	}
+	if *backend != "" {
+		p.Backend = *backend
+	}
+	if p.usesCLI() {
+		return initCLIProfile(cfg, module, name, p, !*nonInteractive, r)
 	}
 
 	var tok string
@@ -239,6 +246,38 @@ func cmdEndpointInit(path, module string, args []string, r *bufio.Reader) error 
 		return nil
 	}
 	fmt.Println(who)
+	return nil
+}
+
+// initCLIProfile finishes `init --backend cli`. No token is asked for: gh or glab logs in (interactive runs) or must
+// be logged in already (--non-interactive), then the profile is bound to that account and saved.
+//
+// @param interactive true to prompt for the URL and to run the CLI's login
+// @see cli_backend.go bindCLI
+func initCLIProfile(cfg *Config, module, name string, p Profile, interactive bool, r *bufio.Reader) error {
+	p.TokenEnv, p.Auth, p.CAFile, p.VerifyTLS = "", "", "", true
+	if interactive {
+		fmt.Printf("\n%s (profile %s, login through %s)\n", endpointSpecs[module].label, name, cliTools[module])
+		p.URL = prompt.Ask(r, "Base URL", p.URL)
+	}
+	if err := validateProfile(name, p); err != nil {
+		return err
+	}
+	p, err := bindCLI(cfg, name, p, interactive)
+	if err != nil {
+		return err
+	}
+	cfg.Profiles[name] = p
+	if cfg.Defaults[module] == "" {
+		cfg.Defaults[module] = name
+	}
+	if err := validateConfig(cfg); err != nil {
+		return err
+	}
+	if err := cfg.save(); err != nil {
+		return err
+	}
+	fmt.Printf("saved: %s\nprofile %s is bound to %s\n", cfg.path, name, p.Username)
 	return nil
 }
 

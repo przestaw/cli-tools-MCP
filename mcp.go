@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -106,6 +107,7 @@ func mcpTools(cfg *Config) []mcpTool {
 			tools = append(tools, t)
 		}
 	}
+	withProfileArg(tools, "gitlab_", "GitLab profile (account); omit to use defaults.gitlab")
 	if cfg.has("github") {
 		tools = append(tools, githubTools(cfg)...)
 	}
@@ -131,6 +133,29 @@ func mcpTools(cfg *Config) []mcpTool {
 	return append(tools, moduleTools(cfg)...)
 }
 
+// withProfileArg adds the optional "profile" argument to the tools whose name starts with prefix.
+func withProfileArg(tools []mcpTool, prefix, desc string) {
+	for _, t := range tools {
+		if strings.HasPrefix(t.Name, prefix) {
+			t.InputSchema["properties"].(map[string]any)["profile"] = strProp(desc)
+		}
+	}
+}
+
+// scopedConfig narrows cfg to the profile named by the call's "profile" argument; without one it returns cfg itself.
+func scopedConfig(cfg *Config, a map[string]any, kind string) (*Config, error) {
+	p := argString(a, "profile")
+	if p == "" {
+		return cfg, nil
+	}
+	if cfg.Profiles[p].Kind != kind {
+		return nil, fmt.Errorf("profile %q is not a configured %s profile", p, kind)
+	}
+	scoped := *cfg
+	scoped.profile = p
+	return &scoped, nil
+}
+
 func sendRPC(w *bufio.Writer, resp rpcResponse) error {
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -143,21 +168,19 @@ func sendRPC(w *bufio.Writer, resp rpcResponse) error {
 }
 
 func runMCP(ctx context.Context, cfg *Config) error {
-	var jc, gc *APIClient
-	var err error
-	if cfg.has("jira") {
-		if jc, err = newKindClient(cfg, "jira"); err != nil {
-			return fmt.Errorf("jira client: %w", err)
-		}
+	return serveMCP(ctx, cfg, os.Stdin, os.Stdout)
+}
+
+func serveMCP(ctx context.Context, cfg *Config, input io.Reader, output io.Writer) error {
+	handlers := map[string]func(json.RawMessage) (any, error){
+		"initialize": initializeRPC,
+		"ping":       func(json.RawMessage) (any, error) { return map[string]any{}, nil },
+		"tools/list": func(json.RawMessage) (any, error) { return map[string]any{"tools": mcpTools(cfg)}, nil },
+		"tools/call": func(params json.RawMessage) (any, error) { return callToolRPC(ctx, cfg, params) },
 	}
-	if cfg.has("gitlab") {
-		if gc, err = newKindClient(cfg, "gitlab"); err != nil {
-			return fmt.Errorf("gitlab client: %w", err)
-		}
-	}
-	in := bufio.NewScanner(os.Stdin)
+	in := bufio.NewScanner(input)
 	in.Buffer(make([]byte, 64*1024), 8*1024*1024)
-	out := bufio.NewWriter(os.Stdout)
+	out := bufio.NewWriter(output)
 	for in.Scan() {
 		line := in.Bytes()
 		if len(line) == 0 {
@@ -165,7 +188,9 @@ func runMCP(ctx context.Context, cfg *Config) error {
 		}
 		var req rpcRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			_ = sendRPC(out, rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "Parse error"}})
+			if err := sendRPC(out, rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "Parse error"}}); err != nil {
+				return err
+			}
 			continue
 		}
 		// Notifications have no id and must not receive a response.
@@ -176,68 +201,72 @@ func runMCP(ctx context.Context, cfg *Config) error {
 		if req.Method == "server/discover" {
 			// Intentionally legacy-only MCP. Modern clients are expected to fall back to initialize.
 			if !notification {
-				_ = sendRPC(out, rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "Method not found; use legacy MCP initialize"}})
-			}
-			continue
-		}
-		var result any
-		var callErr error
-		switch req.Method {
-		case "initialize":
-			var p struct {
-				ProtocolVersion string `json:"protocolVersion"`
-			}
-			_ = json.Unmarshal(req.Params, &p)
-			pv := p.ProtocolVersion
-			switch pv {
-			case "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05":
-			default:
-				pv = "2025-11-25"
-			}
-			result = map[string]any{
-				"protocolVersion": pv,
-				"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-				"serverInfo":      map[string]any{"name": "workctl", "version": version},
-				"instructions":    "Azure DevOps (azure), Jira and Confluence Cloud (atlassian), Jira Server, GitLab and GitHub through workctl. Everything is read-only unless policy.allow_write=true in the config file.",
-			}
-		case "ping":
-			result = map[string]any{}
-		case "tools/list":
-			result = map[string]any{"tools": mcpTools(cfg)}
-		case "tools/call":
-			var p struct {
-				Name string         `json:"name"`
-				Args map[string]any `json:"arguments"`
-			}
-			if err := json.Unmarshal(req.Params, &p); err != nil {
-				callErr = err
-				break
-			}
-			data, err := callMCPTool(ctx, cfg, jc, gc, p.Name, p.Args)
-			if err != nil {
-				result = map[string]any{"content": []any{map[string]any{"type": "text", "text": err.Error()}}, "isError": true}
-			} else {
-				if max := cfg.MCP.MaxOutputBytes; max > 0 && len(data) > max {
-					data = append(data[:max], []byte("\n... [workctl MCP output truncated; use CLI for full output]")...)
+				if err := sendRPC(out, rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "Method not found; use legacy MCP initialize"}}); err != nil {
+					return err
 				}
-				result = map[string]any{"content": []any{map[string]any{"type": "text", "text": string(data)}}}
-			}
-		default:
-			if !notification {
-				_ = sendRPC(out, rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "Method not found"}})
 			}
 			continue
 		}
+		handler := handlers[req.Method]
+		if handler == nil {
+			if !notification {
+				if err := sendRPC(out, rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "Method not found"}}); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		result, callErr := handler(req.Params)
 		if notification {
 			continue
 		}
+		resp := rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
 		if callErr != nil {
-			_ = sendRPC(out, rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: callErr.Error()}})
-		} else {
-			_ = sendRPC(out, rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result})
+			resp.Result = nil
+			resp.Error = &rpcError{Code: -32602, Message: callErr.Error()}
+		}
+		if err := sendRPC(out, resp); err != nil {
+			return err
 		}
 	}
 	return in.Err()
+}
+
+func initializeRPC(params json.RawMessage) (any, error) {
+	var args struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	_ = json.Unmarshal(params, &args)
+	pv := args.ProtocolVersion
+	switch pv {
+	case "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05":
+	default:
+		pv = "2025-11-25"
+	}
+	return map[string]any{
+		"protocolVersion": pv,
+		"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
+		"serverInfo":      map[string]any{"name": "workctl", "version": version},
+		"instructions":    "Azure DevOps (azure), Jira and Confluence Cloud (atlassian), Jira Server, GitLab and GitHub through workctl. Everything is read-only unless policy.allow_write=true in the config file.",
+	}, nil
+}
+
+func callToolRPC(ctx context.Context, cfg *Config, params json.RawMessage) (any, error) {
+	var args struct {
+		Name string         `json:"name"`
+		Args map[string]any `json:"arguments"`
+	}
+	if err := json.Unmarshal(params, &args); err != nil {
+		return nil, err
+	}
+	data, err := callMCPTool(ctx, cfg, args.Name, args.Args)
+	if err != nil {
+		return map[string]any{"content": []any{map[string]any{"type": "text", "text": err.Error()}}, "isError": true}, nil
+	}
+	if max := cfg.MCP.MaxOutputBytes; max > 0 && len(data) > max {
+		data = append(data[:max], []byte("\n... [workctl MCP output truncated; use CLI for full output]")...)
+	}
+	return map[string]any{"content": []any{map[string]any{"type": "text", "text": string(data)}}}, nil
 }
 
 func argString(m map[string]any, k string) string {
@@ -260,15 +289,19 @@ func argInt(m map[string]any, k string, def int) int {
 }
 func argBool(m map[string]any, k string) bool { v, _ := m[k].(bool); return v }
 
-func callMCPTool(ctx context.Context, cfg *Config, jc, gc *APIClient, name string, a map[string]any) ([]byte, error) {
+// callMCPTool runs one MCP tool. Provider clients are made per call, so a missing login fails only that provider's tools.
+func callMCPTool(ctx context.Context, cfg *Config, name string, a map[string]any) ([]byte, error) {
 	if !toolAvailable(cfg, name) {
 		return nil, fmt.Errorf("tool %q is not available: its backend is not configured", name)
 	}
-	if strings.HasPrefix(name, "github_") {
+	switch {
+	case strings.HasPrefix(name, "github_"):
 		return callGitHubTool(ctx, cfg, name, a)
+	case strings.HasPrefix(name, "gitlab_"):
+		return callGitLabTool(ctx, cfg, name, a)
+	case strings.HasPrefix(name, "jira_"):
+		return callJiraTool(ctx, cfg, name, a)
 	}
-	project, projectErr := glProject(cfg, argString(a, "project"))
-	requireProject := func() error { return projectErr }
 	switch name {
 	case "pr_list", "pr_show":
 		id := 0
@@ -300,92 +333,8 @@ func callMCPTool(ctx context.Context, cfg *Config, jc, gc *APIClient, name strin
 			return nil, err
 		}
 		return callModule(ctx, cfg, name, args)
-	case "jira_get_issue":
-		return jiraGetIssue(ctx, jc, argString(a, "key"), nil)
-	case "jira_search":
-		return jiraSearch(ctx, jc, argString(a, "jql"), argInt(a, "start_at", 0), mustPositive(argInt(a, "max_results", 50), 50))
-	case "jira_get_comments":
-		return jiraComments(ctx, jc, argString(a, "key"))
-	case "jira_get_transitions":
-		return jiraTransitions(ctx, jc, argString(a, "key"))
-	case "gitlab_get_project":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabGetProject(ctx, gc, project)
-	case "gitlab_get_merge_request":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabGetMR(ctx, gc, project, argInt(a, "iid", 0))
-	case "gitlab_get_merge_request_changes":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabGetMRChanges(ctx, gc, project, argInt(a, "iid", 0))
-	case "gitlab_get_merge_request_notes":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabGetMRNotes(ctx, gc, project, argInt(a, "iid", 0))
-	case "gitlab_list_merge_requests":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabListMRs(ctx, gc, project, argString(a, "search"), argString(a, "state"))
-	case "gitlab_list_pipelines":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabListPipelines(ctx, gc, project, argString(a, "ref"), argInt(a, "per_page", 30))
-	case "gitlab_get_pipeline":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabGetPipeline(ctx, gc, project, argInt(a, "id", 0))
-	case "gitlab_get_pipeline_jobs":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabListPipelineJobs(ctx, gc, project, argInt(a, "id", 0))
-	case "gitlab_get_job_trace":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabJobTrace(ctx, gc, project, argInt(a, "job_id", 0))
-	case "gitlab_list_branches":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabListBranches(ctx, gc, project, argString(a, "search"))
-	case "gitlab_get_file":
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabGetFile(ctx, gc, project, argString(a, "path"), argString(a, "ref"))
 	case "task_get_context":
-		return getTaskContext(ctx, cfg, jc, gc, argString(a, "key"))
-	case "jira_add_comment":
-		if err := requireWrite(cfg); err != nil {
-			return nil, err
-		}
-		return jiraAddComment(ctx, jc, argString(a, "key"), argString(a, "body"))
-	case "gitlab_add_merge_request_note":
-		if err := requireWrite(cfg); err != nil {
-			return nil, err
-		}
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabAddMRNote(ctx, gc, project, argInt(a, "iid", 0), argString(a, "body"))
-	case "gitlab_create_merge_request":
-		if err := requireWrite(cfg); err != nil {
-			return nil, err
-		}
-		if err := requireProject(); err != nil {
-			return nil, err
-		}
-		return gitlabCreateMR(ctx, gc, project, argString(a, "source"), argString(a, "target"), argString(a, "title"), argString(a, "description"), argBool(a, "draft"))
+		return getTaskContext(ctx, cfg, argString(a, "key"))
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)
 	}
