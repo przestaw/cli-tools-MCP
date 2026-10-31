@@ -5,16 +5,14 @@
 package client
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"workctl/internal/httpx"
 )
 
 // apiVersion is the default REST API version sent on every request.
@@ -41,19 +39,11 @@ type Options struct {
 // New builds a Client from Options.
 func New(o Options) *Client {
 	base := strings.TrimRight(o.OrgURL, "/")
-	timeout := o.Timeout
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-	tr := &http.Transport{}
-	if !o.VerifyTLS {
-		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	}
 	return &Client{
 		orgURL:  base,
 		vsrmURL: vsrmBase(base),
 		pat:     o.Token,
-		http:    &http.Client{Timeout: timeout, Transport: tr},
+		http:    httpx.NewClient(o.Timeout, o.VerifyTLS),
 	}
 }
 
@@ -127,54 +117,18 @@ func (c *Client) Raw(ctx context.Context, method, path string, body any) (json.R
 // continuation-token paging). body may be nil; a json.RawMessage is sent
 // verbatim, anything else is marshalled.
 func (c *Client) doJSON(ctx context.Context, method, full string, body any, out any) (http.Header, error) {
-	var rdr io.Reader
-	if body != nil {
-		var b []byte
-		switch t := body.(type) {
-		case json.RawMessage:
-			b = t
-		case []byte:
-			b = t
-		default:
-			var err error
-			b, err = json.Marshal(body)
-			if err != nil {
-				return nil, err
-			}
+	req := &http.Request{Header: make(http.Header)}
+	req.SetBasicAuth("", c.pat)
+	return httpx.JSON(ctx, c.http, method, full, req.Header, body, out, apiError, func(data []byte) error {
+		if looksLikeHTML(data) {
+			return apiError(http.StatusUnauthorized, full, data)
 		}
-		rdr = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, full, rdr)
-	if err != nil {
-		return nil, err
-	}
-	req.SetBasicAuth("", c.pat) // PAT: empty username, token as password
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+		return nil
+	})
+}
 
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp.Header, &APIError{Status: resp.StatusCode, Message: parseErrMsg(data), URL: full}
-	}
-	// A PAT that is invalid/expired often returns the HTML sign-in page with a
-	// 200; detect that and surface a clear auth error instead of a JSON decode.
-	if looksLikeHTML(data) {
-		return resp.Header, &APIError{Status: 401, Message: "authentication failed (check your PAT and its scopes)", URL: full}
-	}
-	if out == nil || len(data) == 0 {
-		return resp.Header, nil
-	}
-	if err := json.Unmarshal(data, out); err != nil {
-		return resp.Header, fmt.Errorf("decode %s response: %w", full, err)
-	}
-	return resp.Header, nil
+func apiError(status int, url string, data []byte) error {
+	return &APIError{Status: status, Message: parseErrMsg(data), URL: url}
 }
 
 // doText fetches a full URL and returns the raw body + content type (used for
@@ -185,16 +139,11 @@ func (c *Client) doText(ctx context.Context, full string) ([]byte, string, error
 		return nil, "", err
 	}
 	req.SetBasicAuth("", c.pat)
-	resp, err := c.http.Do(req)
+	data, hdr, err := httpx.Do(c.http, req, apiError)
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, "", &APIError{Status: resp.StatusCode, Message: parseErrMsg(data), URL: full}
-	}
-	return data, resp.Header.Get("Content-Type"), nil
+	return data, hdr.Get("Content-Type"), nil
 }
 
 // listEnvelope is the standard Azure DevOps list shape.

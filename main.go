@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const version = "0.3.7"
+const version = "0.3.8"
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence and GitLab

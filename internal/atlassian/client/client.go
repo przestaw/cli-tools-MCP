@@ -5,14 +5,14 @@ package client
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
+
+	"workctl/internal/httpx"
 )
 
 // Client talks to one Atlassian Cloud site using Basic auth (email + API token).
@@ -37,19 +37,11 @@ type Options struct {
 // New builds a Client from Options.
 func New(o Options) *Client {
 	base := strings.TrimRight(o.URL, "/")
-	timeout := o.Timeout
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-	tr := &http.Transport{}
-	if !o.VerifyTLS {
-		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	}
 	return &Client{
 		baseURL: base,
 		email:   o.Email,
 		token:   o.Token,
-		http:    &http.Client{Timeout: timeout, Transport: tr},
+		http:    httpx.NewClient(o.Timeout, o.VerifyTLS),
 	}
 }
 
@@ -86,50 +78,14 @@ func (c *Client) Raw(ctx context.Context, method, path string, body any) (json.R
 // out (out may be nil to discard). body may be nil; a json.RawMessage body is
 // sent verbatim, anything else is marshalled.
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
-	var rdr io.Reader
-	if body != nil {
-		var b []byte
-		switch t := body.(type) {
-		case json.RawMessage:
-			b = t
-		case []byte:
-			b = t
-		default:
-			var err error
-			b, err = json.Marshal(body)
-			if err != nil {
-				return err
-			}
-		}
-		rdr = bytes.NewReader(b)
-	}
-	url := c.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, method, url, rdr)
-	if err != nil {
-		return err
-	}
+	req := &http.Request{Header: make(http.Header)}
 	req.SetBasicAuth(c.email, c.token)
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	_, err := httpx.JSON(ctx, c.http, method, c.baseURL+path, req.Header, body, out, apiError, nil)
+	return err
+}
 
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &APIError{Status: resp.StatusCode, Message: parseErrMsg(data), URL: url}
-	}
-	if out == nil || len(data) == 0 {
-		return nil
-	}
-	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("decode %s response: %w", url, err)
-	}
-	return nil
+func apiError(status int, url string, data []byte) error {
+	return &APIError{Status: status, Message: parseErrMsg(data), URL: url}
 }
 
 // doRawURL fetches an absolute URL and returns body + content type (used for
@@ -140,16 +96,11 @@ func (c *Client) doRawURL(ctx context.Context, method, url string) ([]byte, stri
 		return nil, "", err
 	}
 	req.SetBasicAuth(c.email, c.token)
-	resp, err := c.http.Do(req)
+	data, hdr, err := httpx.Do(c.http, req, apiError)
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, "", &APIError{Status: resp.StatusCode, Message: parseErrMsg(data), URL: url}
-	}
-	return data, resp.Header.Get("Content-Type"), nil
+	return data, hdr.Get("Content-Type"), nil
 }
 
 // doMultipart uploads one file as multipart/form-data with the
@@ -176,22 +127,11 @@ func (c *Client) doMultipart(ctx context.Context, path, fieldName, fileName stri
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("X-Atlassian-Token", "no-check")
-	resp, err := c.http.Do(req)
+	data, _, err := httpx.Do(c.http, req, apiError)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &APIError{Status: resp.StatusCode, Message: parseErrMsg(data), URL: url}
-	}
-	if out == nil || len(data) == 0 {
-		return nil
-	}
-	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("decode %s response: %w", url, err)
-	}
-	return nil
+	return httpx.Decode(url, data, out)
 }
 
 // parseErrMsg extracts a human message from the error-body shapes the Jira and
