@@ -1,0 +1,12 @@
+{
+  "name": "workctl",
+  "description": "workctl: GitHub, GitLab, Jira and Azure DevOps for AI agents",
+  "owner": { "name": "przestaw" },
+  "plugins": [
+    {
+      "name": "workctl",
+      "source": "./plugins/workctl",
+      "description": "Read pull requests and tickets, post comments, through the workctl MCP server (needs the workctl binary on PATH)."
+    }
+  ]
+}

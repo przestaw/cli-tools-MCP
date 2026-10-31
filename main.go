@@ -16,7 +16,7 @@ import (
 	azureclient "workctl/internal/azure/client"
 )
 
-const version = "0.3.9"
+const version = "0.3.10"
 
 func usage() {
 	fmt.Fprintf(os.Stdout, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence, GitLab and GitHub
