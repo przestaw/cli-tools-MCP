@@ -3,17 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"workctl/internal/httpx"
 )
 
 type APIError struct {
@@ -24,11 +23,7 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	b := strings.TrimSpace(e.Body)
-	if len(b) > 1200 {
-		b = b[:1200] + "..."
-	}
-	return fmt.Sprintf("%s %s: HTTP %d: %s", e.Method, e.URL, e.Status, b)
+	return httpx.RawError(e.Method, e.URL, e.Status, e.Body)
 }
 
 type APIClient struct {
@@ -36,6 +31,7 @@ type APIClient struct {
 	prefix  string
 	client  *http.Client
 	headers http.Header
+	cli     *cliBackend // set for profiles with backend "cli": requests go to gh or glab, not to client
 }
 
 func newAPIClient(cfg Profile, prefix string, timeout time.Duration) (*APIClient, error) {
@@ -44,25 +40,11 @@ func newAPIClient(cfg Profile, prefix string, timeout time.Duration) (*APIClient
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil, fmt.Errorf("invalid URL %q", cfg.URL)
 	}
-	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
-	if !cfg.VerifyTLS {
-		tlsCfg.InsecureSkipVerify = true // explicitly requested by config
+	tr, err := httpx.Transport(cfg.VerifyTLS, cfg.CAFile)
+	if err != nil {
+		return nil, err
 	}
-	if cfg.CAFile != "" {
-		pem, err := os.ReadFile(os.ExpandEnv(cfg.CAFile))
-		if err != nil {
-			return nil, fmt.Errorf("read CA file: %w", err)
-		}
-		pool, err := x509.SystemCertPool()
-		if err != nil || pool == nil {
-			pool = x509.NewCertPool()
-		}
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("CA file %s contains no usable PEM certificates", cfg.CAFile)
-		}
-		tlsCfg.RootCAs = pool
-	}
-	tr := &http.Transport{TLSClientConfig: tlsCfg, Proxy: http.ProxyFromEnvironment}
+	tr.Proxy = http.ProxyFromEnvironment
 	c := &http.Client{
 		Timeout:   timeout,
 		Transport: tr,
@@ -78,7 +60,7 @@ func newAPIClient(cfg Profile, prefix string, timeout time.Duration) (*APIClient
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.3.8")
+	h.Set("User-Agent", "workctl/0.3.9")
 	return &APIClient{baseURL: base, prefix: prefix, client: c, headers: h}, nil
 }
 
@@ -102,6 +84,9 @@ func profileTimeout(cfg *Config, profile Profile) time.Duration {
 func newProfileClient(cfg *Config, name string, profile Profile) (*APIClient, error) {
 	if err := validateProfile(name, profile); err != nil {
 		return nil, err
+	}
+	if profile.usesCLI() {
+		return newCLIClient(profile, profileTimeout(cfg, profile))
 	}
 	client, err := newAPIClient(profile, "", profileTimeout(cfg, profile))
 	if err != nil {
@@ -137,7 +122,9 @@ func newProfileClient(cfg *Config, name string, profile Profile) (*APIClient, er
 	return client, nil
 }
 
-func (c *APIClient) endpoint(path string) (string, error) {
+// relPath turns a caller's path into the server-relative path of a request: a path that starts with "/" is used as it
+// is, any other one gets the provider prefix. Absolute URLs are refused so a credential cannot leave the profile's host.
+func (c *APIClient) relPath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		path = "/"
@@ -148,26 +135,32 @@ func (c *APIClient) endpoint(path string) (string, error) {
 	if !strings.HasPrefix(path, "/") {
 		path = strings.TrimRight(c.prefix, "/") + "/" + path
 	}
-	return c.baseURL + path, nil
+	return path, nil
 }
 
+func (c *APIClient) endpoint(path string) (string, error) {
+	rel, err := c.relPath(path)
+	return c.baseURL + rel, err
+}
+
+// do sends one request, natively over net/http or, for a cli profile, through gh or glab (see cli_backend.go).
 func (c *APIClient) do(ctx context.Context, method, path string, q url.Values, body []byte, contentType string) ([]byte, string, error) {
-	endpoint, err := c.endpoint(path)
+	target, err := c.relPath(path)
 	if err != nil {
 		return nil, "", err
 	}
 	if len(q) > 0 {
 		sep := "?"
-		if strings.Contains(endpoint, "?") {
+		if strings.Contains(target, "?") {
 			sep = "&"
 		}
-		endpoint += sep + q.Encode()
+		target += sep + q.Encode()
 	}
-	var r io.Reader
-	if body != nil {
-		r = bytes.NewReader(body)
+	if c.cli != nil {
+		return c.cli.do(ctx, method, target, c.headers.Get("Accept"), body, contentType)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, r)
+	endpoint := c.baseURL + target
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, "", err
 	}
@@ -178,19 +171,10 @@ func (c *APIClient) do(ctx context.Context, method, path string, q url.Values, b
 		}
 		req.Header.Set("Content-Type", contentType)
 	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, "", err
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, "", err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.Header.Get("Content-Type"), &APIError{Method: method, URL: endpoint, Status: resp.StatusCode, Body: string(b)}
-	}
-	return b, resp.Header.Get("Content-Type"), nil
+	data, hdr, err := httpx.Do(c.client, req, func(status int, url string, body []byte) error {
+		return &APIError{Method: method, URL: url, Status: status, Body: string(body)}
+	})
+	return data, hdr.Get("Content-Type"), err
 }
 
 func prettyJSONBytes(b []byte) []byte {

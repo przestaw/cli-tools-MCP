@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,15 +17,19 @@ import (
 	"workctl/internal/secret"
 )
 
-func cmdAuth(configPath string, args []string) error {
+// cmdAuth is `workctl [--profile NAME] auth login|set-token|status|logout`; the global profile is the default of each.
+func cmdAuth(configPath, profile string, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: workctl auth set-token|status|logout [options]")
+		return fmt.Errorf("usage: workctl auth login|set-token|status|logout [options]")
 	}
 	cfg, err := loadConfigOrDefault(configPath)
 	if err != nil {
 		return err
 	}
+	cfg.profile = profile
 	switch args[0] {
+	case "login":
+		return cmdAuthLogin(cfg, args[1:])
 	case "set-token":
 		return cmdAuthSetToken(cfg, args[1:])
 	case "status":
@@ -32,8 +37,38 @@ func cmdAuth(configPath string, args []string) error {
 	case "logout":
 		return cmdAuthLogout(cfg, args[1:])
 	default:
-		return fmt.Errorf("unknown auth command %q (use set-token, status, or logout)", args[0])
+		return fmt.Errorf("unknown auth command %q (use login, set-token, status, or logout)", args[0])
 	}
+}
+
+// cmdAuthLogin logs a cli profile in through gh or glab and binds the profile to that account (see bindCLI).
+func cmdAuthLogin(cfg *Config, args []string) error {
+	fs := flag.NewFlagSet("auth login", flag.ContinueOnError)
+	profileName := fs.String("profile", "", "profile name")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	name := resolveAuthProfileName(cfg, *profileName)
+	if name == "" {
+		return fmt.Errorf("specify profile with --profile NAME")
+	}
+	profile, ok := cfg.Profiles[name]
+	if !ok {
+		return fmt.Errorf("profile %q not found in config", name)
+	}
+	if !profile.usesCLI() {
+		return fmt.Errorf("profile %q keeps a token in the keyring: use `workctl auth set-token --profile %s`", name, name)
+	}
+	profile, err := bindCLI(cfg, name, profile, true)
+	if err != nil {
+		return err
+	}
+	cfg.Profiles[name] = profile
+	if err := cfg.save(); err != nil {
+		return err
+	}
+	fmt.Printf("profile %s is bound to %s\n", name, profile.Username)
+	return nil
 }
 
 func cmdAuthSetToken(cfg *Config, args []string) error {
@@ -50,6 +85,9 @@ func cmdAuthSetToken(cfg *Config, args []string) error {
 	profile, ok := cfg.Profiles[name]
 	if !ok {
 		return fmt.Errorf("profile %q not found in config", name)
+	}
+	if err := errCLIManaged(name, profile); err != nil {
+		return err
 	}
 
 	var tok string
@@ -91,11 +129,11 @@ func cmdAuthStatus(cfg *Config, args []string) error {
 	}
 
 	names := make([]string, 0, len(cfg.Profiles))
-	if *profileName != "" {
-		if _, ok := cfg.Profiles[*profileName]; !ok {
-			return fmt.Errorf("profile %q not found in config", *profileName)
+	if only := firstNonEmpty(*profileName, cfg.profile); only != "" {
+		if _, ok := cfg.Profiles[only]; !ok {
+			return fmt.Errorf("profile %q not found in config", only)
 		}
-		names = append(names, *profileName)
+		names = append(names, only)
 	} else {
 		for n := range cfg.Profiles {
 			names = append(names, n)
@@ -105,6 +143,10 @@ func cmdAuthStatus(cfg *Config, args []string) error {
 
 	for _, n := range names {
 		prof := cfg.Profiles[n]
+		if prof.usesCLI() {
+			fmt.Printf("%s (%s): %s\n", n, prof.Kind, cliStatus(cfg, prof))
+			continue
+		}
 		status := "missing"
 		if prof.TokenEnv != "" && os.Getenv(prof.TokenEnv) != "" {
 			status = fmt.Sprintf("set via environment variable %s", prof.TokenEnv)
@@ -122,6 +164,19 @@ func cmdAuthStatus(cfg *Config, args []string) error {
 	return nil
 }
 
+// cliStatus says which account the CLI of a cli profile is logged in as.
+func cliStatus(cfg *Config, prof Profile) string {
+	b, err := newCLIBackend(prof, profileTimeout(cfg, prof))
+	if err != nil {
+		return err.Error()
+	}
+	who, err := b.whoami(context.Background())
+	if err != nil {
+		return "not logged in: " + err.Error()
+	}
+	return fmt.Sprintf("logged in as %s via %s", who, b.tool)
+}
+
 func cmdAuthLogout(cfg *Config, args []string) error {
 	fs := flag.NewFlagSet("auth logout", flag.ContinueOnError)
 	profileName := fs.String("profile", "", "profile name")
@@ -136,6 +191,9 @@ func cmdAuthLogout(cfg *Config, args []string) error {
 	if !ok {
 		return fmt.Errorf("profile %q not found in config", name)
 	}
+	if err := errCLIManaged(name, profile); err != nil {
+		return err
+	}
 
 	account := secret.Account(profile.Kind, name)
 	if err := tokenStore.Delete(account); err != nil {
@@ -148,6 +206,9 @@ func cmdAuthLogout(cfg *Config, args []string) error {
 func resolveAuthProfileName(cfg *Config, requested string) string {
 	if requested != "" {
 		return requested
+	}
+	if cfg.profile != "" {
+		return cfg.profile
 	}
 	if env := strings.TrimSpace(os.Getenv("WORKCTL_PROFILE")); env != "" {
 		return env

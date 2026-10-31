@@ -27,6 +27,7 @@ type Profile struct {
 	Repos          []string `json:"repos,omitempty"`
 	Projects       []string `json:"projects,omitempty"`
 	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
+	Backend        string   `json:"backend,omitempty"` // "native" (default) or "cli": gh or glab sends the requests and username pins the account, see cli_backend.go
 }
 
 type PolicyConfig struct {
@@ -222,6 +223,9 @@ func validateProfile(name string, profile Profile) error {
 	}
 	if profile.CAFile != "" && !filepath.IsAbs(os.ExpandEnv(profile.CAFile)) {
 		return fmt.Errorf("profiles.%s.ca_file must be absolute", name)
+	}
+	if err := validateBackend(name, profile, parsed); err != nil {
+		return err
 	}
 	// The first scheme is the default when auth is empty.
 	auths := map[string][]string{"github": {"bearer"}, "gitlab": {"private-token", "bearer"}, "jira": {"bearer", "basic"}}[kind]

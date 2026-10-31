@@ -14,6 +14,9 @@ var tokenStore = secret.Store{Service: secret.Service}
 
 // resolveProfileSecret returns token_env if set, else the keyring entry of the profile.
 func resolveProfileSecret(name string, profile Profile) (string, error) {
+	if profile.usesCLI() {
+		return "", fmt.Errorf("profile %q uses the %s backend: workctl holds no token for it", name, cliTools[profile.Kind])
+	}
 	if profile.TokenEnv != "" {
 		if value := os.Getenv(profile.TokenEnv); value != "" {
 			return value, nil

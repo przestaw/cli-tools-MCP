@@ -60,3 +60,33 @@ func TestResolveProfileSecretOrder(t *testing.T) {
 		t.Fatalf("env first: %q", v)
 	}
 }
+
+func TestInitCLIBackendStoresNoTokenAndBindsTheAccount(t *testing.T) {
+	keyring.MockInit()
+	path := filepath.Join(t.TempDir(), "c.json")
+	args := []string{"--backend", "cli", "--non-interactive"}
+
+	fakeCLI(t, "auth") // not logged in: nothing may be saved
+	if err := cmdEndpointInit(path, "github", args, nil); err == nil || !strings.Contains(err.Error(), "auth login --profile github") {
+		t.Fatalf("init without a login: %v", err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("a failed init wrote the config")
+	}
+
+	fakeCLI(t, "user")
+	if err := cmdEndpointInit(path, "github", args, nil); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := cfg.Profiles["github"]
+	if p.Backend != backendCLI || p.Username != "przestaw" || p.TokenEnv != "" || !p.VerifyTLS || cfg.Defaults["github"] != "github" {
+		t.Fatalf("profile = %+v, defaults = %v", p, cfg.Defaults)
+	}
+	if _, err := tokenStore.Get("github:github"); err == nil {
+		t.Fatal("a cli profile must not store a token")
+	}
+}
