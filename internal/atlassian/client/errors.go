@@ -1,6 +1,6 @@
 package client
 
-import "fmt"
+import "workctl/internal/httpx"
 
 // APIError represents a non-2xx response from an Atlassian API.
 type APIError struct {
@@ -10,10 +10,7 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	if e.Message == "" {
-		return fmt.Sprintf("atlassian %d for %s", e.Status, e.URL)
-	}
-	return fmt.Sprintf("atlassian %d: %s", e.Status, e.Message)
+	return httpx.ErrorMessage("atlassian", e.Status, e.Message, e.URL)
 }
 
 // IsNotFound reports whether err is a 404 APIError.

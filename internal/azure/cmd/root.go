@@ -5,13 +5,13 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"workctl/internal/azure/config"
 	"workctl/internal/azure/output"
 	"workctl/internal/azure/service"
+	"workctl/internal/clikit"
 )
 
 // Global flag values (bound on the root command's persistent flags).
@@ -34,13 +34,8 @@ var (
 )
 
 // rootCmd is the base `azure` command.
-var rootCmd = &cobra.Command{
-	Use:           "azure",
-	Short:         "Interactive CLI for Azure DevOps (repos, pipelines, pull requests)",
-	Long:          "azure is a command-line interface for Azure DevOps: Git repositories, pull requests, Pipelines, Build and Release.\nConfigure it with `azure config init`, then explore with subcommands or `azure shell`.",
-	SilenceUsage:  true,
-	SilenceErrors: true,
-}
+var rootCmd = clikit.Root("azure", "Interactive CLI for Azure DevOps (repos, pipelines, pull requests)",
+	"azure is a command-line interface for Azure DevOps: Git repositories, pull requests, Pipelines, Build and Release.\nConfigure it with `azure config init`, then explore with subcommands or `azure shell`.")
 
 // Execute runs the root command. Called by main.
 func Execute() {
@@ -91,7 +86,7 @@ func printer() *output.Printer {
 
 // ctx returns a context with a sensible default timeout for one operation.
 func ctx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 60*time.Second)
+	return clikit.Context()
 }
 
 // addListFlags registers the shared --all / --top flags.

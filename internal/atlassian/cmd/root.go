@@ -5,13 +5,13 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"workctl/internal/atlassian/config"
 	"workctl/internal/atlassian/output"
 	"workctl/internal/atlassian/service"
+	"workctl/internal/clikit"
 )
 
 // Global flag values (bound on the root command's persistent flags).
@@ -34,13 +34,8 @@ var (
 )
 
 // rootCmd is the base `atlassian` command.
-var rootCmd = &cobra.Command{
-	Use:           "atlassian",
-	Short:         "Interactive CLI for Atlassian Jira & Confluence",
-	Long:          "atlassian is a command-line interface for Atlassian Cloud: Jira (REST API v3, Agile) and Confluence (v2).\nConfigure it with `atlassian config init`, then explore with subcommands or `atlassian shell`.",
-	SilenceUsage:  true,
-	SilenceErrors: true,
-}
+var rootCmd = clikit.Root("atlassian", "Interactive CLI for Atlassian Jira & Confluence",
+	"atlassian is a command-line interface for Atlassian Cloud: Jira (REST API v3, Agile) and Confluence (v2).\nConfigure it with `atlassian config init`, then explore with subcommands or `atlassian shell`.")
 
 // Execute runs the root command. Called by main.
 func Execute() {
@@ -87,7 +82,7 @@ func printer() *output.Printer {
 
 // ctx returns a context with a sensible default timeout for one operation.
 func ctx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 60*time.Second)
+	return clikit.Context()
 }
 
 // addPagingFlags registers the shared --page/--page-size/--all flags.
