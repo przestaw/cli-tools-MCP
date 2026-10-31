@@ -70,6 +70,21 @@ Each `azure`/`atlassian` call runs as a child process of workctl with its own ti
 The server speaks the legacy handshake-era MCP protocol on purpose; clients that probe `server/discover` fall back to
 `initialize`. Do not pin a client to modern-only mode.
 
+### Skill and plugin for agents
+
+`plugins/workctl` is one package for all agents: a skill (`skills/workctl/SKILL.md`: which tool to call, comment only after the
+user approved the text) and the server definition (`workctl mcp`, so the binary must be on `PATH`). The tool names live in
+`mcp.go`; `plugin_test.go` fails when the skill names a tool that does not exist or the versions drift apart.
+
+| Agent | Install |
+| --- | --- |
+| VS Code | `scripts\install.ps1 -VSCode -Claude` (server, plus the skill in `~/.claude/skills`, which VS Code reads), or **Chat: Install Plugin from Source** with the folder `plugins/workctl` |
+| Claude Code | `scripts\install.ps1 -Claude`, or from a clone `claude plugin marketplace add .` then `claude plugin install workctl@workctl` |
+| Codex CLI | `scripts\install.ps1 -Codex` (server only; the Codex IDE extension shares that configuration but has no plugins) |
+
+On Linux and macOS use `scripts/install.sh --vscode --claude --codex`. The installers never replace a server that is already
+registered as `workctl`. Tokens are never part of the package: they stay in the keyring or in gh/glab.
+
 ## Setup and credentials
 
 Every module has its own guided setup, and all of them keep tokens in the OS keyring (Windows Credential Manager,
@@ -124,6 +139,8 @@ Top-level `jira`/`gitlab`/`github` blocks (version 1) are rejected: move them in
 ```powershell
 go vet ./... ; go test ./... ; go build -trimpath -ldflags "-s -w" -o workctl.exe .
 ```
+
+`scripts/release.sh` cross-compiles the binaries into `dist/` with a `SHA256SUMS` file; publishing them is a manual step.
 
 Go 1.26. Third-party modules come in only through the two built-in modules (cobra, go-keyring, go-prompt, survey, yaml).
 The azure and atlassian packages' own tests run too; run them with `APPDATA`/`USERPROFILE` pointing at a scratch directory if you

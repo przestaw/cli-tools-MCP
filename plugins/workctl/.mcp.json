@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "workctl": {
+      "command": "workctl",
+      "args": ["mcp"]
+    }
+  }
+}
