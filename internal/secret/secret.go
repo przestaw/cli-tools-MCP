@@ -23,6 +23,7 @@ func Account(kind, profile string) string {
 // Store is the set of keyring entries of one service name.
 type Store struct{ Service string }
 
+// Set stores value for the account, replacing an existing entry.
 func (s Store) Set(account, value string) error {
 	if err := keyring.Set(s.Service, account, value); err != nil {
 		return fmt.Errorf("OS keyring: %w", err)
@@ -30,6 +31,7 @@ func (s Store) Set(account, value string) error {
 	return nil
 }
 
+// Get returns the value stored for the account, or ErrNotFound.
 func (s Store) Get(account string) (string, error) {
 	v, err := keyring.Get(s.Service, account)
 	if errors.Is(err, keyring.ErrNotFound) {

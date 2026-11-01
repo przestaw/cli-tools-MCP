@@ -25,6 +25,7 @@ func Ask(r *bufio.Reader, label, def string) string {
 	return line
 }
 
+// AskBool asks a yes/no question; an empty answer returns def.
 func AskBool(r *bufio.Reader, label string, def bool) bool {
 	d := "Y/n"
 	if !def {

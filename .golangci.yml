@@ -6,7 +6,11 @@ linters:
     - misspell
     - unconvert
     - copyloopvar
+    - revive # only the "exported" rule below: exported symbols need a doc comment
   settings:
+    revive:
+      rules:
+        - name: exported
     errcheck:
       exclude-functions:
         - fmt.Fprint
@@ -22,3 +26,7 @@ linters:
       - path: _test\.go
         linters:
           - errcheck
+
+formatters:
+  enable:
+    - gofmt

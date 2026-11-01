@@ -91,5 +91,6 @@ golangci-lint run ./...
 ```
 
 Tests use `httptest` servers and fake child processes; they need no network and no real `gh`/`glab`.
-CI (`.github/workflows/ci.yml`) runs build, vet, tests (with `-race` on Linux) and golangci-lint.
+CI (`.github/workflows/ci.yml`) runs build, vet, tests (with `-race` on Linux) and golangci-lint. The lint config
+also checks `gofmt` formatting and requires a doc comment on every exported symbol.
 `internal/app/plugin_test.go` keeps the agent skill and plugin manifests in sync with the code.

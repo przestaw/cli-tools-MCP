@@ -45,10 +45,12 @@ type Profile struct {
 // UsesCLI reports whether the profile sends its requests through gh or glab.
 func (p Profile) UsesCLI() bool { return strings.EqualFold(p.Backend, BackendCLI) }
 
+// PolicyConfig holds the switches that guard what workctl may do.
 type PolicyConfig struct {
 	AllowWrite bool `json:"allow_write"`
 }
 
+// MCPConfig tunes the MCP server.
 type MCPConfig struct {
 	MaxOutputBytes int `json:"max_output_bytes"`
 }
@@ -58,6 +60,8 @@ type ModulesConfig struct {
 	TimeoutSeconds int `json:"timeout_seconds"` // per MCP call and doctor check
 }
 
+// Config is the whole configuration file plus two values that exist only at run time:
+// the path it was loaded from and the profile chosen with --profile.
 type Config struct {
 	Version        int                `json:"version"`
 	TimeoutSeconds int                `json:"timeout_seconds"`
@@ -82,6 +86,7 @@ func (c *Config) ProfileName() string { return c.profile }
 // SetProfileName selects a profile to use instead of defaults.<kind> for its kind.
 func (c *Config) SetProfileName(name string) { c.profile = name }
 
+// Default returns a configuration with the built-in defaults and no profiles.
 func Default() *Config {
 	return &Config{
 		Version:        2,
@@ -94,6 +99,8 @@ func Default() *Config {
 	}
 }
 
+// DefaultPath is where the config file lives: $WORKCTL_CONFIG, else %APPDATA%\workctl\config.json on Windows,
+// else workctl/config.json in the user's config directory.
 func DefaultPath() (string, error) {
 	if p := os.Getenv("WORKCTL_CONFIG"); p != "" {
 		return p, nil
@@ -110,6 +117,8 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "workctl", "config.json"), nil
 }
 
+// Load reads the config file at path (the default path when empty) and rejects files that are not version 2.
+// A missing file is an error; see LoadOrDefault.
 func Load(path string) (*Config, error) {
 	if path == "" {
 		var err error
@@ -168,6 +177,7 @@ func LoadOrDefault(path string) (*Config, error) {
 	return Load(path)
 }
 
+// Save writes the config to its path, readable by the owner only.
 func (c *Config) Save() error {
 	if c.path == "" {
 		p, err := DefaultPath()
@@ -188,6 +198,7 @@ func (c *Config) Save() error {
 	return os.WriteFile(c.path, b, 0o600)
 }
 
+// NormalizeBaseURL expands environment variables, trims spaces and drops trailing slashes.
 func NormalizeBaseURL(s string) string {
 	return strings.TrimRight(strings.TrimSpace(os.ExpandEnv(s)), "/")
 }
@@ -264,6 +275,7 @@ func ProfileRepository(profile Profile, repository string) (string, error) {
 	return "", fmt.Errorf("repository is required: set repo (--repo on the CLI) or default_repo in the profile")
 }
 
+// Has reports whether at least one profile of the kind exists.
 func (c *Config) Has(kind string) bool {
 	for _, p := range c.Profiles {
 		if p.Kind == kind {
@@ -303,6 +315,7 @@ func (c *Config) Scoped(profileName, kind string) (*Config, error) {
 	return &scoped, nil
 }
 
+// Validate checks every profile, and that each default points to an existing profile of the right kind.
 func (c *Config) Validate() error {
 	for name, profile := range c.Profiles {
 		if strings.TrimSpace(name) == "" {
@@ -324,6 +337,7 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// ValidateProfile checks one profile: kind, URL, TLS and CA settings, authentication scheme and backend.
 func ValidateProfile(name string, profile Profile) error {
 	kind := strings.ToLower(strings.TrimSpace(profile.Kind))
 	switch kind {

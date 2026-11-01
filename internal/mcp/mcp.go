@@ -53,6 +53,7 @@ type Server struct {
 	MaxOutputBytes int
 }
 
+// ObjSchema builds the JSON schema of a tool's arguments: an object with the given properties and required names.
 func ObjSchema(props map[string]any, required ...string) map[string]any {
 	s := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
 	if len(required) > 0 {
@@ -61,15 +62,22 @@ func ObjSchema(props map[string]any, required ...string) map[string]any {
 	return s
 }
 
+// StrProp describes a string argument.
 func StrProp(desc string) map[string]any {
 	return map[string]any{"type": "string", "description": desc}
 }
+
+// IntProp describes an integer argument.
 func IntProp(desc string) map[string]any {
 	return map[string]any{"type": "integer", "description": desc}
 }
+
+// BoolProp describes a boolean argument.
 func BoolProp(desc string) map[string]any {
 	return map[string]any{"type": "boolean", "description": desc}
 }
+
+// ArrProp describes an argument that is an array of strings.
 func ArrProp(desc string) map[string]any {
 	return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": desc}
 }

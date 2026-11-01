@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 )
 
+// Printer writes command results as indented JSON or as aligned tables. The zero value writes to stdout.
 type Printer struct {
 	JSON   bool
 	Fields []string
@@ -17,10 +18,12 @@ type Printer struct {
 	W      io.Writer
 }
 
+// New returns a printer for stdout. fields, when given, select the table columns by header name.
 func New(jsonOut bool, fields []string) *Printer {
 	return &Printer{JSON: jsonOut, Fields: fields, W: os.Stdout}
 }
 
+// Out is the destination writer: W, or stdout when W is nil.
 func (p *Printer) Out() io.Writer {
 	if p.W == nil {
 		return os.Stdout
@@ -28,12 +31,14 @@ func (p *Printer) Out() io.Writer {
 	return p.W
 }
 
+// JSONValue writes value as indented JSON.
 func (p *Printer) JSONValue(value any) error {
 	enc := json.NewEncoder(p.Out())
 	enc.SetIndent("", "  ")
 	return enc.Encode(value)
 }
 
+// Raw writes an API response: indented when it is JSON, unchanged otherwise.
 func (p *Printer) Raw(data []byte) error {
 	var value any
 	if err := json.Unmarshal(data, &value); err != nil {
@@ -43,6 +48,7 @@ func (p *Printer) Raw(data []byte) error {
 	return p.JSONValue(value)
 }
 
+// Table writes rows under upper-cased headers, limited to the columns named in Fields (all when none match).
 func (p *Printer) Table(headers []string, rows [][]string) error {
 	cols := selectColumns(headers, p.Fields)
 	tw := tabwriter.NewWriter(p.Out(), 0, 2, 2, ' ', 0)
@@ -67,6 +73,7 @@ func (p *Printer) Table(headers []string, rows [][]string) error {
 	return tw.Flush()
 }
 
+// KeyValue writes a two-column Field/Value table.
 func (p *Printer) KeyValue(pairs [][2]string) error {
 	rows := make([][]string, len(pairs))
 	for index, pair := range pairs {
@@ -98,6 +105,7 @@ func selectColumns(headers, want []string) []int {
 	return cols
 }
 
+// Cell makes a value fit one table cell: a single line, cut at 80 characters unless Expand is set.
 func (p *Printer) Cell(value string) string {
 	value = strings.NewReplacer("\r", "", "\n", " ", "\t", " ").Replace(value)
 	runes := []rune(value)
@@ -107,4 +115,5 @@ func (p *Printer) Cell(value string) string {
 	return value
 }
 
+// Msg writes one formatted line.
 func (p *Printer) Msg(format string, args ...any) { fmt.Fprintf(p.Out(), format+"\n", args...) }
