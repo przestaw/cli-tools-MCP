@@ -145,14 +145,15 @@ func (b *JQLBuilder) String() string {
 
 // quoteJQL quotes a JQL value unless it is a bare safe token.
 func quoteJQL(s string) string {
-	safe := true
+	safe := s != ""
 	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+		isSafe := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_'
+		if !isSafe {
 			safe = false
 			break
 		}
 	}
-	if safe && s != "" {
+	if safe {
 		return s
 	}
 	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`

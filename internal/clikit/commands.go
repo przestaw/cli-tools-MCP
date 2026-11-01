@@ -77,7 +77,8 @@ func Raw(use, long string, absolute bool, call func(context.Context, string, str
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			path := args[0]
-			if !strings.HasPrefix(path, "/") && !(absolute && strings.HasPrefix(path, "http")) {
+			absoluteURL := absolute && strings.HasPrefix(path, "http")
+			if !strings.HasPrefix(path, "/") && !absoluteURL {
 				path = "/" + path
 			}
 			var body any
