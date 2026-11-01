@@ -9,13 +9,13 @@ for local AI agents (VS Code, Claude Code, Cline, Cursor). Read-only by default;
 | --- | --- | --- |
 | `azure` (`ado`) | Azure DevOps: repos, pull requests, pipelines, builds, releases | `internal/azure` |
 | `atlassian` (`atl`) | Jira Cloud and Confluence Cloud | `internal/atlassian` |
-| `jira` | Jira (REST v2) | `jira.go` |
-| `gitlab` | GitLab (REST v4) | `gitlab.go` |
-| `github` | GitHub (REST) | `github.go` |
+| `jira` | Jira (REST v2) | `internal/jira` |
+| `gitlab` | GitLab (REST v4) | `internal/gitlab` |
+| `github` | GitHub (REST) | `internal/github` |
 | `bitbucket` | Bitbucket | reserved, not implemented yet |
 | `asana` | Asana | reserved, not implemented yet |
 
-`workctl bitbucket ...` and `workctl asana ...` only say that the module does not exist yet (`planned.go`); the names are
+`workctl bitbucket ...` and `workctl asana ...` only say that the module does not exist yet (`internal/app`); the names are
 reserved so the command line stays stable. Macros are planned too (see the end).
 
 Every module is optional. With no config file at all, `workctl azure ...` and `workctl atlassian ...` work as long as those
@@ -24,7 +24,7 @@ CLIs are set up (`workctl azure config init`); `jira` and `gitlab` need their UR
 ## Quick start
 
 ```powershell
-go build -trimpath -ldflags "-s -w" -o workctl.exe .      # or scripts\build.ps1
+go build -trimpath -ldflags "-s -w" -o workctl.exe .\cmd\workctl      # or scripts\build.ps1
 
 workctl azure pr list -p "MyProject" --mine --status active
 workctl azure pr threads 123 -p "MyProject" -e
@@ -40,7 +40,7 @@ tokens made earlier keep working.
 ## Policy: read-only unless allowed
 
 Writes are blocked until the config contains `"policy": {"allow_write": true}`. For `azure` and `atlassian` a command counts as a
-read only if it is on the read list in `modules.go` (`get`, `list`, `threads`, `diff`, `jql`, ...); every other command,
+read only if it is on the read list in `internal/modules` (`get`, `list`, `threads`, `diff`, `jql`, ...); every other command,
 including any command a future version adds, counts as a write. Matching uses the command the CLI itself resolves, so
 aliases (`azure pullrequest ...`) and flags before the command (`azure -p X pr list`) are handled. `raw` is a read only for
 GET/HEAD without a body. `shell` counts as a write, because it can run anything.
@@ -74,7 +74,7 @@ The server speaks the legacy handshake-era MCP protocol on purpose; clients that
 
 `plugins/workctl` is one package for all agents: a skill (`skills/workctl/SKILL.md`: which tool to call, comment only after the
 user approved the text) and the server definition (`workctl mcp`, so the binary must be on `PATH`). The tool names live in
-`mcp.go`; `plugin_test.go` fails when the skill names a tool that does not exist or the versions drift apart.
+`internal/app`; `internal/app/plugin_test.go` fails when the skill names a tool that does not exist or the versions drift apart.
 
 | Agent | Install |
 | --- | --- |
@@ -118,7 +118,7 @@ is read from `token_env`, then from the keyring (service `workctl`, account `<ki
 
 A `github` or `gitlab` profile may set `"backend": "cli"`: requests then go through `gh api` / `glab api`, which keep the login
 (no token in workctl). The URL must be `https://HOST` without a path, `verify_tls` must be `true`, and `token_env` and `ca_file` are
-refused. gh/glab environment overrides (`GH_TOKEN`, `GITLAB_TOKEN`, `GH_HOST`, ...) are not passed on. Source: `cli_backend.go`.
+refused. gh/glab environment overrides (`GH_TOKEN`, `GITLAB_TOKEN`, `GH_HOST`, ...) are not passed on. Source: `internal/api/cli.go`.
 
 ```powershell
 workctl github init --profile personal --backend cli   # gh logs in on the terminal; no token is asked for
@@ -136,8 +136,10 @@ Top-level `jira`/`gitlab`/`github` blocks (version 1) are rejected: move them in
 
 ## Build and test
 
+For the code layout and design decisions see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ```powershell
-go vet ./... ; go test ./... ; go build -trimpath -ldflags "-s -w" -o workctl.exe .
+go vet ./... ; go test ./... ; go build -trimpath -ldflags "-s -w" -o workctl.exe .\cmd\workctl
 ```
 
 `scripts/release.sh` cross-compiles the binaries into `dist/` with a `SHA256SUMS` file; publishing them is a manual step.
@@ -181,7 +183,7 @@ It is a CLI command only; the MCP server does not offer it.
 
 ## Planned
 
-- **Implement `bitbucket` and `asana`:** replace the entry in `planned.go` with a real module and its MCP tools.
+- **Implement `bitbucket` and `asana`:** replace the entry in `internal/app` (plannedModules) with a real module and its MCP tools.
 - **Macros as MCP tools:** a named, parameterised sequence of module calls defined in a JSON file, for example
   "everything about ticket X" (Jira issue, matching pull requests, their open threads) in one call. A macro is one MCP
   tool (`macro_run`, with `macro_list` to discover them); it counts as a read only if every step is a read, and its steps
