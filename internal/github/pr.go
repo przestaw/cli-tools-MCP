@@ -40,6 +40,8 @@ func NewPRReader(client *api.Client) *PRReader { return &PRReader{client: client
 
 var _ vcs.PullRequestReader = (*PRReader)(nil)
 
+// ListPullRequests lists pull requests. GitHub has no "merged" state, so merged and closed pull requests are
+// fetched as closed and told apart by their merged_at field.
 func (g *PRReader) ListPullRequests(ctx context.Context, opt vcs.ListOptions) (vcs.Result, error) {
 	state := opt.State
 	if state == "merged" && opt.Search == "" {
@@ -67,6 +69,7 @@ func (g *PRReader) ListPullRequests(ctx context.Context, opt vcs.ListOptions) (v
 	return res, nil
 }
 
+// GetPullRequest fetches one pull request by number.
 func (g *PRReader) GetPullRequest(ctx context.Context, opt vcs.ListOptions, id int) (vcs.PullRequest, error) {
 	body, err := getPR(ctx, g.client, opt.Repository, id)
 	return vcs.Single("github", opt.Repository, fmt.Sprintf("pull request %d not found", id), body, err, fillPullRequest)

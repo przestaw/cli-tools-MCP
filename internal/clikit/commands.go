@@ -10,10 +10,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Root creates the root command of a CLI. Cobra prints neither usage nor errors itself; the caller decides.
 func Root(name, short, long string) *cobra.Command {
 	return &cobra.Command{Use: name, Short: short, Long: long, SilenceUsage: true, SilenceErrors: true}
 }
 
+// Run executes root with the given arguments.
 func Run(root *cobra.Command, args []string) error {
 	if args == nil {
 		args = []string{}
@@ -27,6 +29,8 @@ func initBuiltins(root *cobra.Command) {
 	root.InitDefaultCompletionCmd()
 }
 
+// Resolve finds the command the arguments select, without running it: its canonical path (aliases resolved),
+// whether it is only a group of subcommands, and the arguments left over.
 func Resolve(root *cobra.Command, args []string) (path []string, group bool, rest []string, err error) {
 	initBuiltins(root)
 	cmd, rest, err := root.Find(args)
@@ -39,6 +43,7 @@ func Resolve(root *cobra.Command, args []string) (path []string, group bool, res
 	return path, cmd.HasSubCommands() && !cmd.Runnable(), rest, nil
 }
 
+// Leaves lists every runnable command as a path of words, including cobra's built-in help and completion.
 func Leaves(root *cobra.Command) [][]string {
 	initBuiltins(root)
 	var out [][]string
@@ -55,10 +60,12 @@ func Leaves(root *cobra.Command) [][]string {
 	return out
 }
 
+// Action makes a command without arguments that just calls run.
 func Action(name, short string, run func() error) *cobra.Command {
 	return &cobra.Command{Use: name, Short: short, RunE: func(*cobra.Command, []string) error { return run() }}
 }
 
+// Version makes the `version` command, which prints "name version".
 func Version(name string, version *string) *cobra.Command {
 	return &cobra.Command{Use: "version", Short: "Print " + name + " version", RunE: func(cmd *cobra.Command, _ []string) error {
 		_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", name, *version)
@@ -66,10 +73,13 @@ func Version(name string, version *string) *cobra.Command {
 	}}
 }
 
+// Context returns the context, with a 60-second timeout, that command handlers run under.
 func Context() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 60*time.Second)
 }
 
+// Raw makes the `raw` debug command: it sends one request through call and prints the JSON answer.
+// Absolute http(s) URLs are accepted only when absolute is set.
 func Raw(use, long string, absolute bool, call func(context.Context, string, string, any) (json.RawMessage, error), print func([]byte) error) *cobra.Command {
 	method, data := "GET", ""
 	cmd := &cobra.Command{

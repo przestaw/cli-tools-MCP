@@ -268,7 +268,7 @@ type FieldMeta struct {
 	Operations      []string        `json:"operations"`
 }
 
-// ID returns the field id regardless of createmeta/editmeta shape.
+// IDKey returns the field id regardless of createmeta/editmeta shape.
 func (m FieldMeta) IDKey() string {
 	if m.FieldID != "" {
 		return m.FieldID

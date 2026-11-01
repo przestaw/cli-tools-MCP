@@ -23,7 +23,7 @@ import (
 )
 
 // Version is the one version string of the binary, the MCP server and the plugin package.
-const Version = "0.3.15"
+const Version = "0.3.16"
 
 func usage() {
 	fmt.Fprintf(os.Stdout, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence, GitLab and GitHub
@@ -114,8 +114,10 @@ func commandHandlers() map[string]func(*config.Config, []string) error {
 		"doctor": func(cfg *config.Config, _ []string) error { return doctorCommand(cfg) },
 		"jira":   jira.Command, "gitlab": gitlab.Command, "github": github.Command,
 		"pr": pr.Command, "mr": pr.Command, "task": taskCommand,
-		"mcp":            func(cfg *config.Config, _ []string) error { return runMCP(context.Background(), cfg) },
-		"git-credential": func(cfg *config.Config, args []string) error { return auth.GitCredential(cfg, args, os.Stdin, os.Stdout) },
+		"mcp": func(cfg *config.Config, _ []string) error { return runMCP(context.Background(), cfg) },
+		"git-credential": func(cfg *config.Config, args []string) error {
+			return auth.GitCredential(cfg, args, os.Stdin, os.Stdout)
+		},
 	}
 	for _, name := range modules.Names() {
 		handlers[name] = func(cfg *config.Config, args []string) error { return modules.Command(cfg, name, args) }

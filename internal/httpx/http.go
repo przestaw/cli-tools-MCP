@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+// Transport builds an HTTP transport that requires TLS 1.2 or newer. caFile adds an extra trusted CA bundle;
+// verifyTLS=false switches certificate verification off.
 func Transport(verifyTLS bool, caFile string) (*http.Transport, error) {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: !verifyTLS}
 	if caFile != "" {
@@ -33,6 +35,7 @@ func Transport(verifyTLS bool, caFile string) (*http.Transport, error) {
 	return &http.Transport{TLSClientConfig: cfg}, nil
 }
 
+// NewClient returns an HTTP client with the standard TLS settings and a timeout (30 seconds when zero).
 func NewClient(timeout time.Duration, verifyTLS bool) *http.Client {
 	if timeout == 0 {
 		timeout = 30 * time.Second
@@ -41,8 +44,10 @@ func NewClient(timeout time.Duration, verifyTLS bool) *http.Client {
 	return &http.Client{Timeout: timeout, Transport: tr}
 }
 
+// ErrorParser turns a non-2xx response into an error of the caller's own type.
 type ErrorParser func(status int, url string, body []byte) error
 
+// Do sends the request and returns the body and headers of a 2xx answer. Any other status goes through parseError.
 func Do(client *http.Client, req *http.Request, parseError ErrorParser) ([]byte, http.Header, error) {
 	resp, err := client.Do(req)
 	if err != nil {
@@ -59,6 +64,8 @@ func Do(client *http.Client, req *http.Request, parseError ErrorParser) ([]byte,
 	return data, resp.Header, nil
 }
 
+// JSON sends a JSON request and decodes the answer into out. body may be raw bytes, a json.RawMessage or any value
+// to marshal; validate, when set, may reject the response before it is decoded.
 func JSON(ctx context.Context, client *http.Client, method, url string, headers http.Header, body, out any, parseError ErrorParser, validate func([]byte) error) (http.Header, error) {
 	var reader io.Reader
 	if body != nil {
@@ -101,6 +108,7 @@ func JSON(ctx context.Context, client *http.Client, method, url string, headers 
 	return hdr, Decode(url, data, out)
 }
 
+// Decode unmarshals data into out. An empty body or a nil out is not an error.
 func Decode(url string, data []byte, out any) error {
 	if out == nil || len(data) == 0 {
 		return nil
@@ -111,6 +119,7 @@ func Decode(url string, data []byte, out any) error {
 	return nil
 }
 
+// ErrorMessage formats a provider error as "provider status: message", or with the URL when there is no message.
 func ErrorMessage(provider string, status int, message, url string) string {
 	if message == "" {
 		return fmt.Sprintf("%s %d for %s", provider, status, url)
@@ -118,6 +127,7 @@ func ErrorMessage(provider string, status int, message, url string) string {
 	return fmt.Sprintf("%s %d: %s", provider, status, message)
 }
 
+// RawError formats an HTTP error with the method, URL and the first 1200 bytes of the response body.
 func RawError(method, url string, status int, body string) string {
 	body = strings.TrimSpace(body)
 	if len(body) > 1200 {

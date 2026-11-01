@@ -34,6 +34,7 @@ func NewPRReader(client *api.Client) *PRReader { return &PRReader{client: client
 
 var _ vcs.PullRequestReader = (*PRReader)(nil)
 
+// ListPullRequests lists merge requests, mapping the neutral "open" state to GitLab's "opened".
 func (g *PRReader) ListPullRequests(ctx context.Context, opt vcs.ListOptions) (vcs.Result, error) {
 	state := opt.State
 	if state == "open" {
@@ -46,6 +47,7 @@ func (g *PRReader) ListPullRequests(ctx context.Context, opt vcs.ListOptions) (v
 	return vcs.Normalize("gitlab", opt.Repository, body, fillPullRequest)
 }
 
+// GetPullRequest fetches one merge request by its project-local number (IID).
 func (g *PRReader) GetPullRequest(ctx context.Context, opt vcs.ListOptions, id int) (vcs.PullRequest, error) {
 	body, err := getMR(ctx, g.client, opt.Repository, id)
 	return vcs.Single("gitlab", opt.Repository, fmt.Sprintf("merge request %d not found", id), body, err, fillPullRequest)

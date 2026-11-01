@@ -13,6 +13,7 @@ import (
 // Format is the supported output representation.
 type Format string
 
+// The output formats accepted by ParseFormat.
 const (
 	FormatText Format = "text"
 	FormatJSON Format = "json"
