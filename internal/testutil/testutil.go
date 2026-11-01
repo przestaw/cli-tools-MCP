@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,6 +116,29 @@ func FakeChildProcess(t *testing.T) *[][]string {
 	}
 	t.Cleanup(func() { proc.Command = old })
 	return &calls
+}
+
+// Request is one request seen by RecordingServer.
+type Request struct {
+	Method string
+	Path   string // escaped path, so %2F in a GitLab project path stays visible
+	Query  string
+	Body   string
+}
+
+// RecordingServer starts a test server that records every request and answers with the given status and body.
+// It returns the server URL and the recorded requests.
+func RecordingServer(t *testing.T, status int, body string) (string, *[]Request) {
+	t.Helper()
+	var seen []Request
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		seen = append(seen, Request{Method: r.Method, Path: r.URL.EscapedPath(), Query: r.URL.RawQuery, Body: string(data)})
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, &seen
 }
 
 // RepoRoot walks up from the working directory to the directory that holds go.mod, for tests that read
