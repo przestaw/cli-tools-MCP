@@ -36,12 +36,3 @@ func atoiArg(name, s string) (int, error) {
 	}
 	return n, nil
 }
-
-// confirm asks a y/N question on stdin.
-func confirm(question string) bool {
-	fmt.Printf("%s [y/N]: ", question)
-	var line string
-	fmt.Scanln(&line)
-	line = strings.ToLower(strings.TrimSpace(line))
-	return line == "y" || line == "yes"
-}

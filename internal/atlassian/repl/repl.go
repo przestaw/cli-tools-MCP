@@ -156,10 +156,10 @@ func (s *Session) execute(line string) {
 		if la, err = parseLsArgs(args); err != nil {
 			break
 		}
-		switch {
-		case la.mode == "more":
+		switch la.mode {
+		case "more":
 			err = s.lsMore(false)
-		case la.mode == "all":
+		case "all":
 			if s.more.kind == "" || la.field != "" || la.dir != "" {
 				// fresh (possibly re-sorted) listing, then drain it
 				if err = s.ls(la.field, la.dir); err == nil && s.more.hasMore() {
