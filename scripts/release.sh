@@ -10,7 +10,7 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; d
   arch="${target#*/}"
   ext=""
   [ "$os" = windows ] && ext=".exe"
-  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags '-s -w' -o "dist/workctl_${os}_${arch}${ext}" .
+  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags '-s -w' -o "dist/workctl_${os}_${arch}${ext}" ./cmd/workctl
 done
 cd dist
 if command -v sha256sum >/dev/null 2>&1; then sha256sum workctl_* > SHA256SUMS; else shasum -a 256 workctl_* > SHA256SUMS; fi

@@ -8,7 +8,7 @@ set -eu
 dest="${WORKCTL_INSTALL_DIR:-$HOME/.local/bin}"
 cd "$(dirname "$0")/.."
 mkdir -p "$dest"
-go build -trimpath -ldflags '-s -w' -o "$dest/workctl" .
+go build -trimpath -ldflags '-s -w' -o "$dest/workctl" ./cmd/workctl
 echo "installed: $dest/workctl"
 case ":$PATH:" in
   *":$dest:"*) ;;

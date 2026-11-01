@@ -9,7 +9,7 @@ $dest = if ($env:WORKCTL_INSTALL_DIR) { $env:WORKCTL_INSTALL_DIR } else { Join-P
 Push-Location "$PSScriptRoot\.."
 try {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
-    go build -trimpath -ldflags "-s -w" -o (Join-Path $dest "workctl.exe") .
+    go build -trimpath -ldflags "-s -w" -o (Join-Path $dest "workctl.exe") ./cmd/workctl
 } finally { Pop-Location }
 Write-Host "installed: $dest\workctl.exe"
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
