@@ -1,6 +1,6 @@
 {
   "name": "workctl",
-  "version": "0.3.14",
+  "version": "0.3.15",
   "description": "GitHub, GitLab, Jira and Azure DevOps for AI agents through the workctl MCP server: read pull requests and tickets, post comments.",
   "author": { "name": "przestaw" }
 }
