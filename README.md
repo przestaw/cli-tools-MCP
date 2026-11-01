@@ -2,6 +2,8 @@
 
 Author: [przestaw](https://github.com/przestaw)
 
+[![CI](https://github.com/przestaw/cli-tools-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/przestaw/cli-tools-MCP/actions/workflows/ci.yml)
+
 One binary for the work-tracking and code-hosting services a developer uses every day, as a CLI and as an MCP server
 for local AI agents (VS Code, Claude Code, Cline, Cursor). Read-only by default; writes are opt-in.
 
