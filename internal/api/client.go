@@ -49,6 +49,9 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 		return nil, err
 	}
 	tr.Proxy = http.ProxyFromEnvironment
+	if cfg.UsesSSHTunnel() {
+		useSSHTunnel(tr, cfg.SSHDestination)
+	}
 	c := &http.Client{
 		Timeout:   timeout,
 		Transport: tr,
@@ -64,7 +67,7 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.3.17")
+	h.Set("User-Agent", "workctl/0.3.18")
 	return &Client{baseURL: base, prefix: prefix, client: c, headers: h}, nil
 }
 

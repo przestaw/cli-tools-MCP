@@ -148,6 +148,53 @@ func TestAPIProfileAuthSchemes(t *testing.T) {
 	}
 }
 
+func TestSSHTunnelCarriesVerifiedTLSAndToken(t *testing.T) {
+	calls := fakeCLI(t, "ssh-w")
+	var auth string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WORKCTL_TEST_API_TOKEN", "s3cret")
+	profile := config.Profile{Kind: "api", URL: srv.URL, CAFile: ca, VerifyTLS: true, TokenEnv: "WORKCTL_TEST_API_TOKEN", Backend: config.BackendSSHTunnel, SSHDestination: "bastion-prod"}
+	c, err := NewProfileClient(config.Default(), "p", profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _, err := c.Do(context.Background(), http.MethodGet, "/x", nil, nil, "")
+	if err != nil || string(b) != `{"ok":true}` || auth != "Bearer s3cret" {
+		t.Fatalf("tunnelled request: %s %v auth=%q", b, err, auth)
+	}
+	addr := strings.TrimPrefix(srv.URL, "https://")
+	want := "ssh -o BatchMode=yes -o LogLevel=ERROR -W " + addr + " -- bastion-prod"
+	if len(*calls) != 1 || strings.Join((*calls)[0], " ") != want {
+		t.Fatalf("ssh calls = %q, want %q", *calls, want)
+	}
+	for _, arg := range (*calls)[0] {
+		if strings.Contains(arg, "s3cret") {
+			t.Fatal("token reached the ssh command line")
+		}
+	}
+}
+
+func TestSSHTunnelReportsSSHFailure(t *testing.T) {
+	fakeCLI(t, "ssh-denied")
+	profile := config.Profile{Kind: "api", URL: "https://svc.internal.test", Auth: "none", VerifyTLS: true, Backend: config.BackendSSHTunnel, SSHDestination: "bastion"}
+	c, err := NewProfileClient(config.Default(), "p", profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = c.Do(context.Background(), http.MethodGet, "/", nil, nil, "")
+	if err == nil || !strings.Contains(err.Error(), "Permission denied (publickey)") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestCLIBackendGitHubPostUsesGhWithBodyOnStdin(t *testing.T) {
 	fakeCLI(t, "ok")
 	t.Setenv("GH_TOKEN", "must-not-reach-gh")
