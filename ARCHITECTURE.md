@@ -75,7 +75,8 @@ timeout.
 
 ## Safety rules (covered by tests)
 
-- No write reaches a server, `gh`/`glab` or a child process while `allow_write` is off.
+- No write reaches a server, `gh`/`glab` or a child process while `allow_write` is off, and none reaches a
+  profile with `read_only` at all.
 - For embedded CLIs a command is a write unless it is on the read list in `modules`. A test compares that list
   with the real command trees.
 - The MCP surface additionally refuses credential and profile commands, the interactive shell, `open` and the

@@ -32,13 +32,15 @@ func (e *Error) Error() string {
 
 // Client sends JSON API requests of one profile. The zero value is not usable; use NewKindClient or NewProfileClient.
 type Client struct {
-	baseURL string
-	prefix  string
-	client  *http.Client
-	headers http.Header
-	cli     *cliBackend  // set for profiles with backend "cli": requests go to gh or glab, not to client
-	csrf    *config.CSRF // set when writes need an anti-CSRF token (see csrf.go)
-	token   *csrfToken   // fetched on the first write; empty header when the server has CSRF protection off
+	baseURL  string
+	prefix   string
+	client   *http.Client
+	headers  http.Header
+	cli      *cliBackend  // set for profiles with backend "cli": requests go to gh or glab, not to client
+	csrf     *config.CSRF // set when writes need an anti-CSRF token (see csrf.go)
+	token    *csrfToken   // fetched on the first write; empty header when the server has CSRF protection off
+	form     *formSession // set for auth "form": logs in before the first request (see formlogin.go)
+	readOnly bool         // refuse everything but GET and HEAD
 }
 
 func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Client, error) {
@@ -70,10 +72,10 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.3.22")
-	client := &Client{baseURL: base, prefix: prefix, client: c, headers: h, csrf: cfg.CSRF}
-	if client.csrf != nil {
-		// Servers tie the token to the session that fetched it.
+	h.Set("User-Agent", "workctl/0.3.23")
+	client := &Client{baseURL: base, prefix: prefix, client: c, headers: h, csrf: cfg.CSRF, readOnly: cfg.ReadOnly}
+	if cfg.CSRF != nil || cfg.FormLogin != nil {
+		// Servers tie the token or the login to the session cookie.
 		c.Jar, _ = cookiejar.New(nil)
 	}
 	return client, nil
@@ -136,6 +138,8 @@ func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (
 			client.headers.Set("Authorization", basicAuth(profile.Username, credential))
 		case "header":
 			client.headers.Set(profile.AuthHeader, credential)
+		case "form":
+			client.form = &formSession{login: *profile.FormLogin, username: profile.Username, password: credential}
 		default:
 			client.headers.Set("Authorization", "Bearer "+credential)
 		}
@@ -174,8 +178,14 @@ func (c *Client) relPath(path string) (string, error) {
 	return path, nil
 }
 
+// IsReadMethod reports whether an HTTP method only reads (GET or HEAD); every other method counts as a write.
+func IsReadMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
+}
+
 // Do sends one request, natively over net/http or, for a cli profile, through gh or glab (see cli.go).
-// It returns the response body and its Content-Type.
+// It applies the profile's policies (read-only, form login, anti-CSRF token) and returns the response body and its
+// Content-Type. The body is passed on as the server sent it, HTML included.
 func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body []byte, contentType string) ([]byte, string, error) {
 	target, err := c.relPath(path)
 	if err != nil {
@@ -188,11 +198,19 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 		}
 		target += sep + q.Encode()
 	}
+	if c.readOnly && !IsReadMethod(method) {
+		return nil, "", fmt.Errorf("the profile is read-only: %s is not allowed", method)
+	}
 	if c.cli != nil {
 		return c.cli.do(ctx, method, target, c.headers.Get("Accept"), body, contentType)
 	}
+	if c.form != nil && !c.form.loggedIn {
+		if err := c.logIn(ctx); err != nil {
+			return nil, "", err
+		}
+	}
 	headers := c.headers.Clone()
-	if c.csrf != nil && method != http.MethodGet && method != http.MethodHead {
+	if c.csrf != nil && !IsReadMethod(method) {
 		tok, err := c.csrfHeader(ctx)
 		if err != nil {
 			return nil, "", err
@@ -201,6 +219,11 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 			headers.Set(tok.header, tok.value)
 		}
 	}
+	return c.send(ctx, method, target, headers, body, contentType)
+}
+
+// send performs one HTTP request to a server-relative target, with no policy of its own: Do and the form login use it.
+func (c *Client) send(ctx context.Context, method, target string, headers http.Header, body []byte, contentType string) ([]byte, string, error) {
 	endpoint := c.baseURL + target
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {

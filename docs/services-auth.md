@@ -64,6 +64,42 @@ For APIs that want `X-Api-Key` or similar. One extra field, no templates:
 { "kind": "api", "url": "https://tool.example.com", "auth": "header", "auth_header": "X-Api-Key", "verify_tls": true }
 ```
 
+### `auth: "form"` — login form of a web application
+
+For web applications that have a GUI but no API token: workctl posts the login form once, like a
+browser, and the session cookie it gets back authenticates the later requests. `username` comes
+from the profile, the password from the keyring (`workctl auth set-token`); the password is sent
+only in the body of the login POST. Pages come back as the server renders them, usually HTML,
+and reading them is up to the consumer. Combine it with `"read_only": true`:
+
+```json
+{
+  "kind": "api",
+  "url": "https://fleet.example.com/console",
+  "auth": "form",
+  "username": "stawczyk",
+  "verify_tls": true,
+  "read_only": true,
+  "form_login": {
+    "path": "/login",
+    "fields": { "action": "login" },
+    "user_field": "user",
+    "password_field": "password",
+    "session_cookie": "fleet_session"
+  }
+}
+```
+
+`fields` are extra form fields the login form sends (hidden inputs). The login counts as done
+only when the answer sets `session_cookie`: a wrong password usually comes back as the login page
+with HTTP 200. SSO or two-factor logins cannot be automated this way.
+
+### `read_only` — reads only
+
+Any HTTP profile may set `"read_only": true`: workctl then refuses every method but GET and HEAD
+for it, even with `policy.allow_write`. Note that some web pages change state on a GET (for
+example marking an item as seen), exactly as in a browser.
+
 ### `auth: "none"`
 
 Unauthenticated endpoints (kind `api` only), and required for `ssh-exec` profiles, whose SSH key

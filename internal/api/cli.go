@@ -70,7 +70,7 @@ func newCLIClient(profile config.Profile, timeout time.Duration) (*Client, error
 	if err != nil {
 		return nil, err
 	}
-	client := &Client{baseURL: config.NormalizeBaseURL(profile.URL), headers: make(http.Header), cli: b}
+	client := &Client{baseURL: config.NormalizeBaseURL(profile.URL), headers: make(http.Header), cli: b, readOnly: profile.ReadOnly}
 	client.headers.Set("Accept", "application/json")
 	if profile.Kind == "github" {
 		client.headers.Set("Accept", "application/vnd.github+json")
