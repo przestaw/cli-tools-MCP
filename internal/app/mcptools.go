@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"workctl/internal/config"
+	"workctl/internal/generic"
 	"workctl/internal/github"
 	"workctl/internal/gitlab"
 	"workctl/internal/jira"
@@ -28,6 +29,8 @@ func toolAvailable(cfg *config.Config, name string) bool {
 		return cfg.Has("github")
 	case strings.HasPrefix(name, "task_"):
 		return cfg.Has("jira") && cfg.Has("gitlab")
+	case strings.HasPrefix(name, "api_"):
+		return cfg.Has(generic.Kind)
 	}
 	return true
 }
@@ -47,6 +50,9 @@ func mcpTools(cfg *config.Config) []mcp.Tool {
 	}
 	if toolAvailable(cfg, "pr_list") {
 		tools = append(tools, pr.Tools()...)
+	}
+	if cfg.Has(generic.Kind) {
+		tools = append(tools, generic.Tools()...)
 	}
 	return append(tools, modules.Tools(cfg)...)
 }
@@ -80,6 +86,8 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 		return gitlab.CallTool(ctx, cfg, name, a)
 	case strings.HasPrefix(name, "jira_"):
 		return jira.CallTool(ctx, cfg, name, a)
+	case strings.HasPrefix(name, "api_"):
+		return generic.CallTool(ctx, cfg, name, a)
 	}
 	switch name {
 	case "pr_list", "pr_show":

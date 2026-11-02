@@ -120,6 +120,34 @@ func TestHTTPClientUsesCustomCA(t *testing.T) {
 	}
 }
 
+func TestAPIProfileAuthSchemes(t *testing.T) {
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = r.Header.Clone() }))
+	defer srv.Close()
+	t.Setenv("WORKCTL_TEST_API_TOKEN", "s3cret")
+	for name, tc := range map[string]struct {
+		auth, header, username string
+		wantHeader, wantValue  string
+	}{
+		"bearer": {"", "", "", "Authorization", "Bearer s3cret"},
+		"basic":  {"basic", "", "me", "Authorization", "Basic bWU6czNjcmV0"},
+		"header": {"header", "X-Api-Key", "", "X-Api-Key", "s3cret"},
+		"none":   {"none", "", "", "Authorization", ""},
+	} {
+		profile := config.Profile{Kind: "api", URL: srv.URL, Auth: tc.auth, AuthHeader: tc.header, Username: tc.username, TokenEnv: "WORKCTL_TEST_API_TOKEN", VerifyTLS: true}
+		c, err := NewProfileClient(config.Default(), "p", profile)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, _, err := c.Do(context.Background(), http.MethodGet, "/", nil, nil, ""); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if v := got.Get(tc.wantHeader); v != tc.wantValue {
+			t.Errorf("%s: %s = %q, want %q", name, tc.wantHeader, v, tc.wantValue)
+		}
+	}
+}
+
 func TestCLIBackendGitHubPostUsesGhWithBodyOnStdin(t *testing.T) {
 	fakeCLI(t, "ok")
 	t.Setenv("GH_TOKEN", "must-not-reach-gh")

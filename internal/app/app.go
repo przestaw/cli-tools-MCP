@@ -14,6 +14,7 @@ import (
 	"workctl/internal/auth"
 	"workctl/internal/cliutil"
 	"workctl/internal/config"
+	"workctl/internal/generic"
 	"workctl/internal/github"
 	"workctl/internal/gitlab"
 	"workctl/internal/jira"
@@ -23,7 +24,7 @@ import (
 )
 
 // Version is the one version string of the binary, the MCP server and the plugin package.
-const Version = "0.3.16"
+const Version = "0.3.17"
 
 func usage() {
 	fmt.Fprintf(os.Stdout, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence, GitLab and GitHub
@@ -38,6 +39,7 @@ Usage:
   workctl [--config FILE] jira ...     Jira
   workctl [--config FILE] gitlab ...   GitLab
   workctl [--config FILE] github ...   GitHub
+  workctl [--config FILE] api raw METHOD PATH   any HTTP service of a kind "api" profile
   workctl [--config FILE] pr|mr ...    provider-neutral pull/merge requests
   workctl [--config FILE] task ISSUE-KEY
   workctl [--config FILE] mcp
@@ -112,7 +114,7 @@ func run(args []string) error {
 func commandHandlers() map[string]func(*config.Config, []string) error {
 	handlers := map[string]func(*config.Config, []string) error{
 		"doctor": func(cfg *config.Config, _ []string) error { return doctorCommand(cfg) },
-		"jira":   jira.Command, "gitlab": gitlab.Command, "github": github.Command,
+		"jira":   jira.Command, "gitlab": gitlab.Command, "github": github.Command, "api": generic.Command,
 		"pr": pr.Command, "mr": pr.Command, "task": taskCommand,
 		"mcp": func(cfg *config.Config, _ []string) error { return runMCP(context.Background(), cfg) },
 		"git-credential": func(cfg *config.Config, args []string) error {

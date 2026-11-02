@@ -31,7 +31,7 @@ func testConfig(base string) *config.Config {
 
 func TestCommandRegistry(t *testing.T) {
 	handlers := commandHandlers()
-	for _, name := range []string{"jira", "gitlab", "github", "pr", "mr", "task", "mcp", "doctor", "git-credential", "azure", "atlassian", "bitbucket", "asana"} {
+	for _, name := range []string{"jira", "gitlab", "github", "api", "pr", "mr", "task", "mcp", "doctor", "git-credential", "azure", "atlassian", "bitbucket", "asana"} {
 		if handlers[name] == nil {
 			t.Errorf("missing handler %s", name)
 		}

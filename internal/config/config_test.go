@@ -87,6 +87,31 @@ func TestValidateBackend(t *testing.T) {
 	}
 }
 
+func TestValidateAPIAuth(t *testing.T) {
+	ok := config.Profile{Kind: "api", URL: "https://jenkins.example.com", VerifyTLS: true}
+	with := func(edit func(*config.Profile)) config.Profile { p := ok; edit(&p); return p }
+	for name, tc := range map[string]struct {
+		profile config.Profile
+		wantErr string
+	}{
+		"default bearer":    {ok, ""},
+		"none":              {with(func(p *config.Profile) { p.Auth = "none" }), ""},
+		"basic":             {with(func(p *config.Profile) { p.Auth, p.Username = "basic", "me" }), ""},
+		"basic no user":     {with(func(p *config.Profile) { p.Auth = "basic" }), "username is required"},
+		"header":            {with(func(p *config.Profile) { p.Auth, p.AuthHeader = "header", "X-Api-Key" }), ""},
+		"header no name":    {with(func(p *config.Profile) { p.Auth = "header" }), "auth_header is required"},
+		"header bad name":   {with(func(p *config.Profile) { p.Auth, p.AuthHeader = "header", "X-Key: x" }), "not a valid header"},
+		"name without auth": {with(func(p *config.Profile) { p.AuthHeader = "X-Api-Key" }), "not allowed otherwise"},
+		"unknown auth":      {with(func(p *config.Profile) { p.Auth = "oauth" }), "unsupported for api"},
+		"none on github":    {with(func(p *config.Profile) { p.Kind, p.Auth = "github", "none" }), "unsupported for github"},
+	} {
+		err := config.ValidateProfile("p", tc.profile)
+		if (tc.wantErr == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.wantErr)
+		}
+	}
+}
+
 func TestPRProfileRequiresExplicitChoiceForMultipleProfiles(t *testing.T) {
 	cfg := config.Default()
 	cfg.Profiles = map[string]config.Profile{
