@@ -14,6 +14,7 @@ for local AI agents (VS Code, Claude Code, Cline, Cursor). Read-only by default;
 | `jira` | Jira (REST v2) | `internal/jira` |
 | `gitlab` | GitLab (REST v4) | `internal/gitlab` |
 | `github` | GitHub (REST) | `internal/github` |
+| `api` | any other HTTP service, or commands over ssh (generic profiles) | `internal/generic` |
 | `bitbucket` | Bitbucket | reserved, not implemented yet |
 | `asana` | Asana | reserved, not implemented yet |
 
@@ -62,7 +63,7 @@ it to the VS Code user profile as the MCP server `workctl` (`workctl mcp`, defau
 Then start it under **MCP: List Servers** and enable its tools in agent mode; restart it after changing the config.
 
 Tools: `azure` and `atlassian` (one each; the argument is the command line as an array, for example
-`["pr","get","123","-p","MyProject"]`), plus `jira_*`, `gitlab_*`, `github_*` and `task_get_context` for the backends that are
+`["pr","get","123","-p","MyProject"]`), plus `jira_*`, `gitlab_*`, `github_*`, `api_request`/`api_exec` and `task_get_context` for the backends that are
 configured. Write tools of `jira`/`gitlab`/`github` appear only with `allow_write`; the `azure`/`atlassian` tools refuse writes until then.
 Each `azure`/`atlassian` call runs as a child process of workctl with its own timeout (`modules.timeout_seconds`).
 `examples/vscode-mcp-no-tokens.json` is a `.vscode/mcp.json` that needs no tokens in the file. `examples/vscode-mcp.json` and
@@ -135,6 +136,10 @@ The login is one per host: two accounts on the same host need the native backend
 
 Top-level `jira`/`gitlab`/`github` blocks (version 1) are rejected: move them into profiles. Tokens stored by version 1
 (account `<kind>:<url>`) are not read; store them again with `workctl auth set-token --profile NAME`.
+
+Profiles of kind `api` (Jenkins, Artifactory, any JSON API), `"backend": "ssh-tunnel"` (any HTTP profile behind a bastion)
+and `"backend": "ssh-exec"` (APIs that are remote commands) are described, with every authentication method, in
+[docs/services-auth.md](docs/services-auth.md).
 
 ## Build and test
 

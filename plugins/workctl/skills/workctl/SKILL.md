@@ -26,6 +26,8 @@ If a call says there is no credential or the CLI is not logged in, stop and tell
 - Jira: `jira_get_issue`, `jira_get_comments`. `task_get_context` joins an issue with its branches and merge requests.
 - Azure DevOps and Confluence: the `azure` and `atlassian` tools take a command line as an array, for example
   `["pr","threads","123","-p","Project"]`; use `["--help"]` to explore.
+- Other services the user configured (Jenkins, Artifactory, ...): `api_request` with a path relative to the profile URL;
+  `api_exec` runs one allow-listed remote command over ssh. Neither accepts a full URL or a command outside the allowlist.
 
 ## Comment
 

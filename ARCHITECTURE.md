@@ -17,9 +17,10 @@ cmd/workctl/        entry point, one line: calls app.Main
 internal/
   app/              wires everything together: command dispatch, doctor, task, MCP tool list
   config/           config file, profiles, write policy, credential lookup (env var, then OS keyring)
-  api/              HTTP client for one profile, plus the gh/glab transport ("cli" backend)
+  api/              HTTP client for one profile, plus the gh/glab transport ("cli" backend) and the ssh dialer ("ssh-tunnel")
   mcp/              MCP protocol: JSON-RPC loop, Tool type, schema and argument helpers
   github/ gitlab/ jira/   REST providers: API calls, CLI commands, MCP tools
+  generic/          kind "api" profiles: `api raw` / `api_request` over HTTP, `api exec` / `api_exec` over ssh
   pr/               provider-neutral `pr` / `mr` command and pr_list / pr_show tools
   vcs/              provider-neutral pull request model and JSON normalisation
   modules/          embeds the azure and atlassian CLIs and decides which of their commands may run
@@ -34,7 +35,7 @@ internal/
 Dependencies point one way only. Only `app` knows all providers; nothing imports `app`.
 
 ```
-cmd/workctl -> app -> github, gitlab, jira, pr, modules, auth, setup
+cmd/workctl -> app -> github, gitlab, jira, generic, pr, modules, auth, setup
                       -> api, mcp, vcs -> config, cliutil, httpx, secret, proc
 ```
 
@@ -81,6 +82,10 @@ timeout.
   `--config` / `--insecure` flags.
 - `api.Client` rejects absolute URLs and cross-host redirects, so a token cannot be sent to another host.
 - With the `cli` backend a write is refused when `gh`/`glab` is logged in as a different account than the profile.
+- One identity per layer: an SSH key authenticates the ssh transport, a workctl token the HTTP request. A token never
+  reaches the ssh command line, and profiles owned by gh/glab or an SSH key have no workctl token (`config.NoTokenError`).
+- `ssh-exec` runs only allow-listed command prefixes, quotes every word for the remote shell, and refuses
+  `ssh_destination` values that ssh would read as an option.
 - Tokens are never written to the config file.
 
 ## Tests and CI
