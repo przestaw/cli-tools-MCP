@@ -23,6 +23,9 @@ import (
 // an empty value or "native" selects net/http.
 const BackendCLI = "cli"
 
+// BackendSSHTunnel is the Profile.Backend value that dials every HTTP connection through `ssh -W` to ssh_destination.
+const BackendSSHTunnel = "ssh-tunnel"
+
 // CLITools maps a profile kind to the executable that serves its cli backend.
 var CLITools = map[string]string{"github": "gh", "gitlab": "glab"}
 
@@ -41,11 +44,15 @@ type Profile struct {
 	Repos          []string `json:"repos,omitempty"`
 	Projects       []string `json:"projects,omitempty"`
 	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
-	Backend        string   `json:"backend,omitempty"` // "native" (default) or "cli": gh or glab sends the requests and username pins the account
+	Backend        string   `json:"backend,omitempty"`         // "native" (default), "cli" (gh or glab sends the requests and username pins the account) or "ssh-tunnel"
+	SSHDestination string   `json:"ssh_destination,omitempty"` // ssh host or ~/.ssh/config alias for the ssh backends
 }
 
 // UsesCLI reports whether the profile sends its requests through gh or glab.
 func (p Profile) UsesCLI() bool { return strings.EqualFold(p.Backend, BackendCLI) }
+
+// UsesSSHTunnel reports whether the profile's HTTP connections go through ssh.
+func (p Profile) UsesSSHTunnel() bool { return strings.EqualFold(p.Backend, BackendSSHTunnel) }
 
 // PolicyConfig holds the switches that guard what workctl may do.
 type PolicyConfig struct {
@@ -389,15 +396,20 @@ func ValidateProfile(name string, profile Profile) error {
 // headerNameRe accepts the usual header names (X-Api-Key, Private-Token) and nothing that could break the request line.
 var headerNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
 
-// validateBackend checks Profile.Backend against the settings that the CLI transport cannot honour.
+// validateBackend checks Profile.Backend and the settings that its transport cannot honour.
 // The CLI owns credentials and TLS, so token_env, ca_file and verify_tls=false are refused instead of ignored.
 func validateBackend(name string, profile Profile, u *url.URL) error {
 	switch strings.ToLower(profile.Backend) {
 	case "", "native":
+		if profile.SSHDestination != "" {
+			return fmt.Errorf("profiles.%s.ssh_destination needs backend %q", name, BackendSSHTunnel)
+		}
 		return nil
+	case BackendSSHTunnel:
+		return validateSSHDestination(name, profile)
 	case BackendCLI:
 	default:
-		return fmt.Errorf("profiles.%s.backend %q is unsupported (use native or cli)", name, profile.Backend)
+		return fmt.Errorf("profiles.%s.backend %q is unsupported (use native, cli or ssh-tunnel)", name, profile.Backend)
 	}
 	tool := CLITools[profile.Kind]
 	switch {
@@ -407,6 +419,23 @@ func validateBackend(name string, profile Profile, u *url.URL) error {
 		return fmt.Errorf("profiles.%s.url must be https://HOST without a path for the cli backend (%s adds the API path)", name, tool)
 	case profile.TokenEnv != "" || profile.CAFile != "" || !profile.VerifyTLS:
 		return fmt.Errorf("profiles.%s: the cli backend needs verify_tls=true and no token_env or ca_file (%s keeps its own credentials and TLS settings)", name, tool)
+	case profile.SSHDestination != "":
+		return fmt.Errorf("profiles.%s.ssh_destination is not used by the cli backend", name)
+	}
+	return nil
+}
+
+// validateSSHDestination checks the ssh target of an ssh backend. A leading "-" would be read by ssh as an option
+// (for example -oProxyCommand=...), so it is refused even though workctl also passes "--" before it.
+func validateSSHDestination(name string, profile Profile) error {
+	switch profile.Kind {
+	case "github", "gitlab", "jira", "api":
+	default:
+		return fmt.Errorf("profiles.%s.backend %s is only available for github, gitlab, jira and api", name, profile.Backend)
+	}
+	d := profile.SSHDestination
+	if d == "" || strings.HasPrefix(d, "-") || strings.ContainsFunc(d, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return fmt.Errorf("profiles.%s.ssh_destination must be an ssh host or ~/.ssh/config alias (no spaces, not starting with -)", name)
 	}
 	return nil
 }

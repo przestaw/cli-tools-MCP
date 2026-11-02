@@ -79,6 +79,13 @@ func TestValidateBackend(t *testing.T) {
 		"token env":       {with(func(p *config.Profile) { p.TokenEnv = "TOK" }), "token_env"},
 		"ca file":         {with(func(p *config.Profile) { p.CAFile = os.TempDir() }), "ca_file"},
 		"tls off":         {with(func(p *config.Profile) { p.VerifyTLS = false }), "verify_tls"},
+		"cli with ssh":    {with(func(p *config.Profile) { p.SSHDestination = "bastion" }), "not used by the cli backend"},
+		"ssh tunnel":      {with(func(p *config.Profile) { p.Backend, p.SSHDestination = "ssh-tunnel", "bastion" }), ""},
+		"ssh no dest":     {with(func(p *config.Profile) { p.Backend = "ssh-tunnel" }), "ssh_destination must be"},
+		"ssh option":      {with(func(p *config.Profile) { p.Backend, p.SSHDestination = "ssh-tunnel", "-oProxyCommand=x" }), "not starting with -"},
+		"ssh space":       {with(func(p *config.Profile) { p.Backend, p.SSHDestination = "ssh-tunnel", "a b" }), "no spaces"},
+		"ssh azure":       {with(func(p *config.Profile) { p.Kind, p.Backend, p.SSHDestination = "azure", "ssh-tunnel", "b" }), "only available"},
+		"native with ssh": {with(func(p *config.Profile) { p.Backend, p.SSHDestination = "", "bastion" }), "needs backend"},
 	} {
 		err := config.ValidateProfile("p", tc.profile)
 		if (tc.wantErr == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.wantErr)) {

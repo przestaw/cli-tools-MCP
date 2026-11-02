@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -55,8 +56,28 @@ func CLIHelperProcess() {
 		}
 	case "sleep":
 		time.Sleep(10 * time.Second)
+	case "ssh-w": // `ssh -W host:port ...` forwards its stdio to host:port
+		for i, a := range args {
+			if a == "-W" {
+				forwardStdio(args[i+1])
+			}
+		}
+	case "ssh-denied":
+		_, _ = os.Stderr.WriteString("stawczyk@bastion: Permission denied (publickey).")
+		os.Exit(255)
 	}
 	os.Exit(0)
+}
+
+// forwardStdio connects to addr and copies stdin to it and its answers to stdout, as `ssh -W` does.
+func forwardStdio(addr string) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		_, _ = os.Stderr.WriteString(err.Error())
+		os.Exit(255)
+	}
+	go func() { _, _ = io.Copy(conn, os.Stdin) }()
+	_, _ = io.Copy(os.Stdout, conn)
 }
 
 // FakeCLI makes proc.Command start the test binary as the fake CLI in the given mode and records every call
