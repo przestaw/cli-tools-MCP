@@ -27,6 +27,7 @@ If a call says there is no credential or the CLI is not logged in, stop and tell
 - Azure DevOps and Confluence: the `azure` and `atlassian` tools take a command line as an array, for example
   `["pr","threads","123","-p","Project"]`; use `["--help"]` to explore.
 - Other services the user configured (management consoles, artifact repositories, ...): `api_request` with a path relative to the profile URL;
+  `api_download` saves a file (attachment, archive, log) unchanged and returns its path and SHA-256;
   `api_exec` runs one allow-listed remote command over ssh. Neither accepts a full URL or a command outside the allowlist.
 
 ## Comment
