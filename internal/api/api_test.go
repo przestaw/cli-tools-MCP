@@ -196,18 +196,18 @@ func TestSSHTunnelReportsSSHFailure(t *testing.T) {
 }
 
 func TestCSRFTokenIsFetchedOnceInTheSameSession(t *testing.T) {
-	crumbRequests := 0
+	tokenRequests := 0
 	var posted url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/crumbIssuer/api/json":
-			crumbRequests++
+		case "/api/v1/session/csrf":
+			tokenRequests++
 			http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: "s1", Path: "/"})
-			_, _ = w.Write([]byte(`{"crumbRequestField":"Jenkins-Crumb","crumb":"c1"}`))
-		case "/job/x/buildWithParameters":
+			_, _ = w.Write([]byte(`{"header":"X-Fleet-CSRF","token":"c1"}`))
+		case "/api/v1/deployments":
 			cookie, err := r.Cookie("JSESSIONID")
-			if r.Header.Get("Jenkins-Crumb") != "c1" || err != nil || cookie.Value != "s1" {
-				http.Error(w, "No valid crumb was included in the request", http.StatusForbidden)
+			if r.Header.Get("X-Fleet-CSRF") != "c1" || err != nil || cookie.Value != "s1" {
+				http.Error(w, "missing CSRF token", http.StatusForbidden)
 				return
 			}
 			posted = r.URL.Query()
@@ -219,34 +219,34 @@ func TestCSRFTokenIsFetchedOnceInTheSameSession(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("WORKCTL_TEST_API_TOKEN", "pw")
 	profile := config.Profile{Kind: "api", URL: srv.URL, Auth: "basic", Username: "me", TokenEnv: "WORKCTL_TEST_API_TOKEN", VerifyTLS: true,
-		CSRF: &config.CSRF{Path: "/crumbIssuer/api/json", HeaderField: "crumbRequestField", TokenField: "crumb"}}
+		CSRF: &config.CSRF{Path: "/api/v1/session/csrf", HeaderField: "header", TokenField: "token"}}
 	c, err := NewProfileClient(config.Default(), "ci", profile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, _, err := c.Do(ctx, http.MethodGet, "/api/json", nil, nil, ""); err != nil || crumbRequests != 0 {
-		t.Fatalf("a read fetched a crumb: %v %d", err, crumbRequests)
+	if _, _, err := c.Do(ctx, http.MethodGet, "/api/v1/devices", nil, nil, ""); err != nil || tokenRequests != 0 {
+		t.Fatalf("a read fetched a CSRF token: %v %d", err, tokenRequests)
 	}
-	platforms := url.Values{"MAKE_PLATFORMS": {"MSVC2019 Qt5 client", "Ubuntu 24.04 Qt5 services"}}
+	regions := url.Values{"region": {"eu-west", "eu-central"}}
 	for range 2 {
-		if _, _, err := c.Do(ctx, http.MethodPost, "/job/x/buildWithParameters", platforms, nil, ""); err != nil {
+		if _, _, err := c.Do(ctx, http.MethodPost, "/api/v1/deployments", regions, nil, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if crumbRequests != 1 || len(posted["MAKE_PLATFORMS"]) != 2 {
-		t.Fatalf("crumb requests = %d, posted = %v", crumbRequests, posted)
+	if tokenRequests != 1 || len(posted["region"]) != 2 {
+		t.Fatalf("token requests = %d, posted = %v", tokenRequests, posted)
 	}
 
 	noCSRF := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/crumbIssuer/api/json" {
+		if r.URL.Path == "/api/v1/session/csrf" {
 			http.NotFound(w, r)
 		}
 	}))
 	defer noCSRF.Close()
 	profile.URL = noCSRF.URL
 	c, _ = NewProfileClient(config.Default(), "ci", profile)
-	if _, _, err := c.Do(ctx, http.MethodPost, "/job/x/build", nil, nil, ""); err != nil {
+	if _, _, err := c.Do(ctx, http.MethodPost, "/api/v1/devices/42/reboot", nil, nil, ""); err != nil {
 		t.Fatalf("server without CSRF protection: %v", err)
 	}
 

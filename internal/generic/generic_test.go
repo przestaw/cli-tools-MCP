@@ -54,14 +54,14 @@ func TestAPIRequestEncodesQuery(t *testing.T) {
 	cfg := testConfig(srv.URL)
 	cfg.Policy.AllowWrite = true
 	query := map[string]any{
-		"MAKE_PLATFORMS": []any{"MSVC2019 Qt5 client", "Ubuntu 24.04 Qt5 services"},
-		"MAKE_BUILD":     true,
-		"RETRIES":        float64(2),
+		"region":  []any{"eu-west", "eu-central"},
+		"dry_run": false,
+		"retries": float64(2),
 	}
 	if _, err := CallTool(context.Background(), cfg, "api_request", map[string]any{"method": "POST", "path": "/job/x/buildWithParameters", "query": query}); err != nil {
 		t.Fatal(err)
 	}
-	want := "MAKE_BUILD=true&MAKE_PLATFORMS=MSVC2019+Qt5+client&MAKE_PLATFORMS=Ubuntu+24.04+Qt5+services&RETRIES=2"
+	want := "dry_run=false&region=eu-west&region=eu-central&retries=2"
 	if rawQuery != want {
 		t.Fatalf("query = %s\nwant    %s", rawQuery, want)
 	}

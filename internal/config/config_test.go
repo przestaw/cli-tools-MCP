@@ -95,7 +95,7 @@ func TestValidateBackend(t *testing.T) {
 }
 
 func TestValidateAPIAuth(t *testing.T) {
-	ok := config.Profile{Kind: "api", URL: "https://jenkins.example.com", VerifyTLS: true}
+	ok := config.Profile{Kind: "api", URL: "https://fleet.example.com", VerifyTLS: true}
 	with := func(edit func(*config.Profile)) config.Profile { p := ok; edit(&p); return p }
 	for name, tc := range map[string]struct {
 		profile config.Profile
