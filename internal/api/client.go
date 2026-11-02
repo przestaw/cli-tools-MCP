@@ -67,7 +67,7 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.3.19")
+	h.Set("User-Agent", "workctl/0.3.20")
 	return &Client{baseURL: base, prefix: prefix, client: c, headers: h}, nil
 }
 
