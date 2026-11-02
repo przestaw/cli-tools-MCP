@@ -26,27 +26,41 @@ const BackendCLI = "cli"
 // BackendSSHTunnel is the Profile.Backend value that dials every HTTP connection through `ssh -W` to ssh_destination.
 const BackendSSHTunnel = "ssh-tunnel"
 
+// BackendSSHExec is the Profile.Backend value of an api profile whose API is a set of commands run over ssh.
+const BackendSSHExec = "ssh-exec"
+
 // CLITools maps a profile kind to the executable that serves its cli backend.
 var CLITools = map[string]string{"github": "gh", "gitlab": "glab"}
 
 // Profile is one named provider connection; the profile name is also the keyring identity.
 type Profile struct {
-	Kind           string   `json:"kind"`
-	URL            string   `json:"url"`
-	Auth           string   `json:"auth,omitempty"`
-	AuthHeader     string   `json:"auth_header,omitempty"` // header that carries the secret when auth is "header" (kind api)
-	Username       string   `json:"username,omitempty"`
-	TokenEnv       string   `json:"token_env,omitempty"`
-	VerifyTLS      bool     `json:"verify_tls"`
-	CAFile         string   `json:"ca_file,omitempty"`
-	DefaultRepo    string   `json:"default_repo,omitempty"`
-	DefaultProject string   `json:"default_project,omitempty"`
-	Repos          []string `json:"repos,omitempty"`
-	Projects       []string `json:"projects,omitempty"`
-	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
-	Backend        string   `json:"backend,omitempty"`         // "native" (default), "cli" (gh or glab sends the requests and username pins the account) or "ssh-tunnel"
-	SSHDestination string   `json:"ssh_destination,omitempty"` // ssh host or ~/.ssh/config alias for the ssh backends
+	Kind           string       `json:"kind"`
+	URL            string       `json:"url"`
+	Auth           string       `json:"auth,omitempty"`
+	AuthHeader     string       `json:"auth_header,omitempty"` // header that carries the secret when auth is "header" (kind api)
+	Username       string       `json:"username,omitempty"`
+	TokenEnv       string       `json:"token_env,omitempty"`
+	VerifyTLS      bool         `json:"verify_tls"`
+	CAFile         string       `json:"ca_file,omitempty"`
+	DefaultRepo    string       `json:"default_repo,omitempty"`
+	DefaultProject string       `json:"default_project,omitempty"`
+	Repos          []string     `json:"repos,omitempty"`
+	Projects       []string     `json:"projects,omitempty"`
+	TimeoutSeconds int          `json:"timeout_seconds,omitempty"`
+	Backend        string       `json:"backend,omitempty"`         // "native" (default), "cli" (gh or glab sends the requests and username pins the account), "ssh-tunnel" or "ssh-exec"
+	SSHDestination string       `json:"ssh_destination,omitempty"` // ssh host or ~/.ssh/config alias for the ssh backends
+	Commands       []SSHCommand `json:"commands,omitempty"`        // ssh-exec: the only commands that may run
 }
+
+// SSHCommand allows the remote commands of an ssh-exec profile that start with Prefix.
+// ReadOnly commands run without policy.allow_write.
+type SSHCommand struct {
+	Prefix   []string `json:"prefix"`
+	ReadOnly bool     `json:"read_only,omitempty"`
+}
+
+// UsesSSHExec reports whether the profile runs remote commands over ssh instead of sending HTTP requests.
+func (p Profile) UsesSSHExec() bool { return strings.EqualFold(p.Backend, BackendSSHExec) }
 
 // UsesCLI reports whether the profile sends its requests through gh or glab.
 func (p Profile) UsesCLI() bool { return strings.EqualFold(p.Backend, BackendCLI) }
@@ -354,6 +368,12 @@ func ValidateProfile(name string, profile Profile) error {
 	default:
 		return fmt.Errorf("profiles.%s.kind %q is unsupported", name, profile.Kind)
 	}
+	if profile.UsesSSHExec() {
+		return validateSSHExec(name, profile)
+	}
+	if len(profile.Commands) > 0 {
+		return fmt.Errorf("profiles.%s.commands needs backend %q", name, BackendSSHExec)
+	}
 	parsed, err := url.Parse(NormalizeBaseURL(profile.URL))
 	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
 		return fmt.Errorf("profiles.%s.url must be an absolute http or https URL", name)
@@ -409,7 +429,7 @@ func validateBackend(name string, profile Profile, u *url.URL) error {
 		return validateSSHDestination(name, profile)
 	case BackendCLI:
 	default:
-		return fmt.Errorf("profiles.%s.backend %q is unsupported (use native, cli or ssh-tunnel)", name, profile.Backend)
+		return fmt.Errorf("profiles.%s.backend %q is unsupported (use native, cli, ssh-tunnel or ssh-exec)", name, profile.Backend)
 	}
 	tool := CLITools[profile.Kind]
 	switch {
@@ -423,6 +443,25 @@ func validateBackend(name string, profile Profile, u *url.URL) error {
 		return fmt.Errorf("profiles.%s.ssh_destination is not used by the cli backend", name)
 	}
 	return nil
+}
+
+// validateSSHExec checks an ssh-exec profile. The SSH key is its only identity, so it must use auth "none";
+// it has no URL, and only the listed command prefixes may run.
+func validateSSHExec(name string, profile Profile) error {
+	switch {
+	case profile.Kind != "api":
+		return fmt.Errorf("profiles.%s.backend ssh-exec is only available for kind api", name)
+	case !strings.EqualFold(profile.Auth, "none") || profile.TokenEnv != "":
+		return fmt.Errorf("profiles.%s: ssh-exec needs auth \"none\" and no token_env (the SSH key is the only identity)", name)
+	case len(profile.Commands) == 0:
+		return fmt.Errorf("profiles.%s.commands must allow at least one command prefix", name)
+	}
+	for i, c := range profile.Commands {
+		if len(c.Prefix) == 0 || slices.Contains(c.Prefix, "") {
+			return fmt.Errorf("profiles.%s.commands[%d].prefix must list non-empty words", name, i)
+		}
+	}
+	return validateSSHDestination(name, profile)
 }
 
 // validateSSHDestination checks the ssh target of an ssh backend. A leading "-" would be read by ssh as an option

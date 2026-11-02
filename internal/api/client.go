@@ -67,7 +67,7 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.3.18")
+	h.Set("User-Agent", "workctl/0.3.19")
 	return &Client{baseURL: base, prefix: prefix, client: c, headers: h}, nil
 }
 
@@ -87,6 +87,9 @@ func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (
 	}
 	if profile.UsesCLI() {
 		return newCLIClient(profile, cfg.ProfileTimeout(profile))
+	}
+	if profile.UsesSSHExec() {
+		return nil, fmt.Errorf("profile %q runs remote commands over ssh, not HTTP: use `workctl api exec`", name)
 	}
 	client, err := newClient(profile, "", cfg.ProfileTimeout(profile))
 	if err != nil {
