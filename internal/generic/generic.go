@@ -1,5 +1,5 @@
 // Package generic serves profiles of kind "api": any HTTP service without a dedicated provider
-// (Jenkins, Artifactory, SonarQube, ...) and, with backend ssh-exec, services whose API is a set of
+// (CI servers, artifact repositories, ...) and, with backend ssh-exec, services whose API is a set of
 // commands run over ssh. It adds no endpoints of its own, only `workctl api raw|exec` and the
 // api_request and api_exec MCP tools.
 package generic
@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -63,8 +64,12 @@ func Tools() []mcp.Tool {
 		Description: "Send one HTTP request to a configured api profile (generic service). Path is relative to the profile URL; GET/HEAD always allowed, other methods need policy.allow_write=true.",
 		InputSchema: mcp.ObjSchema(map[string]any{
 			"method": mcp.StrProp("HTTP method, default GET"),
-			"path":   mcp.StrProp("Path on the profile's server, for example /job/build/api/json"),
-			"body":   mcp.StrProp("Request body (JSON text)"),
+			"path":   mcp.StrProp("Path on the profile's server, for example /api/items"),
+			"query": map[string]any{
+				"type":        "object",
+				"description": "Query parameters, encoded by workctl. A value may be a string, number, boolean or an array (one parameter per item, e.g. a multi-select).",
+			},
+			"body": mcp.StrProp("Request body (JSON text)"),
 		}, "path"),
 	}, {
 		Name:        "api_exec",
@@ -113,9 +118,40 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) ([]byte,
 	if err != nil {
 		return nil, err
 	}
+	query, err := queryArg(a["query"])
+	if err != nil {
+		return nil, err
+	}
 	var body []byte
 	if s := mcp.ArgString(a, "body"); s != "" {
 		body = []byte(s)
 	}
-	return api.BodyOnly(c.Do(ctx, method, mcp.ArgString(a, "path"), nil, body, "application/json"))
+	return api.BodyOnly(c.Do(ctx, method, mcp.ArgString(a, "path"), query, body, "application/json"))
+}
+
+// queryArg turns the query argument of api_request into URL parameters; an array adds one parameter per item.
+func queryArg(arg any) (url.Values, error) {
+	q := url.Values{}
+	if arg == nil {
+		return q, nil
+	}
+	m, ok := arg.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("query must be an object")
+	}
+	for key, value := range m {
+		items, isList := value.([]any)
+		if !isList {
+			items = []any{value}
+		}
+		for _, item := range items {
+			switch item.(type) {
+			case string, float64, bool:
+				q.Add(key, fmt.Sprint(item))
+			default:
+				return nil, fmt.Errorf("query %q: values must be strings, numbers or booleans", key)
+			}
+		}
+	}
+	return q, nil
 }

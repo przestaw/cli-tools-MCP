@@ -195,6 +195,77 @@ func TestSSHTunnelReportsSSHFailure(t *testing.T) {
 	}
 }
 
+func TestCSRFTokenIsFetchedOnceInTheSameSession(t *testing.T) {
+	crumbRequests := 0
+	var posted url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/crumbIssuer/api/json":
+			crumbRequests++
+			http.SetCookie(w, &http.Cookie{Name: "JSESSIONID", Value: "s1", Path: "/"})
+			_, _ = w.Write([]byte(`{"crumbRequestField":"Jenkins-Crumb","crumb":"c1"}`))
+		case "/job/x/buildWithParameters":
+			cookie, err := r.Cookie("JSESSIONID")
+			if r.Header.Get("Jenkins-Crumb") != "c1" || err != nil || cookie.Value != "s1" {
+				http.Error(w, "No valid crumb was included in the request", http.StatusForbidden)
+				return
+			}
+			posted = r.URL.Query()
+			w.WriteHeader(http.StatusCreated)
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("WORKCTL_TEST_API_TOKEN", "pw")
+	profile := config.Profile{Kind: "api", URL: srv.URL, Auth: "basic", Username: "me", TokenEnv: "WORKCTL_TEST_API_TOKEN", VerifyTLS: true,
+		CSRF: &config.CSRF{Path: "/crumbIssuer/api/json", HeaderField: "crumbRequestField", TokenField: "crumb"}}
+	c, err := NewProfileClient(config.Default(), "ci", profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, _, err := c.Do(ctx, http.MethodGet, "/api/json", nil, nil, ""); err != nil || crumbRequests != 0 {
+		t.Fatalf("a read fetched a crumb: %v %d", err, crumbRequests)
+	}
+	platforms := url.Values{"MAKE_PLATFORMS": {"MSVC2019 Qt5 client", "Ubuntu 24.04 Qt5 services"}}
+	for range 2 {
+		if _, _, err := c.Do(ctx, http.MethodPost, "/job/x/buildWithParameters", platforms, nil, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if crumbRequests != 1 || len(posted["MAKE_PLATFORMS"]) != 2 {
+		t.Fatalf("crumb requests = %d, posted = %v", crumbRequests, posted)
+	}
+
+	noCSRF := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/crumbIssuer/api/json" {
+			http.NotFound(w, r)
+		}
+	}))
+	defer noCSRF.Close()
+	profile.URL = noCSRF.URL
+	c, _ = NewProfileClient(config.Default(), "ci", profile)
+	if _, _, err := c.Do(ctx, http.MethodPost, "/job/x/build", nil, nil, ""); err != nil {
+		t.Fatalf("server without CSRF protection: %v", err)
+	}
+
+	var fixed string
+	fixedHeader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/csrf" {
+			_, _ = w.Write([]byte(`{"token":"t1"}`))
+			return
+		}
+		fixed = r.Header.Get("X-CSRF-Token")
+	}))
+	defer fixedHeader.Close()
+	profile.URL, profile.CSRF = fixedHeader.URL, &config.CSRF{Path: "/csrf", Header: "X-CSRF-Token", TokenField: "token"}
+	c, _ = NewProfileClient(config.Default(), "ci", profile)
+	if _, _, err := c.Do(ctx, http.MethodPost, "/items", nil, nil, ""); err != nil || fixed != "t1" {
+		t.Fatalf("fixed header: %v %q", err, fixed)
+	}
+}
+
 func TestCLIBackendGitHubPostUsesGhWithBodyOnStdin(t *testing.T) {
 	fakeCLI(t, "ok")
 	t.Setenv("GH_TOKEN", "must-not-reach-gh")

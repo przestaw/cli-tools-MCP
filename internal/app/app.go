@@ -24,7 +24,7 @@ import (
 )
 
 // Version is the one version string of the binary, the MCP server and the plugin package.
-const Version = "0.3.20"
+const Version = "0.3.21"
 
 func usage() {
 	fmt.Fprintf(os.Stdout, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence, GitLab and GitHub

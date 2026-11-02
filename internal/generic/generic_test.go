@@ -47,6 +47,29 @@ func TestAPIRequestReadsAndGuardsWrites(t *testing.T) {
 
 func TestCLIHelperProcess(t *testing.T) { testutil.CLIHelperProcess() }
 
+func TestAPIRequestEncodesQuery(t *testing.T) {
+	var rawQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { rawQuery = r.URL.RawQuery }))
+	defer srv.Close()
+	cfg := testConfig(srv.URL)
+	cfg.Policy.AllowWrite = true
+	query := map[string]any{
+		"MAKE_PLATFORMS": []any{"MSVC2019 Qt5 client", "Ubuntu 24.04 Qt5 services"},
+		"MAKE_BUILD":     true,
+		"RETRIES":        float64(2),
+	}
+	if _, err := CallTool(context.Background(), cfg, "api_request", map[string]any{"method": "POST", "path": "/job/x/buildWithParameters", "query": query}); err != nil {
+		t.Fatal(err)
+	}
+	want := "MAKE_BUILD=true&MAKE_PLATFORMS=MSVC2019+Qt5+client&MAKE_PLATFORMS=Ubuntu+24.04+Qt5+services&RETRIES=2"
+	if rawQuery != want {
+		t.Fatalf("query = %s\nwant    %s", rawQuery, want)
+	}
+	if _, err := CallTool(context.Background(), cfg, "api_request", map[string]any{"path": "/", "query": map[string]any{"a": map[string]any{}}}); err == nil {
+		t.Fatal("nested object accepted as a query value")
+	}
+}
+
 func TestAPIExecRunsOnlyAllowedQuotedCommands(t *testing.T) {
 	calls := testutil.FakeCLI(t, "ok")
 	cfg := config.Default()

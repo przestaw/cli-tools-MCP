@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"time"
@@ -35,7 +36,9 @@ type Client struct {
 	prefix  string
 	client  *http.Client
 	headers http.Header
-	cli     *cliBackend // set for profiles with backend "cli": requests go to gh or glab, not to client
+	cli     *cliBackend  // set for profiles with backend "cli": requests go to gh or glab, not to client
+	csrf    *config.CSRF // set when writes need an anti-CSRF token (see csrf.go)
+	token   *csrfToken   // fetched on the first write; empty header when the server has CSRF protection off
 }
 
 func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Client, error) {
@@ -67,8 +70,13 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.3.20")
-	return &Client{baseURL: base, prefix: prefix, client: c, headers: h}, nil
+	h.Set("User-Agent", "workctl/0.3.21")
+	client := &Client{baseURL: base, prefix: prefix, client: c, headers: h, csrf: cfg.CSRF}
+	if client.csrf != nil {
+		// Servers tie the token to the session that fetched it.
+		c.Jar, _ = cookiejar.New(nil)
+	}
+	return client, nil
 }
 
 // NewKindClient connects to the default profile of a kind (jira, gitlab, github, api).
@@ -183,12 +191,22 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 	if c.cli != nil {
 		return c.cli.do(ctx, method, target, c.headers.Get("Accept"), body, contentType)
 	}
+	headers := c.headers.Clone()
+	if c.csrf != nil && method != http.MethodGet && method != http.MethodHead {
+		tok, err := c.csrfHeader(ctx)
+		if err != nil {
+			return nil, "", err
+		}
+		if tok.header != "" {
+			headers.Set(tok.header, tok.value)
+		}
+	}
 	endpoint := c.baseURL + target
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, "", err
 	}
-	req.Header = c.headers.Clone()
+	req.Header = headers
 	if body != nil {
 		if contentType == "" {
 			contentType = "application/json"

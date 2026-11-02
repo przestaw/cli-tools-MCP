@@ -88,8 +88,46 @@ workctl doctor                                                        # GET / on
 ```
 
 Paths are relative to the profile `url` (including its path); absolute URLs are refused. MCP tool:
-`api_request` with `method`, `path`, `body` and optional `profile`; anything but GET/HEAD needs
+`api_request` with `method`, `path`, `query`, `body` and optional `profile`; anything but GET/HEAD needs
 `allow_write`. `defaults.api` picks the profile when there are several.
+
+Query parameters are encoded by workctl, so values with spaces or several values of one key (a
+multi-select) need no hand-made escaping: `--query KEY=VALUE` (repeatable) on the CLI, and on MCP
+`"query": {"MAKE_PLATFORMS": ["MSVC2019 Qt5 client", "Ubuntu 24.04 Qt5 services"], "MAKE_BUILD": true}`.
+
+### Anti-CSRF tokens
+
+Some servers refuse a write signed with a password unless it carries a token that a GET handed out
+in the same session (API tokens are often exempt). Describe where the token comes from in the
+profile's `csrf` block; before the first write workctl fetches it, keeps the session cookie in
+memory and sends the token header. Neither reaches the output. A 404 from `path` means the
+server has CSRF protection off.
+
+| Field | Meaning |
+| --- | --- |
+| `path` | GET endpoint that answers JSON with the token |
+| `token_field` | JSON field holding the token |
+| `header` | header that carries the token, or |
+| `header_field` | JSON field naming that header (when the server says which header it wants) |
+
+Jenkins (crumb issuer), for example:
+
+```json
+"csrf": { "path": "/crumbIssuer/api/json", "header_field": "crumbRequestField", "token_field": "crumb" }
+```
+
+A server with a fixed header:
+
+```json
+"csrf": { "path": "/api/csrf", "header": "X-CSRF-Token", "token_field": "token" }
+```
+
+```sh
+workctl --profile jenkins api raw \
+  --query RELEASE_VERSION=20261101-wats \
+  --query "MAKE_PLATFORMS=MSVC2019 Qt5 client" --query "MAKE_PLATFORMS=Ubuntu 24.04 Qt5 services" \
+  POST /job/argos-pipeline/job/argosrm-wats16/buildWithParameters
+```
 
 ## SSH
 
