@@ -131,6 +131,24 @@ Query parameters are encoded by workctl, so values with spaces or several values
 multi-select) need no hand-made escaping: `--query KEY=VALUE` (repeatable) on the CLI, and on MCP
 `"query": {"region": ["eu-west", "eu-central"], "channel": "stable", "dry_run": false}`.
 
+### Downloads (binary files, archives, logs)
+
+`api raw` prints text for reading: JSON is indented and a final newline is added. For files use
+`api download`, which streams the answer to disk unchanged and prints where it went:
+
+```sh
+workctl --profile fleet api download --query id=42 /api/v1/logs/export
+# {"path":"~/.cache/workctl/downloads/download-123-export.log.gz","bytes":812345,
+#  "sha256":"...","content_type":"application/gzip","server_file_name":"export.log.gz"}
+```
+
+Without `--output FILE` the file lands in `<user cache dir>/workctl/downloads` under a unique
+prefix and the server's file name (directories and odd characters dropped), so nothing is
+overwritten; a failed download leaves no file. MCP tool: `api_download` with `path`, `query` and an
+optional `filename`; it never takes a target directory, so an agent cannot write outside the
+downloads directory. Downloads are GETs and work on `read_only` profiles. The profile's
+`timeout_seconds` limits the whole transfer.
+
 ### Anti-CSRF tokens
 
 Some servers refuse a write signed with a password unless it carries a token that a GET handed out

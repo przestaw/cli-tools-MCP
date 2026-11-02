@@ -1,7 +1,7 @@
 // Package generic serves profiles of kind "api": any HTTP service without a dedicated provider
 // (CI servers, artifact repositories, ...) and, with backend ssh-exec, services whose API is a set of
-// commands run over ssh. It adds no endpoints of its own, only `workctl api raw|exec` and the
-// api_request and api_exec MCP tools.
+// commands run over ssh. It adds no endpoints of its own, only `workctl api raw|download|exec` and the
+// api_request, api_download and api_exec MCP tools.
 package generic
 
 import (
@@ -21,20 +21,22 @@ import (
 // Kind is the profile kind served by this package.
 const Kind = "api"
 
-// Command runs `workctl api raw [--body JSON|@file] METHOD PATH` or `workctl api exec [--] CMD [ARG...]`
-// against the selected api profile.
+// Command runs `workctl api raw|download|exec ...` against the selected api profile.
 func Command(cfg *config.Config, args []string) error {
-	usage := fmt.Errorf("api commands: raw [--body JSON|@file] METHOD PATH, exec [--] CMD [ARG...]")
+	usage := fmt.Errorf("api commands: raw [--body JSON|@file] METHOD PATH, download [--output FILE] PATH, exec [--] CMD [ARG...]")
 	if len(args) == 0 {
 		return usage
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
 	defer cancel()
 	switch args[0] {
-	case "raw":
+	case "raw", "download":
 		c, err := api.NewKindClient(cfg, Kind)
 		if err != nil {
 			return err
+		}
+		if args[0] == "download" {
+			return downloadCommand(ctx, c, args[1:])
 		}
 		return api.RawCommand(ctx, c, cfg, args[1:])
 	case "exec":
@@ -72,6 +74,14 @@ func Tools() []mcp.Tool {
 			"body": mcp.StrProp("Request body (JSON text)"),
 		}, "path"),
 	}, {
+		Name:        "api_download",
+		Description: "Download one file from a configured api profile without changing a byte (binary files, archives, logs). Streams it to a new file in the workctl downloads directory and returns its path, size, SHA-256, content type and the server's file name.",
+		InputSchema: mcp.ObjSchema(map[string]any{
+			"path":     mcp.StrProp("Path on the profile's server"),
+			"query":    map[string]any{"type": "object", "description": "Query parameters, as in api_request"},
+			"filename": mcp.StrProp("File name to keep (default: the server's or the path's); directories are dropped"),
+		}, "path"),
+	}, {
 		Name:        "api_exec",
 		Description: "Run one remote command of an ssh-exec api profile. Only commands allowed by the profile run; those not marked read_only need policy.allow_write=true.",
 		InputSchema: mcp.ObjSchema(map[string]any{"args": mcp.ArrProp("Command and arguments, one word per item")}, "args"),
@@ -89,6 +99,16 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 	switch name {
 	case "api_request":
 		return request(ctx, cfg, a)
+	case "api_download":
+		c, err := api.NewKindClient(cfg, Kind)
+		if err != nil {
+			return nil, err
+		}
+		query, err := queryArg(a["query"])
+		if err != nil {
+			return nil, err
+		}
+		return download(ctx, c, mcp.ArgString(a, "path"), query, "", mcp.ArgString(a, "filename"))
 	case "api_exec":
 		argv, err := mcp.ArgStrings(a, "args")
 		if err != nil {

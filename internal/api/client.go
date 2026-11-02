@@ -72,7 +72,7 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.3.23")
+	h.Set("User-Agent", "workctl/0.3.24")
 	client := &Client{baseURL: base, prefix: prefix, client: c, headers: h, csrf: cfg.CSRF, readOnly: cfg.ReadOnly}
 	if cfg.CSRF != nil || cfg.FormLogin != nil {
 		// Servers tie the token or the login to the session cookie.
@@ -187,9 +187,25 @@ func IsReadMethod(method string) bool {
 // It applies the profile's policies (read-only, form login, anti-CSRF token) and returns the response body and its
 // Content-Type. The body is passed on as the server sent it, HTML included.
 func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body []byte, contentType string) ([]byte, string, error) {
-	target, err := c.relPath(path)
+	target, err := c.target(method, path, q)
 	if err != nil {
 		return nil, "", err
+	}
+	if c.cli != nil {
+		return c.cli.do(ctx, method, target, c.headers.Get("Accept"), body, contentType)
+	}
+	headers, err := c.authorize(ctx, method)
+	if err != nil {
+		return nil, "", err
+	}
+	return c.send(ctx, method, target, headers, body, contentType)
+}
+
+// target turns path and query into the server-relative target of a request and refuses a write on a read-only profile.
+func (c *Client) target(method, path string, q url.Values) (string, error) {
+	target, err := c.relPath(path)
+	if err != nil {
+		return "", err
 	}
 	if len(q) > 0 {
 		sep := "?"
@@ -199,35 +215,37 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 		target += sep + q.Encode()
 	}
 	if c.readOnly && !IsReadMethod(method) {
-		return nil, "", fmt.Errorf("the profile is read-only: %s is not allowed", method)
+		return "", fmt.Errorf("the profile is read-only: %s is not allowed", method)
 	}
-	if c.cli != nil {
-		return c.cli.do(ctx, method, target, c.headers.Get("Accept"), body, contentType)
-	}
+	return target, nil
+}
+
+// authorize returns the headers of one native request: it logs in with the form first when the profile needs it,
+// and adds the anti-CSRF token to a write.
+func (c *Client) authorize(ctx context.Context, method string) (http.Header, error) {
 	if c.form != nil && !c.form.loggedIn {
 		if err := c.logIn(ctx); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 	}
 	headers := c.headers.Clone()
 	if c.csrf != nil && !IsReadMethod(method) {
 		tok, err := c.csrfHeader(ctx)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		if tok.header != "" {
 			headers.Set(tok.header, tok.value)
 		}
 	}
-	return c.send(ctx, method, target, headers, body, contentType)
+	return headers, nil
 }
 
-// send performs one HTTP request to a server-relative target, with no policy of its own: Do and the form login use it.
-func (c *Client) send(ctx context.Context, method, target string, headers http.Header, body []byte, contentType string) ([]byte, string, error) {
-	endpoint := c.baseURL + target
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
+// newRequest builds one HTTP request to a server-relative target; a body without a content type is sent as JSON.
+func (c *Client) newRequest(ctx context.Context, method, target string, headers http.Header, body []byte, contentType string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+target, bytes.NewReader(body))
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	req.Header = headers
 	if body != nil {
@@ -235,6 +253,15 @@ func (c *Client) send(ctx context.Context, method, target string, headers http.H
 			contentType = "application/json"
 		}
 		req.Header.Set("Content-Type", contentType)
+	}
+	return req, nil
+}
+
+// send performs one HTTP request and reads the whole answer, with no policy of its own: Do and the form login use it.
+func (c *Client) send(ctx context.Context, method, target string, headers http.Header, body []byte, contentType string) ([]byte, string, error) {
+	req, err := c.newRequest(ctx, method, target, headers, body, contentType)
+	if err != nil {
+		return nil, "", err
 	}
 	data, hdr, err := httpx.Do(c.client, req, func(status int, url string, body []byte) error {
 		return &Error{Method: method, URL: url, Status: status, Body: string(body)}

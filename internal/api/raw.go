@@ -16,15 +16,7 @@ import (
 func RawCommand(ctx context.Context, c *Client, cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("raw", flag.ContinueOnError)
 	bodyArg := fs.String("body", "", "JSON body or @file")
-	query := url.Values{}
-	fs.Func("query", "query parameter KEY=VALUE, encoded by workctl; repeat for several values of one key", func(s string) error {
-		key, value, ok := strings.Cut(s, "=")
-		if !ok || key == "" {
-			return fmt.Errorf("want KEY=VALUE, got %q", s)
-		}
-		query.Add(key, value)
-		return nil
-	})
+	query := QueryFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -46,4 +38,18 @@ func RawCommand(ctx context.Context, c *Client, cfg *config.Config, args []strin
 		return err
 	}
 	return cliutil.PrintBody(b)
+}
+
+// QueryFlag adds the repeatable --query KEY=VALUE flag to fs and returns the values it collects; workctl encodes them.
+func QueryFlag(fs *flag.FlagSet) url.Values {
+	query := url.Values{}
+	fs.Func("query", "query parameter KEY=VALUE, encoded by workctl; repeat for several values of one key", func(s string) error {
+		key, value, ok := strings.Cut(s, "=")
+		if !ok || key == "" {
+			return fmt.Errorf("want KEY=VALUE, got %q", s)
+		}
+		query.Add(key, value)
+		return nil
+	})
+	return query
 }
