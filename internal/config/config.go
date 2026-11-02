@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -30,6 +31,7 @@ type Profile struct {
 	Kind           string   `json:"kind"`
 	URL            string   `json:"url"`
 	Auth           string   `json:"auth,omitempty"`
+	AuthHeader     string   `json:"auth_header,omitempty"` // header that carries the secret when auth is "header" (kind api)
 	Username       string   `json:"username,omitempty"`
 	TokenEnv       string   `json:"token_env,omitempty"`
 	VerifyTLS      bool     `json:"verify_tls"`
@@ -341,7 +343,7 @@ func (c *Config) Validate() error {
 func ValidateProfile(name string, profile Profile) error {
 	kind := strings.ToLower(strings.TrimSpace(profile.Kind))
 	switch kind {
-	case "github", "gitlab", "azure", "jira", "atlassian":
+	case "github", "gitlab", "azure", "jira", "atlassian", "api":
 	default:
 		return fmt.Errorf("profiles.%s.kind %q is unsupported", name, profile.Kind)
 	}
@@ -359,18 +361,33 @@ func ValidateProfile(name string, profile Profile) error {
 		return err
 	}
 	// The first scheme is the default when auth is empty.
-	auths := map[string][]string{"github": {"bearer"}, "gitlab": {"private-token", "bearer"}, "jira": {"bearer", "basic"}}[kind]
-	if auth := strings.ToLower(profile.Auth); auth != "" && auths != nil && !slices.Contains(auths, auth) {
+	auths := map[string][]string{
+		"github": {"bearer"},
+		"gitlab": {"private-token", "bearer"},
+		"jira":   {"bearer", "basic"},
+		"api":    {"bearer", "basic", "header", "none"},
+	}[kind]
+	auth := strings.ToLower(profile.Auth)
+	if auth != "" && auths != nil && !slices.Contains(auths, auth) {
 		return fmt.Errorf("profiles.%s.auth %q is unsupported for %s (use %s)", name, profile.Auth, kind, strings.Join(auths, " or "))
 	}
-	if strings.EqualFold(profile.Auth, "basic") && profile.Username == "" {
+	if auth == "basic" && profile.Username == "" {
 		return fmt.Errorf("profiles.%s.username is required for basic auth", name)
+	}
+	if (auth == "header") != (profile.AuthHeader != "") {
+		return fmt.Errorf("profiles.%s.auth_header is required with auth \"header\" and not allowed otherwise", name)
+	}
+	if auth == "header" && !headerNameRe.MatchString(profile.AuthHeader) {
+		return fmt.Errorf("profiles.%s.auth_header %q is not a valid header name", name, profile.AuthHeader)
 	}
 	if (kind == "jira" || kind == "atlassian") && profile.DefaultRepo != "" {
 		return fmt.Errorf("profiles.%s.default_repo is not valid for %s", name, kind)
 	}
 	return nil
 }
+
+// headerNameRe accepts the usual header names (X-Api-Key, Private-Token) and nothing that could break the request line.
+var headerNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
 
 // validateBackend checks Profile.Backend against the settings that the CLI transport cannot honour.
 // The CLI owns credentials and TLS, so token_env, ca_file and verify_tls=false are refused instead of ignored.

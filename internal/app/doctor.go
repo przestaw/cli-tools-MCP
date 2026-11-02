@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -103,6 +104,12 @@ func doctorCheckProfile(ctx context.Context, cfg *config.Config, name string, pr
 			return nil, err
 		}
 		return map[string]string{"kind": "jira", "user": cliutil.FirstNonEmpty(cliutil.JSONField(me, "name"), cliutil.JSONField(me, "displayName"))}, nil
+	case "api":
+		_, contentType, err := c.Do(ctx, http.MethodGet, "/", nil, nil, "")
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"kind": "api", "content_type": contentType}, nil
 	default:
 		return nil, fmt.Errorf("unsupported profile kind %q", profile.Kind)
 	}

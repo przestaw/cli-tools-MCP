@@ -64,11 +64,11 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.3.16")
+	h.Set("User-Agent", "workctl/0.3.17")
 	return &Client{baseURL: base, prefix: prefix, client: c, headers: h}, nil
 }
 
-// NewKindClient connects to the default profile of a kind (jira, gitlab, github).
+// NewKindClient connects to the default profile of a kind (jira, gitlab, github, api).
 func NewKindClient(cfg *config.Config, kind string) (*Client, error) {
 	name, profile, err := cfg.ProfileOf(kind)
 	if err != nil {
@@ -89,11 +89,14 @@ func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (
 	if err != nil {
 		return nil, err
 	}
+	auth := strings.ToLower(profile.Auth)
+	if auth == "none" {
+		return client, nil
+	}
 	credential, err := config.ResolveProfileSecret(name, profile)
 	if err != nil {
 		return nil, err
 	}
-	auth := strings.ToLower(profile.Auth)
 	switch profile.Kind {
 	case "github":
 		client.headers.Set("Authorization", "Bearer "+credential)
@@ -108,15 +111,29 @@ func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (
 		client.prefix = "/api/v4"
 	case "jira":
 		if auth == "basic" {
-			client.headers.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(profile.Username+":"+credential)))
+			client.headers.Set("Authorization", basicAuth(profile.Username, credential))
 		} else {
 			client.headers.Set("Authorization", "Bearer "+credential)
 		}
 		client.prefix = "/rest/api/2"
+	case "api":
+		switch auth {
+		case "basic":
+			client.headers.Set("Authorization", basicAuth(profile.Username, credential))
+		case "header":
+			client.headers.Set(profile.AuthHeader, credential)
+		default:
+			client.headers.Set("Authorization", "Bearer "+credential)
+		}
 	default:
 		return nil, fmt.Errorf("profile %q has unsupported HTTP provider %q", name, profile.Kind)
 	}
 	return client, nil
+}
+
+// basicAuth is the value of an HTTP Basic Authorization header.
+func basicAuth(username, secret string) string {
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+secret))
 }
 
 // WithAccept returns a copy of the client that sends another Accept header (for example a raw-contents media type).
