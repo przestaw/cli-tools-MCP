@@ -39,6 +39,8 @@ type Profile struct {
 	Auth           string       `json:"auth,omitempty"`
 	AuthHeader     string       `json:"auth_header,omitempty"` // header that carries the secret when auth is "header" (kind api)
 	CSRF           *CSRF        `json:"csrf,omitempty"`        // kind api: writes carry an anti-CSRF token
+	FormLogin      *FormLogin   `json:"form_login,omitempty"`  // kind api with auth "form": the login form to post
+	ReadOnly       bool         `json:"read_only,omitempty"`   // only GET and HEAD, whatever policy.allow_write says
 	Username       string       `json:"username,omitempty"`
 	TokenEnv       string       `json:"token_env,omitempty"`
 	VerifyTLS      bool         `json:"verify_tls"`
@@ -67,6 +69,17 @@ type CSRF struct {
 	TokenField  string `json:"token_field"`
 	Header      string `json:"header,omitempty"`
 	HeaderField string `json:"header_field,omitempty"`
+}
+
+// FormLogin describes the login form of a web application without an API token: Fields plus the user name and the
+// secret (under UserField and PasswordField) are posted to Path, and the login worked when the answer sets the cookie
+// SessionCookie.
+type FormLogin struct {
+	Path          string            `json:"path"`
+	Fields        map[string]string `json:"fields,omitempty"`
+	UserField     string            `json:"user_field"`
+	PasswordField string            `json:"password_field"`
+	SessionCookie string            `json:"session_cookie"`
 }
 
 // UsesSSHExec reports whether the profile runs remote commands over ssh instead of sending HTTP requests.
@@ -402,7 +415,7 @@ func ValidateProfile(name string, profile Profile) error {
 		"github": {"bearer"},
 		"gitlab": {"private-token", "bearer"},
 		"jira":   {"bearer", "basic"},
-		"api":    {"bearer", "basic", "header", "none"},
+		"api":    {"bearer", "basic", "header", "form", "none"},
 	}[kind]
 	auth := strings.ToLower(profile.Auth)
 	if auth != "" && auths != nil && !slices.Contains(auths, auth) {
@@ -410,6 +423,9 @@ func ValidateProfile(name string, profile Profile) error {
 	}
 	if auth == "basic" && profile.Username == "" {
 		return fmt.Errorf("profiles.%s.username is required for basic auth", name)
+	}
+	if err := validateFormLogin(name, auth, profile); err != nil {
+		return err
 	}
 	if (auth == "header") != (profile.AuthHeader != "") {
 		return fmt.Errorf("profiles.%s.auth_header is required with auth \"header\" and not allowed otherwise", name)
@@ -442,6 +458,22 @@ func validateCSRF(name, kind string, c *CSRF) error {
 		return fmt.Errorf("profiles.%s.csrf needs exactly one of header and header_field", name)
 	case c.Header != "" && !headerNameRe.MatchString(c.Header):
 		return fmt.Errorf("profiles.%s.csrf.header %q is not a valid header name", name, c.Header)
+	}
+	return nil
+}
+
+// validateFormLogin checks that auth "form" and the form_login block come together and that the block is complete.
+func validateFormLogin(name, auth string, profile Profile) error {
+	f := profile.FormLogin
+	switch {
+	case (auth == "form") != (f != nil):
+		return fmt.Errorf("profiles.%s.form_login is required with auth \"form\" and not allowed otherwise", name)
+	case f == nil:
+		return nil
+	case profile.Username == "":
+		return fmt.Errorf("profiles.%s.username is required for form login", name)
+	case !strings.HasPrefix(f.Path, "/") || f.UserField == "" || f.PasswordField == "" || f.SessionCookie == "":
+		return fmt.Errorf("profiles.%s.form_login needs path (starting with /), user_field, password_field and session_cookie", name)
 	}
 	return nil
 }

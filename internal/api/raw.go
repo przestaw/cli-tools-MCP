@@ -32,7 +32,7 @@ func RawCommand(ctx context.Context, c *Client, cfg *config.Config, args []strin
 		return fmt.Errorf("usage: raw [--body JSON|@file] [--query KEY=VALUE]... METHOD PATH")
 	}
 	method := strings.ToUpper(fs.Arg(0))
-	if method != "GET" && method != "HEAD" {
+	if !IsReadMethod(method) {
 		if err := cfg.RequireWrite(); err != nil {
 			return err
 		}

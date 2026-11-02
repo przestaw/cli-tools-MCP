@@ -109,7 +109,7 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) ([]byte,
 	if method == "" {
 		method = http.MethodGet
 	}
-	if method != http.MethodGet && method != http.MethodHead {
+	if !api.IsReadMethod(method) {
 		if err := cfg.RequireWrite(); err != nil {
 			return nil, err
 		}
