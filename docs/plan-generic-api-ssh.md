@@ -43,7 +43,7 @@ Smallest useful step; one new package (`internal/generic`) for the command and t
   tool `api_request`, under the same write policy and host pinning as today.
 - `doctor`: an `api` profile check = credential resolves + `GET /` on the profile URL answers 2xx.
   *As built:* no `health_path` field; point `url` at a path that answers if `/` does not.
-- Covers Jenkins (`auth: "basic"`, username + API token), Artifactory/Nexus (`header`/`bearer`),
+- Covers management consoles (`auth: "basic"`, username + API token), artifact repositories (`header`/`bearer`),
   SonarQube (`bearer`), any JSON-over-HTTP service.
 
 Out of scope, deliberately: placeholder/template mapping of secrets into paths or query strings.

@@ -31,7 +31,7 @@ login instead, and `auth status` shows the same reason.
 | Jira Server/DC (REST v2) | `jira` | native | `Bearer` (PAT, default) or `Basic` (user + token) | workctl |
 | Azure DevOps | module `azure` | own CLI tree | PAT | module's own config + keyring |
 | Jira/Confluence Cloud | module `atlassian` | own CLI tree | API token | module's own config + keyring |
-| Jenkins | `api` | native | `Basic` (user + API token) | workctl |
+| Management consoles with a web GUI and a JSON API (CI, fleet, ops tools) | `api` | native | `Basic` (user + API token or password) | workctl |
 | Artifactory, Nexus, SonarQube, any JSON API | `api` | native | `none` / `basic` / `bearer` / `header` | workctl |
 | Any `github`, `gitlab`, `jira` or `api` profile behind a bastion | same kind | `ssh-tunnel` | unchanged (see below) | workctl |
 | SSH-command APIs (Gerrit style) | `api` | `ssh-exec` | none — SSH key is the identity | ssh-agent |
@@ -49,11 +49,11 @@ workctl auth set-token --profile myjira --stdin
 
 ### `auth: "basic"` — user + secret
 
-Jira with user/token pairs, Jenkins. `username` comes from the profile, the secret from the
+Jira with user/token pairs, management consoles. `username` comes from the profile, the secret from the
 keyring; workctl builds the `Authorization: Basic` header itself.
 
 ```json
-{ "kind": "api", "url": "https://jenkins.example.com", "auth": "basic", "username": "stawczyk", "verify_tls": true }
+{ "kind": "api", "url": "https://fleet.example.com", "auth": "basic", "username": "stawczyk", "verify_tls": true }
 ```
 
 ### `auth: "header"` — custom header
@@ -82,8 +82,8 @@ to the account the CLI is logged in as, and writes are refused if the accounts d
 ## Using an `api` profile
 
 ```sh
-workctl --profile jenkins api raw GET /job/nightly/lastBuild/api/json
-workctl --profile jenkins api raw --body '{}' POST /job/nightly/build   # needs policy.allow_write
+workctl --profile fleet api raw GET /api/v1/devices
+workctl --profile fleet api raw --body '{}' POST /api/v1/devices/42/reboot   # needs policy.allow_write
 workctl doctor                                                        # GET / on every api profile
 ```
 
@@ -93,7 +93,7 @@ Paths are relative to the profile `url` (including its path); absolute URLs are 
 
 Query parameters are encoded by workctl, so values with spaces or several values of one key (a
 multi-select) need no hand-made escaping: `--query KEY=VALUE` (repeatable) on the CLI, and on MCP
-`"query": {"MAKE_PLATFORMS": ["MSVC2019 Qt5 client", "Ubuntu 24.04 Qt5 services"], "MAKE_BUILD": true}`.
+`"query": {"region": ["eu-west", "eu-central"], "channel": "stable", "dry_run": false}`.
 
 ### Anti-CSRF tokens
 
@@ -110,10 +110,10 @@ server has CSRF protection off.
 | `header` | header that carries the token, or |
 | `header_field` | JSON field naming that header (when the server says which header it wants) |
 
-Jenkins (crumb issuer), for example:
+A server that also says which header it wants (`{"header": "X-Fleet-CSRF", "token": "..."}`):
 
 ```json
-"csrf": { "path": "/crumbIssuer/api/json", "header_field": "crumbRequestField", "token_field": "crumb" }
+"csrf": { "path": "/api/v1/session/csrf", "header_field": "header", "token_field": "token" }
 ```
 
 A server with a fixed header:
@@ -123,10 +123,9 @@ A server with a fixed header:
 ```
 
 ```sh
-workctl --profile jenkins api raw \
-  --query RELEASE_VERSION=20261101-wats \
-  --query "MAKE_PLATFORMS=MSVC2019 Qt5 client" --query "MAKE_PLATFORMS=Ubuntu 24.04 Qt5 services" \
-  POST /job/argos-pipeline/job/argosrm-wats16/buildWithParameters
+workctl --profile fleet api raw \
+  --query channel=stable --query region=eu-west --query region=eu-central \
+  POST /api/v1/deployments
 ```
 
 ## SSH
