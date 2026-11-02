@@ -119,6 +119,32 @@ func TestValidateAPIAuth(t *testing.T) {
 	}
 }
 
+func TestValidateSSHExec(t *testing.T) {
+	ok := config.Profile{Kind: "api", Backend: "ssh-exec", Auth: "none", SSHDestination: "gerrit", Commands: []config.SSHCommand{{Prefix: []string{"gerrit", "query"}}}}
+	with := func(edit func(*config.Profile)) config.Profile { p := ok; edit(&p); return p }
+	for name, tc := range map[string]struct {
+		profile config.Profile
+		wantErr string
+	}{
+		"valid, no URL":    {ok, ""},
+		"not api":          {with(func(p *config.Profile) { p.Kind = "gitlab" }), "only available for kind api"},
+		"token auth":       {with(func(p *config.Profile) { p.Auth = "bearer" }), "auth \"none\""},
+		"token env":        {with(func(p *config.Profile) { p.TokenEnv = "T" }), "auth \"none\""},
+		"no commands":      {with(func(p *config.Profile) { p.Commands = nil }), "at least one"},
+		"empty word":       {with(func(p *config.Profile) { p.Commands = []config.SSHCommand{{Prefix: []string{"a", ""}}} }), "non-empty words"},
+		"bad destination":  {with(func(p *config.Profile) { p.SSHDestination = "-x" }), "not starting with -"},
+		"commands on http": {config.Profile{Kind: "api", URL: "https://x.test", VerifyTLS: true, Commands: ok.Commands}, "needs backend"},
+	} {
+		err := config.ValidateProfile("p", tc.profile)
+		if (tc.wantErr == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.wantErr)
+		}
+	}
+	if _, err := config.ResolveProfileSecret("p", ok); err == nil || !strings.Contains(err.Error(), "SSH key") {
+		t.Fatalf("ssh-exec profile resolved a token: %v", err)
+	}
+}
+
 func TestPRProfileRequiresExplicitChoiceForMultipleProfiles(t *testing.T) {
 	cfg := config.Default()
 	cfg.Profiles = map[string]config.Profile{

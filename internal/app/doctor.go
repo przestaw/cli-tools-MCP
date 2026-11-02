@@ -81,6 +81,9 @@ func doctorCheckProfile(ctx context.Context, cfg *config.Config, name string, pr
 		}
 		return map[string]string{"kind": "azure", "user": cd.AuthenticatedUser.ProviderDisplayName}, nil
 	}
+	if profile.UsesSSHExec() {
+		return map[string]string{"kind": "api", "backend": "ssh-exec", "check": "skipped: no command is known to be safe to run"}, nil
+	}
 	c, err := api.NewProfileClient(cfg, name, profile)
 	if err != nil {
 		return nil, err
