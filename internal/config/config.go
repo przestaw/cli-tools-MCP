@@ -38,6 +38,7 @@ type Profile struct {
 	URL            string       `json:"url"`
 	Auth           string       `json:"auth,omitempty"`
 	AuthHeader     string       `json:"auth_header,omitempty"` // header that carries the secret when auth is "header" (kind api)
+	CSRF           *CSRF        `json:"csrf,omitempty"`        // kind api: writes carry an anti-CSRF token
 	Username       string       `json:"username,omitempty"`
 	TokenEnv       string       `json:"token_env,omitempty"`
 	VerifyTLS      bool         `json:"verify_tls"`
@@ -57,6 +58,15 @@ type Profile struct {
 type SSHCommand struct {
 	Prefix   []string `json:"prefix"`
 	ReadOnly bool     `json:"read_only,omitempty"`
+}
+
+// CSRF says where a server hands out the anti-CSRF token that its writes need: a GET of Path answers JSON with the
+// token in TokenField; the token goes back in the header Header, or in the header named by the JSON field HeaderField.
+type CSRF struct {
+	Path        string `json:"path"`
+	TokenField  string `json:"token_field"`
+	Header      string `json:"header,omitempty"`
+	HeaderField string `json:"header_field,omitempty"`
 }
 
 // UsesSSHExec reports whether the profile runs remote commands over ssh instead of sending HTTP requests.
@@ -407,6 +417,9 @@ func ValidateProfile(name string, profile Profile) error {
 	if auth == "header" && !headerNameRe.MatchString(profile.AuthHeader) {
 		return fmt.Errorf("profiles.%s.auth_header %q is not a valid header name", name, profile.AuthHeader)
 	}
+	if err := validateCSRF(name, kind, profile.CSRF); err != nil {
+		return err
+	}
 	if (kind == "jira" || kind == "atlassian") && profile.DefaultRepo != "" {
 		return fmt.Errorf("profiles.%s.default_repo is not valid for %s", name, kind)
 	}
@@ -415,6 +428,23 @@ func ValidateProfile(name string, profile Profile) error {
 
 // headerNameRe accepts the usual header names (X-Api-Key, Private-Token) and nothing that could break the request line.
 var headerNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
+
+// validateCSRF checks the optional anti-CSRF settings of a profile.
+func validateCSRF(name, kind string, c *CSRF) error {
+	switch {
+	case c == nil:
+		return nil
+	case kind != "api":
+		return fmt.Errorf("profiles.%s.csrf is only available for kind api", name)
+	case !strings.HasPrefix(c.Path, "/") || c.TokenField == "":
+		return fmt.Errorf("profiles.%s.csrf needs path (starting with /) and token_field", name)
+	case (c.Header == "") == (c.HeaderField == ""):
+		return fmt.Errorf("profiles.%s.csrf needs exactly one of header and header_field", name)
+	case c.Header != "" && !headerNameRe.MatchString(c.Header):
+		return fmt.Errorf("profiles.%s.csrf.header %q is not a valid header name", name, c.Header)
+	}
+	return nil
+}
 
 // validateBackend checks Profile.Backend and the settings that its transport cannot honour.
 // The CLI owns credentials and TLS, so token_env, ca_file and verify_tls=false are refused instead of ignored.

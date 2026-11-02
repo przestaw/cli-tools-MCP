@@ -111,6 +111,16 @@ func TestValidateAPIAuth(t *testing.T) {
 		"name without auth": {with(func(p *config.Profile) { p.AuthHeader = "X-Api-Key" }), "not allowed otherwise"},
 		"unknown auth":      {with(func(p *config.Profile) { p.Auth = "oauth" }), "unsupported for api"},
 		"none on github":    {with(func(p *config.Profile) { p.Kind, p.Auth = "github", "none" }), "unsupported for github"},
+		"csrf": {with(func(p *config.Profile) {
+			p.CSRF = &config.CSRF{Path: "/token", Header: "X-CSRF-Token", TokenField: "token"}
+		}), ""},
+		"csrf two headers": {with(func(p *config.Profile) {
+			p.CSRF = &config.CSRF{Path: "/t", Header: "X-T", HeaderField: "f", TokenField: "token"}
+		}), "exactly one"},
+		"csrf no path": {with(func(p *config.Profile) { p.CSRF = &config.CSRF{Header: "X-T", TokenField: "token"} }), "needs path"},
+		"csrf on jira": {with(func(p *config.Profile) {
+			p.Kind, p.CSRF = "jira", &config.CSRF{Path: "/token", Header: "X-CSRF-Token", TokenField: "token"}
+		}), "only available for kind api"},
 	} {
 		err := config.ValidateProfile("p", tc.profile)
 		if (tc.wantErr == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.wantErr)) {
