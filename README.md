@@ -199,4 +199,4 @@ It is a CLI command only; the MCP server does not offer it.
 
 ## License
 
-[Creative Commons Attribution 4.0 International (CC BY 4.0)](LICENSE) - [przestaw](https://github.com/przestaw)
+[BSD 4-Clause "Original" License](LICENSE) - [przestaw](https://github.com/przestaw). See [NOTICE](NOTICE).
