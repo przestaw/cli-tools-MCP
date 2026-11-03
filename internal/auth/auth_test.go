@@ -4,6 +4,8 @@
 package auth
 
 import (
+	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -138,5 +140,66 @@ func TestAuthLoginBindsACLIProfileToItsAccount(t *testing.T) {
 	}
 	if again, _ := config.Load(cfgPath); again.Profiles["gh"].Username != "someone-else" {
 		t.Fatal("a refused login changed the profile")
+	}
+}
+
+func TestAccountsMCPToolListsResolvesAndBinds(t *testing.T) {
+	keyring.MockInit()
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.Default()
+	cfg.Profiles = map[string]config.Profile{
+		"przestaw": {Kind: "github", URL: "https://api.github.com", Username: "przestaw", VerifyTLS: true},
+		"work":     {Kind: "github", URL: "https://api.github.com", Username: "work-user", Repos: []string{"corp/*"}, VerifyTLS: true},
+		"jira-ir":  {Kind: "jira", URL: "https://jira.example", Projects: []string{"IR"}, VerifyTLS: true},
+	}
+	cfg.Defaults["github"] = "work"
+	cfg.SetPath(cfgPath)
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.TokenStore.Set(secret.Account("github", "przestaw"), "super-secret-token"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Bind "przestaw/*" to profile "przestaw" and resolve "przestaw/cli-tools-MCP".
+	out, err := CallTool(context.Background(), cfg, "accounts", map[string]any{
+		"bind_profile": "przestaw",
+		"bind_repo":    "przestaw/*",
+		"resource":     "przestaw/cli-tools-MCP",
+	})
+	if err != nil {
+		t.Fatalf("accounts bind: %v", err)
+	}
+	if strings.Contains(string(out), "super-secret-token") {
+		t.Fatal("accounts output leaked the secret token")
+	}
+	var report AccountsReport
+	if err := json.Unmarshal(out, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.ResolvedProfile != "przestaw" {
+		t.Fatalf("resolved_profile = %q, want przestaw", report.ResolvedProfile)
+	}
+	saved, err := config.Load(cfgPath)
+	if err != nil || len(saved.Profiles["przestaw"].Repos) != 1 || saved.Profiles["przestaw"].Repos[0] != "przestaw/*" {
+		t.Fatalf("saved repos = %+v, err = %v", saved.Profiles["przestaw"].Repos, err)
+	}
+
+	// Refuses binding a pattern already owned by another profile on the same host.
+	if _, err := CallTool(context.Background(), cfg, "accounts", map[string]any{
+		"bind_profile": "work",
+		"bind_repo":    "przestaw/*",
+	}); err == nil || !strings.Contains(err.Error(), "already bound") {
+		t.Fatalf("expected conflict error, got %v", err)
+	}
+
+	// Resolves Jira issue key across kinds.
+	out, err = CallTool(context.Background(), cfg, "accounts", map[string]any{"resource": "IR-101"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal(out, &report)
+	if report.ResolvedProfile != "jira-ir" {
+		t.Fatalf("jira resolved_profile = %q, want jira-ir", report.ResolvedProfile)
 	}
 }
