@@ -121,6 +121,10 @@ func Command(cfg *config.Config, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("gitlab commands: project, mr, pipelines, pipeline, job, branches, file, raw")
 	}
+	cfg, err := cfg.ScopedFor("", "gitlab", cliutil.FlagValue(args[1:], "project"))
+	if err != nil {
+		return err
+	}
 	c, err := api.NewKindClient(cfg, "gitlab")
 	if err != nil {
 		return err
