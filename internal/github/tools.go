@@ -48,7 +48,7 @@ func Tools(cfg *config.Config) []mcp.Tool {
 
 // CallTool runs one github_* MCP tool.
 func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
-	cfg, err := cfg.Scoped(mcp.ArgString(a, "profile"), "github")
+	cfg, err := cfg.ScopedFor(mcp.ArgString(a, "profile"), "github", mcp.ArgString(a, "repo"))
 	if err != nil {
 		return nil, err
 	}

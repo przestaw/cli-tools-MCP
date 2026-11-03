@@ -41,7 +41,7 @@ func Tools(cfg *config.Config) []mcp.Tool {
 // CallTool runs one gitlab_* MCP tool against the profile named by the call (default: defaults.gitlab).
 // The client is made per call, so a missing login fails only these tools.
 func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
-	cfg, err := cfg.Scoped(mcp.ArgString(a, "profile"), "gitlab")
+	cfg, err := cfg.ScopedFor(mcp.ArgString(a, "profile"), "gitlab", mcp.ArgString(a, "project"))
 	if err != nil {
 		return nil, err
 	}

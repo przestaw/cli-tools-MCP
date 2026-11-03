@@ -224,6 +224,10 @@ func Command(cfg *config.Config, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("github commands: init, repo, pr, branches, runs, run, file, raw")
 	}
+	cfg, err := cfg.ScopedFor("", "github", cliutil.FlagValue(args[1:], "repo"))
+	if err != nil {
+		return err
+	}
 	c, err := api.NewKindClient(cfg, "github")
 	if err != nil {
 		return err
