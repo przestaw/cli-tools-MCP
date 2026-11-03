@@ -14,13 +14,13 @@ description: 'Use the workctl MCP server for pull requests (PRs), merge requests
 
 ## Choose the account
 
-Most tools take an optional `profile` and a resource such as `repo` or `project`. Use the resource from the supplied URL or established context. Omit optional selectors only when the configured defaults are unambiguous.
+Most tools take an optional `profile` and a resource such as `repo` or `project`. Use the resource from the supplied URL or established context. With several profiles of one kind workctl picks the one whose `repos`/`projects` match the resource (a Jira key such as `IR-12` matches `projects`), then the configured default; it never guesses between equal matches.
 
-If the server reports several matching profiles or a missing resource, supply the known selector and retry. If the correct account is unknown, ask for the profile name, never its secret. Do not inspect credential stores to discover accounts or switch identities after an authorization refusal.
+When unsure which account serves a resource, call `accounts` first: it lists the profiles (kind, host, username, bound `repos`/`projects`, credential state, never a secret), and with `resource` it says which profile resolves. If the server reports several matching profiles or a missing resource, supply the known selector and retry. If no profile is bound to the resource, ask the user which profile owns it, never for its secret; with their consent bind it through `accounts` (`bind_profile` with `bind_repo` or `bind_project`) and retry. Do not inspect credential stores to discover accounts or switch identities after an authorization refusal.
 
 ## Read
 
-- Provider-neutral: `pr_list`, `pr_show`.
+- Provider-neutral: `pr_list`, `pr_show`. Accounts: `accounts` (read-only unless asked to bind).
 - GitHub: `github_get_pull_request`, `github_get_pull_request_discussion` (conversation comments), `github_get_pull_request_comments` (inline review comments), `github_get_pull_request_reviews`, `github_get_pull_request_checks`, `github_get_pull_request_reviewers`.
 - GitLab: `gitlab_get_merge_request`, `gitlab_get_merge_request_notes`, `gitlab_list_pipelines`.
 - Jira: `jira_get_issue`, `jira_get_comments`. `task_get_context` joins an issue with its branches and merge requests.
@@ -65,10 +65,10 @@ Post only the approved text, without secrets or raw logs. A read-only review doe
 
 Only when their tools (`git_*`, `gitlens_*`) are available:
 
-- Local repository work (status, diff, log, blame, branches, commits, worktrees): GitKraken `git_*` or plain git. workctl has no local git tools.
+- Local repository work (status, diff, log, blame, branches, commits, worktrees) and transport (fetch, pull, push): GitKraken `git_*` or plain git. workctl has no local git tools. Transport authenticates through git itself, so it uses workctl's account for the repository only when the user ran `workctl auth setup-git` (git then asks `workctl git-credential`, which picks the profile by host and repository path). If a transport call shows an account picker or a credential prompt, stop and tell the user to run `workctl auth setup-git`; do not work around it with other URLs, git options or accounts.
 - Provider data, checks, attachments and comments: workctl. It picks the account per profile and enforces the write policy.
 - Review a pull request in the editor: take its URL from `pr_show`, then call `gitlens_start_review`. Start work on an issue: `gitlens_start_work` with the issue URL. What needs attention: `gitlens_launchpad`, details through workctl.
-- GitKraken provider tools (`pull_request_*`, `issues_*`) act as the account connected in GitKraken. Use them only for what workctl does not offer (for example GitHub issues), say which account they used, and never to work around a workctl refusal, policy or missing profile.
+- GitKraken provider tools (`pull_request_*`, `issues_*`) act as the one account connected in GitKraken and take no account argument. Call `accounts` first to see whether workctl has a profile for that host. Use them only for what workctl does not offer (for example GitHub issues) or where workctl has no profile, say which account they used, and never to work around a workctl refusal, policy or missing profile.
 - GitKraken writes (commit, push, pull request, issue, comment) need the same explicit approval as workctl writes.
 
 ## Report

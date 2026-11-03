@@ -128,6 +128,14 @@ Every connection is a named entry in `profiles` with `kind` (`jira`, `gitlab`, `
 `default_project`/`projects`. `defaults.<kind>` names the profile used when there is more than one of a kind. The token
 is read from `token_env`, then from the keyring (service `workctl`, account `<kind>:<profile>`).
 
+All of those selectors are optional. With several profiles of one kind, a call picks its profile in this order: an explicit
+`--profile`/`profile` argument; the best match of the repository, project or Jira key against `repos`/`projects` (exact name
+beats a prefix such as `"owner/*"`, longer prefix beats shorter; Jira keys match `projects` entries like `"IR"`); then
+`defaults.<kind>` or the only profile of the kind. Two equally good matches are an error, never a guess. The MCP tool
+`accounts` lists the profiles (credential state, never the secret), reports which profile resolves for a given
+repository/project/key, and with `bind_profile` plus `bind_repo`/`bind_project` adds a pattern to a profile (refused when
+another profile of the same host already holds it).
+
 A `github` or `gitlab` profile may set `"backend": "cli"`: requests then go through `gh api` / `glab api`, which keep the login
 (no token in workctl). The URL must be `https://HOST` without a path, `verify_tls` must be `true`, and `token_env` and `ca_file` are
 refused. gh/glab environment overrides (`GH_TOKEN`, `GITLAB_TOKEN`, `GH_HOST`, ...) are not passed on. Source: `internal/api/cli.go`.
@@ -185,11 +193,23 @@ from another host, which workctl refuses to follow with the token. Writes (`pr c
 Two accounts: `workctl github init --profile NAME` once per account (the first becomes `defaults.github`), then
 `workctl --profile NAME github ...` on the CLI, or `"profile": "NAME"` in any `github_*`, `gitlab_*` or `pr_*` MCP call.
 
-## Git push with a profile token
+## Git with a profile token
 
-`workctl --profile NAME git-credential get` is a git credential helper: git gets the token of a github, gitlab or azure
-profile straight from the keyring, only for https and the profile's host (`api.github.com` serves `github.com`). Per
-repository, replacing the global helper for that host:
+`workctl git-credential get` is a git credential helper: git gets the token of a github, gitlab or azure profile from
+the keyring (or, for a github `cli` profile, from `gh auth token` for the bound account), only for https and the profile's
+host (`api.github.com` serves `github.com`). With `--profile NAME` it answers for that profile. Without it the profile is
+chosen from the host and, when git sends it, the repository path, by the same `repos`/`projects` matching as every other
+call; an unbound repository on a host with several profiles gets `defaults.<kind>`, or nothing so another helper can answer.
+
+One command wires every pull request profile host (`credential.useHttpPath` plus the helper, replacing the helpers
+inherited for that host); plain git, GitKraken and GitLens then authenticate as the profile that owns the repository:
+
+```powershell
+workctl auth setup-git --dry-run   # print the git config commands
+workctl auth setup-git
+```
+
+Per repository with a fixed profile instead:
 
 ```powershell
 git config --add credential.https://github.com.helper '""'    # drop helpers configured globally
