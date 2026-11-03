@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"workctl/internal/auth"
 	"workctl/internal/config"
 	"workctl/internal/generic"
 	"workctl/internal/github"
@@ -42,7 +43,7 @@ func toolAvailable(cfg *config.Config, name string) bool {
 func mcpTools(cfg *config.Config) []mcp.Tool {
 	all := append(jira.Tools(cfg), gitlab.Tools(cfg)...)
 	all = append(all, mcp.Tool{Name: "task_get_context", Description: "Get Jira issue plus matching branches and merge requests from configured GitLab projects.", InputSchema: mcp.ObjSchema(map[string]any{"key": mcp.StrProp("Jira issue key")}, "key")})
-	tools := []mcp.Tool{} // never nil: the JSON must say [] and not null
+	tools := append([]mcp.Tool{}, auth.Tools()...)
 	for _, t := range all {
 		if toolAvailable(cfg, t.Name) {
 			tools = append(tools, t)
@@ -68,7 +69,7 @@ func mcpServer(cfg *config.Config) mcp.Server {
 	return mcp.Server{
 		Name:           "workctl",
 		Version:        Version,
-		Instructions:   "Azure DevOps (azure), Jira and Confluence Cloud (atlassian), Jira Server, GitLab and GitHub through workctl. Everything is read-only unless policy.allow_write=true in the config file.",
+		Instructions:   "Azure DevOps (azure), Jira and Confluence Cloud (atlassian), Jira Server, GitLab and GitHub through workctl. Call accounts to inspect configured profiles and resource bindings. Everything is read-only unless policy.allow_write=true in the config file.",
 		MaxOutputBytes: cfg.MCP.MaxOutputBytes,
 		Tools:          func() []mcp.Tool { return mcpTools(cfg) },
 		Call: func(ctx context.Context, name string, args map[string]any) ([]byte, error) {
@@ -93,6 +94,8 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 		return generic.CallTool(ctx, cfg, name, a)
 	}
 	switch name {
+	case "accounts":
+		return auth.CallTool(ctx, cfg, name, a)
 	case "pr_list", "pr_show":
 		return pr.CallTool(ctx, cfg, name, a)
 	case "azure", "atlassian":
