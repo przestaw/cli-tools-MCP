@@ -12,6 +12,12 @@ cd "$(dirname "$0")/.."
 mkdir -p "$dest"
 go build -trimpath -ldflags '-s -w' -o "$dest/workctl" ./cmd/workctl
 echo "installed: $dest/workctl"
+if command -v python3 >/dev/null 2>&1; then
+  # Copies v2 keyring entries (<kind>:<url>) to the v3 accounts (<kind>:<profile>); no-op when none exist.
+  python3 scripts/migrate.py || echo "keyring migration failed; run scripts/migrate.py later" >&2
+else
+  echo "python3 not found: if tokens were stored by the v2 release, run scripts/migrate.py later"
+fi
 case ":$PATH:" in
   *":$dest:"*) ;;
   *) echo "add to PATH: export PATH=\"$dest:\$PATH\"" ;;

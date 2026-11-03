@@ -134,8 +134,9 @@ when gh/glab is logged in as someone else; to move a profile to another account 
 `auth set-token` and `auth logout` do not apply to such a profile (use `gh auth logout`, which ends the session for every gh user).
 The login is one per host: two accounts on the same host need the native backend.
 
-Top-level `jira`/`gitlab`/`github` blocks (version 1) are rejected: move them into profiles. Tokens stored by version 1
-(account `<kind>:<url>`) are not read; store them again with `workctl auth set-token --profile NAME`.
+Top-level `jira`/`gitlab`/`github` blocks (version 1) are rejected: move them into profiles. Tokens stored by the v2
+release (account `<kind>:<url>`) are not read; the installers migrate them, or run `python scripts/migrate.py` (see its
+`--dry-run`), or store them again with `workctl auth set-token --profile NAME`.
 
 Profiles of kind `api` (management consoles, artifact repositories, any JSON API), `"backend": "ssh-tunnel"` (any HTTP profile behind a bastion)
 and `"backend": "ssh-exec"` (APIs that are remote commands) are described, with every authentication method, in
