@@ -34,7 +34,7 @@ func usage() {
 
 Usage:
   workctl [--config FILE] init [module...]   guided setup (alias: setup); tokens go to the OS keyring
-  workctl [--config FILE] auth set-token|status|logout   profile credentials in OS keyring
+  workctl [--config FILE] auth login|set-token|status|logout|setup-git   profile credentials; setup-git points git at workctl
   workctl [--config FILE] doctor
   workctl [--config FILE] config show|path
   workctl [--config FILE] azure ...      Azure DevOps (alias: ado)
@@ -46,7 +46,7 @@ Usage:
   workctl [--config FILE] pr|mr ...    provider-neutral pull/merge requests
   workctl [--config FILE] task ISSUE-KEY
   workctl [--config FILE] mcp
-  workctl --profile NAME git-credential get   git credential helper (token from the keyring)
+  workctl [--profile NAME] git-credential get   git credential helper (profile from --profile, else from host and repository path)
 
 Global:
   --config FILE     config path (or WORKCTL_CONFIG)
