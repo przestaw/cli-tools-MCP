@@ -38,8 +38,91 @@ func TestGitCredentialAnswersOnlyForItsHost(t *testing.T) {
 		t.Fatalf("other host got a credential: %q", got)
 	}
 	cfg.SetProfileName("")
-	if err := GitCredential(cfg, []string{"get"}, strings.NewReader(""), &strings.Builder{}); err == nil {
-		t.Fatal("a profile must be required")
+	if got := get("github.com"); got != "username=x-access-token\npassword=tok\n" {
+		t.Fatalf("a single profile on the host must answer without --profile, got %q", got)
+	}
+	if err := GitCredential(cfg, []string{"get"}, strings.NewReader(""), &strings.Builder{}); err != nil {
+		t.Fatalf("an empty request must be ignored: %v", err)
+	}
+}
+
+func TestGitCredentialPicksTheProfileByRepositoryPath(t *testing.T) {
+	t.Setenv("TEST_PRZ", "tok-przestaw")
+	t.Setenv("TEST_WORK", "tok-work")
+	cfg := config.Default()
+	cfg.Profiles["przestaw"] = config.Profile{Kind: "github", URL: "https://api.github.com", TokenEnv: "TEST_PRZ", Repos: []string{"przestaw/*"}}
+	cfg.Profiles["work"] = config.Profile{Kind: "github", URL: "https://api.github.com", TokenEnv: "TEST_WORK", Repos: []string{"corp/*"}}
+	get := func(path string) string {
+		var out strings.Builder
+		in := "protocol=https\nhost=github.com\n"
+		if path != "" {
+			in += "path=" + path + "\n"
+		}
+		if err := GitCredential(cfg, []string{"get"}, strings.NewReader(in+"\n"), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	if got := get("przestaw/cli-tools-MCP.git"); !strings.Contains(got, "password=tok-przestaw") {
+		t.Fatalf("przestaw repo: %q", got)
+	}
+	if got := get("corp/service.git"); !strings.Contains(got, "password=tok-work") {
+		t.Fatalf("corp repo: %q", got)
+	}
+	if got := get("stranger/repo.git"); got != "" {
+		t.Fatalf("an unbound repository must get no credential: %q", got)
+	}
+	if got := get(""); got != "" {
+		t.Fatalf("no path and no default must get no credential: %q", got)
+	}
+	cfg.Defaults["github"] = "work"
+	if got := get("stranger/repo.git"); !strings.Contains(got, "password=tok-work") {
+		t.Fatalf("defaults.github must answer for an unbound repository: %q", got)
+	}
+}
+
+func TestGitCredentialAsksGhForACLIProfile(t *testing.T) {
+	calls := testutil.FakeCLI(t, "token")
+	cfg := config.Default()
+	cfg.Profiles["gh"] = config.Profile{Kind: "github", URL: "https://api.github.com", Backend: config.BackendCLI, VerifyTLS: true, Username: "przestaw"}
+	var out strings.Builder
+	if err := GitCredential(cfg, []string{"get"}, strings.NewReader("protocol=https\nhost=github.com\n\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "username=x-access-token\npassword=gho_faketoken\n" {
+		t.Fatalf("out = %q", out.String())
+	}
+	if got := strings.Join((*calls)[0], " "); got != "gh auth token --hostname github.com --user przestaw" {
+		t.Fatalf("gh call = %q", got)
+	}
+}
+
+func TestSetupGitDryRunListsTheConfigForEveryHost(t *testing.T) {
+	cfg := config.Default()
+	cfg.Profiles["a"] = config.Profile{Kind: "github", URL: "https://api.github.com"}
+	cfg.Profiles["b"] = config.Profile{Kind: "gitlab", URL: "https://gitlab.example.com"}
+	cfg.Profiles["j"] = config.Profile{Kind: "jira", URL: "https://jira.example.com"}
+	calls := testutil.FakeCLI(t, "ok")
+	if err := setupGitCommand(cfg, []string{"--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("a dry run started git: %v", *calls)
+	}
+	if err := setupGitCommand(cfg, nil); err != nil {
+		t.Fatal(err)
+	}
+	var sections []string
+	for _, c := range *calls {
+		if c[0] == "git" && c[len(c)-2] == "credential.https://github.com.useHttpPath" {
+			sections = append(sections, "github")
+		}
+		if c[0] == "git" && c[len(c)-2] == "credential.https://gitlab.example.com.useHttpPath" {
+			sections = append(sections, "gitlab")
+		}
+	}
+	if strings.Join(sections, ",") != "github,gitlab" || len(*calls) != 8 {
+		t.Fatalf("calls = %v", *calls)
 	}
 }
 

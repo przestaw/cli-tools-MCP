@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// Copyright (c) 2026 PrzemysĹ‚aw Stawczyk (https://github.com/przestaw). All rights reserved.
 // This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
 
 // Package auth manages profile credentials: `workctl auth login|set-token|status|logout`
@@ -11,7 +11,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -28,7 +27,7 @@ import (
 // Command is `workctl [--profile NAME] auth login|set-token|status|logout`; the global profile is the default of each.
 func Command(configPath, profile string, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: workctl auth login|set-token|status|logout [options]")
+		return fmt.Errorf("usage: workctl auth login|set-token|status|logout|setup-git [options]")
 	}
 	cfg, err := config.LoadOrDefault(configPath)
 	if err != nil {
@@ -44,8 +43,10 @@ func Command(configPath, profile string, args []string) error {
 		return statusCommand(cfg, args[1:])
 	case "logout":
 		return logoutCommand(cfg, args[1:])
+	case "setup-git":
+		return setupGitCommand(cfg, args[1:])
 	default:
-		return fmt.Errorf("unknown auth command %q (use login, set-token, status, or logout)", args[0])
+		return fmt.Errorf("unknown auth command %q (use login, set-token, status, logout, or setup-git)", args[0])
 	}
 }
 
@@ -210,39 +211,4 @@ func resolveProfileName(cfg *config.Config, requested string) string {
 		}
 	}
 	return ""
-}
-
-// GitCredential is a git credential helper: git gets the profile token straight from the keyring.
-func GitCredential(cfg *config.Config, args []string, in io.Reader, out io.Writer) error {
-	if len(args) != 1 {
-		return fmt.Errorf("usage: workctl --profile NAME git-credential get")
-	}
-	if args[0] != "get" {
-		return nil // store/erase: the token is managed with `workctl auth`
-	}
-	profile, ok := cfg.Profiles[cfg.ProfileName()]
-	if !ok || !config.PRKinds[profile.Kind] {
-		return fmt.Errorf("git-credential needs --profile with a github, gitlab or azure profile")
-	}
-	req := map[string]string{}
-	sc := bufio.NewScanner(in)
-	for sc.Scan() && sc.Text() != "" {
-		k, v, _ := strings.Cut(sc.Text(), "=")
-		req[k] = v
-	}
-	u, err := url.Parse(config.NormalizeBaseURL(profile.URL))
-	if err != nil {
-		return err
-	}
-	// api.github.com serves the API; git talks to github.com.
-	if req["protocol"] != "https" || !strings.EqualFold(req["host"], strings.TrimPrefix(u.Host, "api.")) {
-		return nil
-	}
-	token, err := config.ResolveProfileSecret(cfg.ProfileName(), profile)
-	if err != nil {
-		return err
-	}
-	user := map[string]string{"github": "x-access-token", "gitlab": "oauth2"}[profile.Kind]
-	_, err = fmt.Fprintf(out, "username=%s\npassword=%s\n", cliutil.FirstNonEmpty(user, "workctl"), token)
-	return err
 }
