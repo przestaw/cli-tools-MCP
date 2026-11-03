@@ -151,27 +151,7 @@ func statusCommand(cfg *config.Config, args []string) error {
 
 	for _, n := range names {
 		prof := cfg.Profiles[n]
-		if prof.UsesCLI() {
-			fmt.Printf("%s (%s): %s\n", n, prof.Kind, cliStatus(cfg, prof))
-			continue
-		}
-		if err := config.NoTokenError(n, prof); err != nil {
-			fmt.Printf("%s (%s): %v\n", n, prof.Kind, err)
-			continue
-		}
-		status := "missing"
-		if prof.TokenEnv != "" && os.Getenv(prof.TokenEnv) != "" {
-			status = fmt.Sprintf("set via environment variable %s", prof.TokenEnv)
-		} else {
-			account := secret.Account(prof.Kind, n)
-			val, err := config.TokenStore.Get(account)
-			if err == nil && val != "" {
-				status = "stored in keyring"
-			} else if err != nil && !errors.Is(err, secret.ErrNotFound) {
-				status = fmt.Sprintf("keyring error: %v", err)
-			}
-		}
-		fmt.Printf("%s (%s): %s\n", n, prof.Kind, status)
+		fmt.Printf("%s (%s): %s\n", n, prof.Kind, CredentialStatus(cfg, n, prof))
 	}
 	return nil
 }
