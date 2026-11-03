@@ -88,7 +88,7 @@ func TestSkillNamesOnlyExistingMCPTools(t *testing.T) {
 	for _, tool := range mcpTools(cfg) {
 		advertised[tool.Name] = true
 	}
-	mentioned := regexp.MustCompile("`((?:github|gitlab|jira|task|pr)_[a-z_]+)`").FindAllStringSubmatch(skill, -1)
+	mentioned := regexp.MustCompile("`((?:(?:github|gitlab|jira|task|pr)_[a-z_]+)|accounts)`").FindAllStringSubmatch(skill, -1)
 	if len(mentioned) == 0 {
 		t.Fatal("the skill names no tools")
 	}
