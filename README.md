@@ -58,7 +58,7 @@ the credential cannot be sent to another host).
 workctl --config C:\tools\workctl\workctl.json mcp
 ```
 
-VS Code: `scripts\install.ps1 -VSCode` (or `scripts/install.sh --vscode`) builds the binary into `~/.local/bin` and adds
+VS Code: `python3 scripts/install.py --vscode` (`python` on Windows) builds the binary into `~/.local/bin` and adds
 it to the VS Code user profile as the MCP server `workctl` (`workctl mcp`, default config path, tokens from the keyring).
 Then start it under **MCP: List Servers** and enable its tools in agent mode; restart it after changing the config.
 
@@ -79,14 +79,23 @@ The server speaks the legacy handshake-era MCP protocol on purpose; clients that
 user approved the text) and the server definition (`workctl mcp`, so the binary must be on `PATH`). The tool names live in
 `internal/app`; `internal/app/plugin_test.go` fails when the skill names a tool that does not exist or the versions drift apart.
 
-| Agent | Install |
-| --- | --- |
-| VS Code | `scripts\install.ps1 -VSCode -Claude` (server, plus the skill in `~/.claude/skills`, which VS Code reads), or **Chat: Install Plugin from Source** with the folder `plugins/workctl` |
-| Claude Code | `scripts\install.ps1 -Claude`, or from a clone `claude plugin marketplace add .` then `claude plugin install workctl@workctl` |
-| Codex CLI | `scripts\install.ps1 -Codex` (server only; the Codex IDE extension shares that configuration but has no plugins) |
+One installer for Windows, macOS and Linux (needs Go and Python 3; `claude`, `codex` and `gk` are taken from PATH or from
+the VS Code extensions):
 
-On Linux and macOS use `scripts/install.sh --vscode --claude --codex`. The installers never replace a server that is already
-registered as `workctl`. Tokens are never part of the package: they stay in the keyring or in gh/glab.
+```powershell
+python3 scripts/install.py --all      # or any of --vscode --claude --codex --gitkraken
+```
+
+| Flag | What it registers |
+| --- | --- |
+| `--vscode` | server in the user `mcp.json` of VS Code, Insiders and VSCodium; skill in `~/.copilot/skills` |
+| `--claude` | server in Claude Code (user scope); skill in `~/.claude/skills` |
+| `--codex` | server in Codex; skill in `~/.codex/skills` |
+| `--gitkraken` | GitKraken MCP (shipped with GitLens) in Claude Code and Codex, read-only while workctl writes are off; VS Code gets it from GitLens |
+
+It also migrates keyring entries of the v2 release. A server already registered as `workctl` is left as it is. Claude Code
+can also install from a clone: `claude plugin marketplace add .` then `claude plugin install workctl@workctl`. Tokens are
+never part of the package: they stay in the keyring or in gh/glab.
 
 ## Setup and credentials
 
