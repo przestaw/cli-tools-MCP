@@ -29,7 +29,8 @@ type Streamed struct {
 }
 
 // Stream sends a GET for path and copies the answer to w unchanged. A non-2xx answer is returned as *Error and
-// nothing is written. Not available for cli profiles: gh and glab buffer their output.
+// nothing is written. The caller owns w: Stream does not close it or clean up after a failed copy.
+// Not available for cli profiles: gh and glab buffer their output.
 func (c *Client) Stream(ctx context.Context, path string, q url.Values, w io.Writer) (Streamed, error) {
 	target, err := c.target(http.MethodGet, path, q)
 	if err != nil {

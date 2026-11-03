@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
 // This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
 
-// Package api is the HTTP transport of the thin providers (GitHub, GitLab, Jira):
+// Package api is the HTTP transport of the thin providers (GitHub, GitLab, Jira, kind api):
 // a small JSON API client bound to one profile. A profile with backend "cli"
 // keeps the same Client interface but sends its requests through gh or glab (see cli.go).
 package api
@@ -75,7 +75,7 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.3.27")
+	h.Set("User-Agent", "workctl/0.4.0")
 	client := &Client{baseURL: base, prefix: prefix, client: c, headers: h, csrf: cfg.CSRF, readOnly: cfg.ReadOnly}
 	if cfg.CSRF != nil || cfg.FormLogin != nil {
 		// Servers tie the token or the login to the session cookie.

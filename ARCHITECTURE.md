@@ -50,6 +50,16 @@ The provider builds an `api.Client` from the profile, sends the request and prin
 configured and hands over to the provider's `CallTool`. Write tools call `cfg.RequireWrite()` first. Output is
 truncated to `mcp.max_output_bytes`.
 
+**Example, one download:** each layer owns one thing.
+
+```
+CLI downloadCommand / MCP CallTool   arguments and profile        internal/generic
+  -> generic.download                the file: name, create, clean up
+    -> api.Client.Stream             policy, auth, HTTP -> io.Writer   internal/api
+```
+
+Planned changes (one account per owner, fewer MCP tools): [docs/plan-agent-accounts.md](docs/plan-agent-accounts.md).
+
 ## Two kinds of provider
 
 | | GitHub, GitLab, Jira | Azure DevOps, Atlassian |

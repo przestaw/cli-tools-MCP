@@ -89,7 +89,7 @@ func PrintBody(b []byte) error {
 	return nil
 }
 
-// ReadBodyArg reads a --body value: a literal string, or the contents of a file after "@".
+// ReadBodyArg reads a --body value: a literal string, or the contents of a file after "@". An empty value gives nil, nil.
 func ReadBodyArg(s string) ([]byte, error) {
 	if s == "" {
 		return nil, nil
@@ -100,7 +100,7 @@ func ReadBodyArg(s string) ([]byte, error) {
 	return []byte(s), nil
 }
 
-// JSONField returns one top-level string field of a JSON object, or "".
+// JSONField returns one top-level string field of a JSON object; "" for invalid JSON, a missing key or a non-string value.
 func JSONField(b []byte, key string) string {
 	var m map[string]any
 	if err := json.Unmarshal(b, &m); err != nil {

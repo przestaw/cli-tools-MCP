@@ -48,8 +48,9 @@ func downloadCommand(ctx context.Context, c *api.Client, args []string) error {
 }
 
 // download streams path into output, or, when output is empty, into a new file in the downloads directory, and
-// returns the result as JSON. Files in the downloads directory are never overwritten: each gets a unique prefix and
-// its final name only after the copy is complete. A failed download leaves no file behind.
+// returns the result as JSON. An existing output file is replaced. Files in the downloads directory are never
+// overwritten: each gets a unique prefix and its final name only after the copy is complete. A failed download
+// leaves no file behind, not even the output file it replaced.
 func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, output, name string) ([]byte, error) {
 	var f *os.File
 	var err error
@@ -76,6 +77,7 @@ func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, 
 	if output == "" {
 		final = strings.TrimSuffix(final, ".part") + "-" + safeName(name, meta.ServerFileName, urlPath)
 		if err := os.Rename(f.Name(), final); err != nil {
+			_ = os.Remove(f.Name())
 			return nil, err
 		}
 	}
