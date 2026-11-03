@@ -49,7 +49,7 @@ func Command(cfg *config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
-	name, profile, err := cfg.PRProfile(*profileName, *provider)
+	name, profile, err := cfg.PRProfileFor(*profileName, *provider, cliutil.FirstNonEmpty(*repository, *project))
 	if err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 			return nil, fmt.Errorf("id must be a positive integer")
 		}
 	}
-	pName, profile, err := cfg.PRProfile(mcp.ArgString(a, "profile"), "")
+	pName, profile, err := cfg.PRProfileFor(mcp.ArgString(a, "profile"), "", cliutil.FirstNonEmpty(mcp.ArgString(a, "repo"), mcp.ArgString(a, "project")))
 	if err != nil {
 		return nil, err
 	}

@@ -30,7 +30,11 @@ type taskContext struct {
 
 // taskContextJSON collects the Jira issue and the matching GitLab branches and merge requests of the default profiles.
 func taskContextJSON(ctx context.Context, cfg *config.Config, key string) ([]byte, error) {
-	jc, err := api.NewKindClient(cfg, "jira")
+	jcfg, err := cfg.ScopedFor("", "jira", key)
+	if err != nil {
+		return nil, err
+	}
+	jc, err := api.NewKindClient(jcfg, "jira")
 	if err != nil {
 		return nil, err
 	}
@@ -51,6 +55,9 @@ func taskContextJSON(ctx context.Context, cfg *config.Config, key string) ([]byt
 		projects = []string{profile.DefaultProject}
 	}
 	for _, project := range projects {
+		if strings.Contains(project, "*") {
+			continue
+		}
 		pc := taskProjectContext{Project: project}
 		branches, berr := gitlab.ListBranches(ctx, gc, project, key)
 		mrs, merr := gitlab.ListMRs(ctx, gc, project, key, "all")
