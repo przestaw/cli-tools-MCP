@@ -119,8 +119,8 @@ approvals, job logs per provider), and the existing download-verification rules 
 
 ## Stage 5 — install and host configs
 
-When the `claude`/`codex` CLIs are not on PATH (VS Code extensions only), `install.ps1`/`install.sh` write the host
-configs directly and stay idempotent:
+When the `claude`/`codex` CLIs are not on PATH (VS Code extensions only), the installer (`scripts/install.py`, one
+script for every OS) uses the copies bundled with the extensions and stays idempotent:
 
 | Host | MCP registration | Skill |
 | --- | --- | --- |

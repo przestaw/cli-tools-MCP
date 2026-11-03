@@ -61,6 +61,16 @@ Write tools exist only when writes are enabled (`policy.allow_write`). Enabled t
 
 Post only the approved text, without secrets or raw logs. A read-only review does not authorize publishing findings.
 
+## Work with GitLens and GitKraken
+
+Only when their tools (`git_*`, `gitlens_*`) are available:
+
+- Local repository work (status, diff, log, blame, branches, commits, worktrees): GitKraken `git_*` or plain git. workctl has no local git tools.
+- Provider data, checks, attachments and comments: workctl. It picks the account per profile and enforces the write policy.
+- Review a pull request in the editor: take its URL from `pr_show`, then call `gitlens_start_review`. Start work on an issue: `gitlens_start_work` with the issue URL. What needs attention: `gitlens_launchpad`, details through workctl.
+- GitKraken provider tools (`pull_request_*`, `issues_*`) act as the account connected in GitKraken. Use them only for what workctl does not offer (for example GitHub issues), say which account they used, and never to work around a workctl refusal, policy or missing profile.
+- GitKraken writes (commit, push, pull request, issue, comment) need the same explicit approval as workctl writes.
+
 ## Report
 
 Lead with findings and link to the relevant PR/MR, comment or attachment. State which evidence was actually inspected, which revision it represents, and what remains unverified. Keep observations separate from proposed changes; never claim an assessment or an action succeeded when access was blocked.

@@ -2,7 +2,7 @@
 // This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
 
 // Keeps the agent package (plugins/workctl, the marketplace, the installers) in step with the code:
-// the SKILL.md tool names are checked against mcpTools and the installers must copy the skill that exists.
+// the SKILL.md tool names are checked against mcpTools and the installer must copy the skill that exists.
 
 package app
 
@@ -99,19 +99,17 @@ func TestSkillNamesOnlyExistingMCPTools(t *testing.T) {
 	}
 }
 
-func TestInstallersCopyTheSkillThatExists(t *testing.T) {
+func TestInstallerCopiesTheSkillThatExists(t *testing.T) {
 	root := testutil.RepoRoot(t)
 	skill := filepath.Join(root, "plugins/workctl/skills/workctl/SKILL.md")
 	if _, err := os.Stat(skill); err != nil {
 		t.Fatal(err)
 	}
-	for _, script := range []string{"scripts/install.sh", "scripts/install.ps1"} {
-		b, err := os.ReadFile(filepath.Join(root, script))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(strings.ReplaceAll(string(b), `\`, "/"), "plugins/workctl/skills/workctl/SKILL.md") {
-			t.Errorf("%s does not copy plugins/workctl/skills/workctl/SKILL.md", script)
-		}
+	b, err := os.ReadFile(filepath.Join(root, "scripts/install.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "plugins/workctl/skills/workctl/SKILL.md") {
+		t.Error("scripts/install.py does not copy plugins/workctl/skills/workctl/SKILL.md")
 	}
 }
