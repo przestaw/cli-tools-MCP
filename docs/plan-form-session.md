@@ -1,7 +1,8 @@
-# Plan: keep the form-login session between runs (future)
+# Plan: keep the form-login session between runs
 
-Status: **not implemented**. The shipped fix is `form_login.logout_path` (variant B below). This plan is the
-fallback if logging out is not enough. User manual: [services-auth.md](services-auth.md).
+Status: **implemented** next to variant B: a profile with `form_login.logout_path` logs out after every run (B); a
+profile without it keeps its session between runs (A). The expired-session check looks for a password input of
+`password_field` (a real login form), not just the user field. User manual: [services-auth.md](services-auth.md).
 
 ## Problem
 
@@ -48,6 +49,6 @@ that request opens its own session and does not close sessions from previous pro
 
 ## Open points for A
 
-- The `name="<user_field>"` check assumes ordinary pages of the application never contain that exact attribute.
-- `auth logout` does not clear the file yet; it should for form profiles.
+- The login-page check assumes ordinary pages never contain a password input named `password_field`.
+- ~~`auth logout` does not clear the file yet~~: it does (`api.ForgetSession`).
 - Two commands started at the same time without a saved session both log in, so two sessions exist briefly.

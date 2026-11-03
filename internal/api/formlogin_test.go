@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,6 +20,10 @@ import (
 // sets the session cookie "sid" for the right password, and a page that is served only with the session cookie.
 func formApp(t *testing.T, logins *int) *httptest.Server {
 	t.Helper()
+	// Keep the saved session out of the real user cache.
+	for _, env := range []string{"XDG_CACHE_HOME", "HOME", "LocalAppData"} {
+		t.Setenv(env, t.TempDir())
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/app/login":
@@ -38,7 +43,7 @@ func formApp(t *testing.T, logins *int) *httptest.Server {
 			http.Redirect(w, r, "/app/home", http.StatusFound)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/app/"):
 			if cookie, err := r.Cookie("sid"); err != nil || cookie.Value != "s1" {
-				_, _ = w.Write([]byte("<html>login form</html>"))
+				_, _ = w.Write([]byte(`<html><form><input name="User"><input name="Password" type="password"></form></html>`))
 				return
 			}
 			w.Header().Set("Content-Type", "text/html")
@@ -244,5 +249,70 @@ func TestFormLogoutErrorsDoNotExposeCredentials(t *testing.T) {
 				t.Fatalf("Close = %v, loggedIn = %v", err, client.form.loggedIn)
 			}
 		})
+	}
+}
+
+func TestFormLoginReusesTheSavedSession(t *testing.T) {
+	logins := 0
+	srv := formApp(t, &logins)
+	t.Setenv("WORKCTL_TEST_FORM_PASSWORD", "pw")
+	profile := formProfile(srv.URL)
+	ctx := context.Background()
+	for range 2 { // two runs: the second one has to find the session of the first
+		c, err := NewProfileClient(config.Default(), "app", profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if b, _, err := c.Do(ctx, http.MethodGet, "/ticket?id=7", nil, nil, ""); err != nil || !strings.Contains(string(b), "Ticket 7") {
+			t.Fatalf("page = %q %v", b, err)
+		}
+	}
+	if logins != 1 {
+		t.Fatalf("logged in %d times, want once for both runs", logins)
+	}
+	// The server forgets the session: the saved cookie is refused, so the run logs in again and repeats the request.
+	if err := os.WriteFile(sessionFile("app", profile), []byte(`{"sid":"stale"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewProfileClient(config.Default(), "app", profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _, err := c.Do(ctx, http.MethodGet, "/ticket?id=7", nil, nil, ""); err != nil || !strings.Contains(string(b), "Ticket 7") {
+		t.Fatalf("page after expiry = %q %v", b, err)
+	}
+	if logins != 2 {
+		t.Fatalf("logged in %d times, want 2 after the session expired", logins)
+	}
+}
+
+func TestFormLoginWithLogoutKeepsNoSessionFile(t *testing.T) {
+	logins := 0
+	srv := formApp(t, &logins)
+	t.Setenv("WORKCTL_TEST_FORM_PASSWORD", "pw")
+	profile := formProfile(srv.URL)
+	profile.FormLogin.LogoutPath = "/logout"
+	if file := sessionFile("app", profile); file != "" {
+		t.Fatalf("a profile that logs out must not keep a session file, got %s", file)
+	}
+}
+
+func TestForgetSessionDeletesTheSavedSession(t *testing.T) {
+	logins := 0
+	srv := formApp(t, &logins)
+	t.Setenv("WORKCTL_TEST_FORM_PASSWORD", "pw")
+	profile := formProfile(srv.URL)
+	c, err := NewProfileClient(config.Default(), "app", profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Do(context.Background(), http.MethodGet, "/ticket?id=7", nil, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := ForgetSession("app", profile); err != nil || !removed {
+		t.Fatalf("first forget: removed=%v err=%v", removed, err)
+	}
+	if removed, err := ForgetSession("app", profile); err != nil || removed {
+		t.Fatalf("second forget: removed=%v err=%v", removed, err)
 	}
 }
