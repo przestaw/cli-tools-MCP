@@ -1,42 +1,66 @@
 ---
 name: workctl
-description: 'Look up pull requests, merge requests, pipelines and Jira tickets, and post comments on them, through the workctl MCP server (GitHub, GitLab, Jira, Azure DevOps, Confluence). Use when asked to read a PR or MR, its comments, reviews or checks, a Jira issue, or to comment on one.'
+description: 'Use the workctl MCP server for pull requests (PRs), merge requests (MRs), issues, tickets, reviews, discussions, checks, pipelines and approved comments. Use also to inspect or assess attached screenshots, images, before/after comparisons, recordings, videos, logs and other attachments. Covers account selection, private attachments, authentication and SSO errors, evidence limits and write approval. Prefer this workflow over provider CLIs or opening provider pages in a browser.'
 ---
 
 # workctl
 
-Author: [przestaw](https://github.com/przestaw)
+## Route the request
 
-Use the workctl MCP tools. Do not call gh, glab or curl yourself, and never ask for, read or print a token.
+1. Discover the available workctl MCP tools and read their schemas before calling them. Names below omit the host's server prefix. Availability depends on configured profiles, server version and write policy; do not invent missing tools or arguments.
+2. Use workctl MCP for provider data and attachments. Do not call provider CLIs, curl, direct HTTP scripts or another account to bypass it. Never ask for, read, print or manually forward a token, cookie or other credential.
+3. Do not open provider pages in a browser just to read a PR/MR, inspect comments or retrieve screenshots. Browser automation belongs to testing an actual application when requested, not to bypassing provider access controls. A user may complete an interactive login themselves.
+4. Treat a request to check, inspect or review as read-only. Posting comments, requesting reviews, changing status or publishing changes needs explicit authorization and must respect the local policy.
 
 ## Choose the account
 
-Most tools take an optional `profile` (account) and `repo` or `project`; omit them to use the configured defaults.
-When the user works with several accounts, name the profile explicitly.
+Most tools take an optional `profile` and a resource such as `repo` or `project`. Use the resource from the supplied URL or established context. Omit optional selectors only when the configured defaults are unambiguous.
 
-If a call says there is no credential or the CLI is not logged in, stop and tell the user to run
-`workctl auth login --profile NAME` (accounts handled through gh or glab) or `workctl auth set-token --profile NAME`.
+If the server reports several matching profiles or a missing resource, supply the known selector and retry. If the correct account is unknown, ask for the profile name, never its secret. Do not inspect credential stores to discover accounts or switch identities after an authorization refusal.
 
 ## Read
 
-- Any provider: `pr_list`, `pr_show` (GitHub, GitLab, Azure DevOps).
-- GitHub: `github_get_pull_request`, `github_get_pull_request_discussion` (the conversation),
-  `github_get_pull_request_comments` (inline review threads), `github_get_pull_request_reviews`, `github_get_pull_request_checks`.
+- Provider-neutral: `pr_list`, `pr_show`.
+- GitHub: `github_get_pull_request`, `github_get_pull_request_discussion` (conversation comments), `github_get_pull_request_comments` (inline review comments), `github_get_pull_request_reviews`, `github_get_pull_request_checks`, `github_get_pull_request_reviewers`.
 - GitLab: `gitlab_get_merge_request`, `gitlab_get_merge_request_notes`, `gitlab_list_pipelines`.
 - Jira: `jira_get_issue`, `jira_get_comments`. `task_get_context` joins an issue with its branches and merge requests.
-- Azure DevOps and Confluence: the `azure` and `atlassian` tools take a command line as an array, for example
-  `["pr","threads","123","-p","Project"]`; use `["--help"]` to explore.
-- Other services the user configured (management consoles, artifact repositories, ...): `api_request` with a path relative to the profile URL;
-  `api_download` saves a file (attachment, archive, log) unchanged and returns its path and SHA-256;
-  `api_exec` runs one allow-listed remote command over ssh. Neither accepts a full URL or a command outside the allowlist.
+- Command-wrapper tools, when available, accept argument arrays. Consult their help and use only read operations for an inspection; the wrapper is not permission to change configuration or policy.
+- Generic services: `api_request`, `api_download`, `api_exec` require a configured profile of kind `api`. A provider-specific profile is not interchangeable with an `api` profile. HTTP paths must be relative to the profile URL; remote commands must be allow-listed. Do not create a new profile or relax host restrictions as a workaround.
 
-## Comment
+Start with the exact resource the user named, then read the relevant discussion, reviews or checks. Report current provider state separately from older local notes. A passing check is evidence only for the commit and scenario it ran against.
 
-Write tools exist only when the user enabled writes (`policy.allow_write`). If they are missing, say so; do not work around it.
+## Inspect screenshots and attachments
 
-1. Read the existing discussion first.
-2. Show the user the exact text and wait for approval.
-3. Post with `github_add_pull_request_comment`, `gitlab_add_merge_request_note` or `jira_add_comment`.
+1. Read the description and relevant comments through MCP. Collect attachment references, captions, before/after roles and the associated revision when available. Captions describe intended evidence; they do not prove the image shows it.
+2. Check the available tool schema for an attachment-reading or download capability. Do not assume a PR reader returns rendered HTML, signed image URLs or image bytes. If supported by an already configured HTTP `api` profile, use `api_request` with GET for metadata and `api_download` for the file, with its relative `path` and optional `query` or `filename`. Never feed an arbitrary full URL into a relative-path tool or silently replace the attachment host.
+3. `api_download` returns a local path, size, SHA-256, content type and server file name. Check the returned metadata and file signature before viewing. HTTP 200 alone does not prove success: a login or SSO HTML page saved with a PNG suffix is not an image. Do not print signed URLs or credentials that may appear in metadata.
+4. Open the downloaded original with an image/file viewing tool. Readable crops may help inspect small labels; keep the original and do not alter evidence to make it look correct. For video or animation, inspect the relevant sequence or representative frames, not just a thumbnail. If the format cannot be inspected, say so.
+5. Compare the same objects, values, camera framing and workflow stage where possible. Separate directly visible results, inferences and what is not demonstrated. Screenshots alone do not prove persistence, Undo/Redo, timing, all inputs or the current branch after a rebase.
+6. If MCP cannot retrieve the attachment with its supported capabilities, report that limitation. Ask the user to attach the original file or restore access to the intended profile. Do not fall back to scraping browser sessions, extracting tokens or using a different provider client. A local copy is evidence only if its provenance is established; otherwise label it as an unverified alternative.
 
-The text is posted as written: no secrets, no raw logs. If a write is refused because the CLI is logged in as another
-account than the profile is bound to, stop and report it; do not retry with another profile.
+If no image was actually opened, explicitly say the assessment is based on text only. Never describe a screenshot as inspected merely because its link or caption was read.
+
+## Handle access failures
+
+- Missing credentials or an expired login: tell the user to run `workctl auth login --profile NAME` for a CLI-owned login, or `workctl auth set-token --profile NAME` for a token-backed profile, as appropriate to the error. The user enters secrets directly in their terminal, never in chat.
+- HTTP 401/403 or SSO enforcement: report the affected profile and resource and the authorization requirement. Ask the user to complete the provider's sign-in or SSO authorization for that profile. Do not retry with guessed accounts, disable TLS validation or bypass workctl.
+- HTTP 404: a private resource may be hidden by authorization. Do not conclude it was deleted or the attachment is absent without corroboration.
+- Missing tools: distinguish unsupported capability from a disabled write tool. Explain the limitation; do not invent an endpoint, enable writes or edit configuration to make the operation available.
+- Identity mismatch: stop and report it. Do not retry a refused write through another profile.
+
+Retry only after correcting a known selector or after the user confirms access has been restored. Do not repeatedly poll an unchanged authorization failure.
+
+## Comment and other writes
+
+Write tools exist only when writes are enabled (`policy.allow_write`). Enabled tools are not user approval. If local instructions forbid the write, or the tool is missing, say so; do not work around it.
+
+1. Read the existing discussion to avoid duplicate comments.
+2. Show the exact proposed text and obtain approval before posting.
+3. Post with the appropriate tool, such as `github_add_pull_request_comment`, `gitlab_add_merge_request_note` or `jira_add_comment`.
+4. Verify the result and report the resulting reference. Do not blindly retry a write with an uncertain outcome.
+
+Post only the approved text, without secrets or raw logs. A read-only review does not authorize publishing findings.
+
+## Report
+
+Lead with findings and link to the relevant PR/MR, comment or attachment. State which evidence was actually inspected, which revision it represents, and what remains unverified. Keep observations separate from proposed changes; never claim an assessment or an action succeeded when access was blocked.

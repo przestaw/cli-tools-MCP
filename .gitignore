@@ -14,3 +14,4 @@
 
 # developer-only migration utilities
 /scripts/local/
+__pycache__/

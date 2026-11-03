@@ -15,6 +15,13 @@ try {
     go build -trimpath -ldflags "-s -w" -o (Join-Path $dest "workctl.exe") ./cmd/workctl
 } finally { Pop-Location }
 Write-Host "installed: $dest\workctl.exe"
+$python = (Get-Command python -ErrorAction SilentlyContinue), (Get-Command py -ErrorAction SilentlyContinue) | Where-Object { $_ } | Select-Object -First 1
+if ($python) {
+    # Copies v2 keyring entries (<kind>:<url>) to the v3 accounts (<kind>:<profile>); no-op when none exist.
+    & $python.Source "$PSScriptRoot\migrate.py"
+} else {
+    Write-Host "python not found: if tokens were stored by the v2 release, run scripts/migrate.py later"
+}
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (($userPath -split ";") -notcontains $dest) {
     [Environment]::SetEnvironmentVariable("Path", "$userPath;$dest", "User")
