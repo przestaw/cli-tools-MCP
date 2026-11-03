@@ -187,6 +187,11 @@ func logoutCommand(cfg *config.Config, args []string) error {
 		return err
 	}
 
+	if removed, err := api.ForgetSession(name, profile); err != nil {
+		return err
+	} else if removed {
+		fmt.Printf("saved form-login session removed for profile %s\n", name)
+	}
 	account := secret.Account(profile.Kind, name)
 	if err := config.TokenStore.Delete(account); err != nil {
 		return err

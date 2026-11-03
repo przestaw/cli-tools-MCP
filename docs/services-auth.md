@@ -92,7 +92,11 @@ and reading them is up to the consumer. Combine it with `"read_only": true`:
 
 `fields` are extra form fields the login form sends (hidden inputs). The login counts as done
 only when the answer sets `session_cookie`: a wrong password usually comes back as the login page
-with HTTP 200. SSO or two-factor logins cannot be automated this way.
+with HTTP 200. Without `logout_path` the session cookies are kept between runs in the user cache directory
+(`workctl/session-*.json`, mode 0600), so a profile logs in once, not once per command (servers cap the sessions per
+user); when the server answers a saved session with its login page, workctl logs in again and repeats the request
+once. `workctl auth logout` deletes that file. With `logout_path` nothing is kept: every run logs out (below).
+SSO or two-factor logins cannot be automated this way.
 
 Set `logout_path` to close each CLI/MCP session, including after a failed request. Cleanup has its
 own timeout, independent of the request context, and failures are returned to the caller rather

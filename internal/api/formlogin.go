@@ -10,11 +10,16 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,6 +37,8 @@ type formSession struct {
 	loggedIn      bool
 	logoutToken   string
 	logoutCookies []*http.Cookie
+	cache         string // file that keeps the session cookies between runs (profiles without logout_path); empty when none
+	cached        bool   // the session came from that file and has not been used yet
 }
 
 // logIn opens the login page, posts the login form and checks that the answer set the session cookie. Opening the
@@ -58,6 +65,9 @@ func (c *Client) logIn(ctx context.Context) error {
 	for _, cookie := range c.client.Jar.Cookies(loginURL) {
 		if cookie.Name == f.login.SessionCookie {
 			f.loggedIn = true
+			if loginErr == nil {
+				c.saveSession()
+			}
 			return sessionError("form login", loginErr)
 		}
 	}
@@ -197,4 +207,76 @@ func formHTML(data []byte, tokenField, passwordField string) (string, bool) {
 			}
 		}
 	}
+}
+
+// sessionFile is where the session cookies of a form-login profile are kept between runs, so a profile holds one
+// logged-in session instead of one per command (servers cap the sessions per user). Empty without a user cache
+// directory, and for a profile with logout_path: that one logs out after every run instead.
+func sessionFile(name string, p config.Profile) string {
+	if p.FormLogin != nil && p.FormLogin.LogoutPath != "" {
+		return ""
+	}
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(name + "\x00" + p.URL + "\x00" + p.Username))
+	return filepath.Join(dir, "workctl", "session-"+hex.EncodeToString(sum[:8])+".json")
+}
+
+// loadSession puts the saved cookies into the jar and reports whether the file held the session cookie.
+func (c *Client) loadSession() bool {
+	f := c.form
+	data, err := os.ReadFile(f.cache)
+	if err != nil {
+		return false
+	}
+	var saved map[string]string
+	u, urlErr := url.Parse(c.baseURL + f.login.Path)
+	if json.Unmarshal(data, &saved) != nil || urlErr != nil || saved[f.login.SessionCookie] == "" {
+		return false
+	}
+	var cookies []*http.Cookie
+	for name, value := range saved {
+		cookies = append(cookies, &http.Cookie{Name: name, Value: value})
+	}
+	c.client.Jar.SetCookies(u, cookies)
+	return true
+}
+
+// saveSession writes the jar's cookies to the session file (0600); failing to write only costs a login next time.
+func (c *Client) saveSession() {
+	f := c.form
+	u, err := url.Parse(c.baseURL + f.login.Path)
+	if err != nil || f.cache == "" || os.MkdirAll(filepath.Dir(f.cache), 0o700) != nil {
+		return
+	}
+	saved := map[string]string{}
+	for _, cookie := range c.client.Jar.Cookies(u) {
+		saved[cookie.Name] = cookie.Value
+	}
+	if data, err := json.Marshal(saved); err == nil {
+		_ = os.WriteFile(f.cache, data, 0o600)
+	}
+}
+
+// dropSession forgets a session the server no longer accepts: the file, the cookies and the logged-in flag.
+func (c *Client) dropSession() {
+	_ = os.Remove(c.form.cache)
+	c.form.loggedIn, c.form.cached = false, false
+	c.client.Jar, _ = cookiejar.New(nil)
+}
+
+// ForgetSession deletes the saved session of a form-login profile (`workctl auth logout`); it reports whether
+// there was one.
+func ForgetSession(name string, p config.Profile) (bool, error) {
+	file := sessionFile(name, p)
+	if file == "" || !strings.EqualFold(p.Auth, "form") {
+		return false, nil
+	}
+	err := os.Remove(file)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
 }

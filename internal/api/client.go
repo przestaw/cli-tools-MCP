@@ -149,7 +149,7 @@ func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (
 		case "header":
 			client.headers.Set(profile.AuthHeader, credential)
 		case "form":
-			client.form = &formSession{login: *profile.FormLogin, username: profile.Username, password: credential}
+			client.form = &formSession{login: *profile.FormLogin, username: profile.Username, password: credential, cache: sessionFile(name, profile)}
 		default:
 			client.headers.Set("Authorization", "Bearer "+credential)
 		}
@@ -208,7 +208,19 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 	if err != nil {
 		return nil, "", err
 	}
-	return c.send(ctx, method, target, headers, body, contentType)
+	out, respType, err := c.send(ctx, method, target, headers, body, contentType)
+	if f := c.form; err == nil && f != nil && f.cached {
+		// A saved session the server dropped answers with the login page: log in again and repeat the request once.
+		f.cached = false
+		if _, loginPage := formHTML(out, "", f.login.PasswordField); loginPage {
+			c.dropSession()
+			if headers, err = c.authorize(ctx, method); err != nil {
+				return nil, "", err
+			}
+			return c.send(ctx, method, target, headers, body, contentType)
+		}
+	}
+	return out, respType, err
 }
 
 // target turns path and query into the server-relative target of a request and refuses a write on a read-only profile.
@@ -234,7 +246,9 @@ func (c *Client) target(method, path string, q url.Values) (string, error) {
 // and adds the anti-CSRF token to a write.
 func (c *Client) authorize(ctx context.Context, method string) (http.Header, error) {
 	if c.form != nil && !c.form.loggedIn {
-		if err := c.logIn(ctx); err != nil {
+		if c.loadSession() {
+			c.form.loggedIn, c.form.cached = true, true
+		} else if err := c.logIn(ctx); err != nil {
 			return nil, err
 		}
 	}
