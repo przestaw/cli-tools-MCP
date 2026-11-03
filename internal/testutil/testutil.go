@@ -57,6 +57,8 @@ func CLIHelperProcess() {
 		if args[1] != "auth" {
 			_, _ = os.Stdout.WriteString(`{"login":"przestaw","username":"przestaw"}`)
 		}
+	case "token": // `gh auth token` prints the token of the requested account
+		_, _ = os.Stdout.WriteString("gho_faketoken\n")
 	case "sleep":
 		time.Sleep(10 * time.Second)
 	case "ssh-w": // `ssh -W host:port ...` forwards its stdio to host:port
