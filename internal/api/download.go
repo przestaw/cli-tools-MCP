@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Streaming downloads: the answer of a GET goes straight to a writer (usually a file) as it arrives, so large or
 // binary files are neither held in memory nor changed by a byte. The profile's policies apply as in Do.
 

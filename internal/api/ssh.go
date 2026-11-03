@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Optional SSH transport for HTTP profiles behind a bastion (`"backend": "ssh-tunnel"`).
 //
 // Every TCP connection of the HTTP client is one `ssh -W host:port DESTINATION` child process: ssh forwards its

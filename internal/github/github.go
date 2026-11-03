@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package github is the thin GitHub provider: REST calls, the `workctl github ...`
 // commands, the github_* MCP tools and the provider-neutral pull request adapter.
 package github

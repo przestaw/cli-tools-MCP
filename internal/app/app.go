@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package app wires workctl together: the command-line dispatch, the doctor and
 // task commands that span several providers, and the composition of all MCP tools
 // into one server. It is the only package that knows every provider.
@@ -24,7 +27,7 @@ import (
 )
 
 // Version is the one version string of the binary, the MCP server and the plugin package.
-const Version = "0.3.25"
+const Version = "0.3.26"
 
 func usage() {
 	fmt.Fprintf(os.Stdout, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence, GitLab and GitHub

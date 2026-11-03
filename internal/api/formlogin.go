@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Form login for web applications that have no API token (profiles with auth "form"): the client posts the login
 // form once, like a browser, and the session cookie it gets back authenticates the later requests. Pages come back
 // as the server renders them (usually HTML); reading them is up to the caller. Pair it with "read_only": true when

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package cliutil holds small helpers shared by the command implementations:
 // output printing, flag-argument parsing and the replaceable stdin of the wizards.
 package cliutil

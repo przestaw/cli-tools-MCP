@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package client is a thin Atlassian Cloud REST client covering Jira
 // (/rest/api/3, /rest/agile/1.0) and Confluence (/wiki/api/v2, /wiki/rest/api).
 package client

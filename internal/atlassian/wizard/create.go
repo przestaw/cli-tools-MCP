@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package wizard holds the interactive (survey-driven) flows shared by the
 // cobra commands and the REPL. Currently this is the guided issue-create form:
 // it prompts for the issue type, every required create-screen field, a few

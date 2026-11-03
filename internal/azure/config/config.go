@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package config loads and persists ado-cli configuration (YAML) and resolves
 // the Azure DevOps Personal Access Token via environment, OS keyring, or
 // interactive prompt.

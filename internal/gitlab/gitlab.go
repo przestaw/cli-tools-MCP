@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package gitlab is the thin GitLab provider: REST calls, the `workctl gitlab ...`
 // commands, the gitlab_* MCP tools and the provider-neutral merge request adapter.
 package gitlab

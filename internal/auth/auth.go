@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package auth manages profile credentials: `workctl auth login|set-token|status|logout`
 // and the git-credential helper that hands a profile token to git.
 package auth

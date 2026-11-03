@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Anti-CSRF tokens for profiles with a "csrf" block: some servers refuse a write unless it carries a token that a GET
 // handed out in the same session (usually only for password logins; API tokens are often exempt). The client fetches
 // the token before its first write and keeps the session cookie in memory; neither reaches the output.

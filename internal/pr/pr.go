@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package pr is the provider-neutral pull request surface: `workctl pr|mr ...` and
 // the pr_list/pr_show MCP tools, served by the per-provider vcs.PullRequestReader adapters.
 package pr

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Keeps the agent package (plugins/workctl, the marketplace, the installers) in step with the code:
 // the SKILL.md tool names are checked against mcpTools and the installers must copy the skill that exists.
 

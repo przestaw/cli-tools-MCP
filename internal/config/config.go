@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package config holds the workctl configuration file: named provider profiles,
 // per-kind defaults, the write policy and the credential resolution order
 // (environment variable, then OS keyring). Everything else in workctl receives a
