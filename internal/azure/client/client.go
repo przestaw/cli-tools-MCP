@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package client is a thin Azure DevOps REST client covering Core (projects),
 // Git (repositories, pull requests), Pipelines, Build and Release Management.
 // All requests use Basic auth with an empty username and a Personal Access

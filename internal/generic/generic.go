@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package generic serves profiles of kind "api": any HTTP service without a dedicated provider
 // (CI servers, artifact repositories, ...) and, with backend ssh-exec, services whose API is a set of
 // commands run over ssh. It adds no endpoints of its own, only `workctl api raw|download|exec` and the

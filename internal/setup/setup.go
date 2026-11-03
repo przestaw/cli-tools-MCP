@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package setup holds the interactive wizards of `workctl init` and
 // `workctl jira|gitlab|github init`: they write the profile (never the token),
 // keep the token in the OS keyring and check the connection.

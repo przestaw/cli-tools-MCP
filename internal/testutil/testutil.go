@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package testutil holds helpers shared by the test suites of several packages:
 // fake gh/glab and module child processes (no network, no real tools) and the
 // repository root lookup for tests that read checked-in files.

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package mcp implements the stdio JSON-RPC surface of `workctl mcp`: the protocol
 // loop, the tool descriptor with its JSON-schema helpers, and the argument readers.
 // It knows nothing about the providers; the caller injects the tool list and dispatch.

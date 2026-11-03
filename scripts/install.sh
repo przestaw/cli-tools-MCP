@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
+# Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+# This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
 # Build workctl into $WORKCTL_INSTALL_DIR (default ~/.local/bin); register it with the agents named on the command line:
 #   --vscode  MCP server in the VS Code user profile
 #   --claude  MCP server in Claude Code (user scope) and the skill in ~/.claude/skills (VS Code reads it there too)

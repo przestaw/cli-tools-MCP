@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Contract tests of the HTTP client and the gh/glab transport, run against httptest servers
 // and a fake child process (no network, no real gh or glab).
 

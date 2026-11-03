@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Optional transport that sends API requests through the provider's own CLI (gh, glab).
 //
 // A profile with `"backend": "cli"` keeps no token in workctl: gh or glab owns the login and refreshes it. Only the

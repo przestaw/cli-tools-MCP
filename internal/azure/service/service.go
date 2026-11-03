@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package service wires configuration to the API client and provides
 // higher-level helpers (project resolution, identity lookup, ref/vote parsing)
 // shared by the cobra commands and the interactive REPL.

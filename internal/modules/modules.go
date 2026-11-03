@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 // Package modules embeds the full cobra CLIs (azure, atlassian) into workctl and
 // polices what the agent surface may run. Each module keeps its own config file and
 // OS keyring entries (under the names ado and atl), so profiles and tokens made
