@@ -192,3 +192,54 @@ func TestResolveProfileSecretOrder(t *testing.T) {
 		t.Fatalf("env first: %q", v)
 	}
 }
+
+func TestResourceMatchingInReposAndProjects(t *testing.T) {
+	cfg := config.Default()
+	cfg.Profiles = map[string]config.Profile{
+		"przestaw": {Kind: "github", URL: "https://api.github.com", Repos: []string{"przestaw/*"}},
+		"work":     {Kind: "github", URL: "https://api.github.com", Repos: []string{"corp/*", "przestaw/shared-repo"}, DefaultRepo: "corp/main"},
+		"gl-root":  {Kind: "gitlab", URL: "https://gitlab.example", Projects: []string{"org/*"}},
+		"gl-sub":   {Kind: "gitlab", URL: "https://gitlab.example", Projects: []string{"org/sub/*"}},
+		"jira-ir":  {Kind: "jira", URL: "https://jira.example", Projects: []string{"IR"}},
+		"jira-abc": {Kind: "jira", URL: "https://jira.example", Projects: []string{"ABC"}},
+	}
+	cfg.Defaults["github"] = "work"
+
+	// Wildcard match picks "przestaw" even though defaults.github is "work".
+	scoped, err := cfg.ScopedFor("", "github", "przestaw/cli-tools-MCP")
+	if err != nil || scoped.ProfileName() != "przestaw" {
+		t.Fatalf("przestaw/* match: profile=%q err=%v", scoped.ProfileName(), err)
+	}
+	// Exact repo match beats prefix wildcard ("przestaw/*").
+	scoped, err = cfg.ScopedFor("", "github", "przestaw/shared-repo")
+	if err != nil || scoped.ProfileName() != "work" {
+		t.Fatalf("exact match over wildcard: profile=%q err=%v", scoped.ProfileName(), err)
+	}
+	// Explicit profile argument always wins over resource match.
+	scoped, err = cfg.ScopedFor("work", "github", "przestaw/cli-tools-MCP")
+	if err != nil || scoped.ProfileName() != "work" {
+		t.Fatalf("explicit profile: profile=%q err=%v", scoped.ProfileName(), err)
+	}
+	// Unmatched resource falls back to defaults.github.
+	scoped, err = cfg.ScopedFor("", "github", "other/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name, _, err := scoped.ProfileOf("github"); err != nil || name != "work" {
+		t.Fatalf("fallback to default: name=%q err=%v", name, err)
+	}
+	// Longer prefix wins in GitLab nested groups.
+	scoped, err = cfg.ScopedFor("", "gitlab", "org/sub/service")
+	if err != nil || scoped.ProfileName() != "gl-sub" {
+		t.Fatalf("nested gitlab group: profile=%q err=%v", scoped.ProfileName(), err)
+	}
+	// Jira issue key resolves by project prefix.
+	scoped, err = cfg.ScopedFor("", "jira", "IR-402")
+	if err != nil || scoped.ProfileName() != "jira-ir" {
+		t.Fatalf("jira issue key: profile=%q err=%v", scoped.ProfileName(), err)
+	}
+	// Wildcard entry in Repos does not act as a concrete default repository when repo argument is omitted.
+	if _, err := config.ProfileRepository(cfg.Profiles["przestaw"], ""); err == nil {
+		t.Fatal("wildcard entry must not be used as concrete default repository")
+	}
+}

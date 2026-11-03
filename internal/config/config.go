@@ -304,24 +304,147 @@ func (c *Config) PRProfile(requestedName, requestedKind string) (string, Profile
 	return c.ProfileOf(requestedKind)
 }
 
+// PRProfileFor resolves the profile of a pull request command: explicit profile (--profile or WORKCTL_PROFILE),
+// then an optional resource match on repos/projects, then defaults.<kind> or the single matching profile.
+func (c *Config) PRProfileFor(requestedName, requestedKind, resource string) (string, Profile, error) {
+	if requestedName == "" && c.profile == "" && strings.TrimSpace(os.Getenv("WORKCTL_PROFILE")) == "" {
+		matched, err := c.matchProfile(requestedKind, resource)
+		if err != nil {
+			return "", Profile{}, err
+		}
+		if matched != "" {
+			return matched, c.Profiles[matched], nil
+		}
+	}
+	return c.PRProfile(requestedName, requestedKind)
+}
+
+// concreteEntries returns the items of list that are concrete names rather than prefix wildcards ("org/*").
+func concreteEntries(list []string) []string {
+	var out []string
+	for _, item := range list {
+		if t := strings.TrimSpace(item); t != "" && !strings.Contains(t, "*") {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // ProfileRepository picks the repository (or GitLab project) of a call: the argument, then the profile defaults.
+// Wildcard patterns ("org/*") match incoming repository arguments in ScopedFor/PRProfileFor, but are not concrete defaults.
 func ProfileRepository(profile Profile, repository string) (string, error) {
 	if repository != "" {
 		return repository, nil
 	}
-	if profile.DefaultRepo != "" {
+	if profile.DefaultRepo != "" && !strings.Contains(profile.DefaultRepo, "*") {
 		return profile.DefaultRepo, nil
 	}
-	if len(profile.Repos) == 1 {
-		return profile.Repos[0], nil
+	if repos := concreteEntries(profile.Repos); len(repos) == 1 {
+		return repos[0], nil
 	}
-	if profile.Kind == "gitlab" && profile.DefaultProject != "" {
+	if profile.Kind == "gitlab" && profile.DefaultProject != "" && !strings.Contains(profile.DefaultProject, "*") {
 		return profile.DefaultProject, nil
 	}
-	if profile.Kind == "gitlab" && len(profile.Projects) == 1 {
-		return profile.Projects[0], nil
+	if profile.Kind == "gitlab" {
+		if projects := concreteEntries(profile.Projects); len(projects) == 1 {
+			return projects[0], nil
+		}
 	}
 	return "", fmt.Errorf("repository is required: set repo (--repo on the CLI) or default_repo in the profile")
+}
+
+// MatchResource scores how specifically the profile's optional repos/projects match resource:
+// 0 means no match, a prefix/wildcard match ("org/*") scores by prefix length, and an exact match scores highest.
+func (p Profile) MatchResource(resource string) int {
+	res := strings.Trim(strings.TrimSpace(resource), "/")
+	if res == "" {
+		return 0
+	}
+	if p.Kind == "jira" || p.Kind == "atlassian" {
+		projKey := res
+		if k, _, ok := strings.Cut(res, "-"); ok && k != "" {
+			projKey = k
+		}
+		for _, raw := range append([]string{p.DefaultProject}, p.Projects...) {
+			pat := strings.Trim(strings.TrimSpace(raw), "/")
+			pat = strings.TrimSuffix(strings.TrimSuffix(pat, "/*"), "-*")
+			if pat != "" && (strings.EqualFold(pat, res) || strings.EqualFold(pat, projKey)) {
+				return 1000 + len(pat)
+			}
+		}
+		return 0
+	}
+	best := 0
+	keep := func(score int) {
+		if score > best {
+			best = score
+		}
+	}
+	for _, raw := range append(append([]string{p.DefaultRepo}, p.Repos...), append([]string{p.DefaultProject}, p.Projects...)...) {
+		pat := strings.Trim(strings.TrimSpace(raw), "/")
+		if pat == "" {
+			continue
+		}
+		if strings.HasSuffix(pat, "/*") {
+			ownerPrefix := strings.TrimSuffix(pat, "/*")
+			prefix := ownerPrefix + "/"
+			if ownerPrefix != "" && (strings.EqualFold(res, ownerPrefix) || (len(res) > len(prefix) && strings.EqualFold(res[:len(prefix)], prefix))) {
+				keep(1 + len(prefix))
+			}
+			continue
+		}
+		if strings.EqualFold(pat, res) {
+			keep(1000 + len(pat))
+			continue
+		}
+		if (p.Kind == "gitlab" || p.Kind == "azure") && !strings.Contains(pat, "/") {
+			prefix := pat + "/"
+			if len(res) > len(prefix) && strings.EqualFold(res[:len(prefix)], prefix) {
+				keep(1 + len(prefix))
+			}
+		}
+	}
+	return best
+}
+
+// matchProfile returns the profile of kind (or any PRKinds when kind is empty) that best matches resource.
+// It returns ("", nil) when resource is empty or no profile's repos/projects match it.
+func (c *Config) matchProfile(kind, resource string) (string, error) {
+	return c.matchProfileWhere(resource, func(p Profile) bool {
+		return kind != "" && p.Kind == kind || kind == "" && PRKinds[p.Kind]
+	})
+}
+
+func (c *Config) matchProfileWhere(resource string, allow func(Profile) bool) (string, error) {
+	if strings.TrimSpace(resource) == "" {
+		return "", nil
+	}
+	bestScore := 0
+	var best []string
+	for name, p := range c.Profiles {
+		if !allow(p) {
+			continue
+		}
+		score := p.MatchResource(resource)
+		if score <= 0 {
+			continue
+		}
+		if score > bestScore {
+			bestScore = score
+			best = []string{name}
+		} else if score == bestScore {
+			best = append(best, name)
+		}
+	}
+	sort.Strings(best)
+	switch len(best) {
+	case 0:
+		return "", nil
+	case 1:
+		return best[0], nil
+	default:
+		return "", fmt.Errorf("several profiles match %q (%s); pass --profile", resource, strings.Join(best, ", "))
+	}
 }
 
 // Has reports whether at least one profile of the kind exists.
@@ -362,6 +485,47 @@ func (c *Config) Scoped(profileName, kind string) (*Config, error) {
 	scoped := *c
 	scoped.profile = profileName
 	return &scoped, nil
+}
+
+// ScopedFor narrows the configuration to one profile of the given kind: an explicit profileName wins,
+// then an already-scoped profile (--profile), then an optional resource match on repos/projects, else c itself.
+func (c *Config) ScopedFor(profileName, kind, resource string) (*Config, error) {
+	if profileName != "" {
+		return c.Scoped(profileName, kind)
+	}
+	if p, ok := c.Profiles[c.profile]; ok && (p.Kind == kind || kind == "" && PRKinds[p.Kind]) {
+		return c, nil
+	}
+	matched, err := c.matchProfile(kind, resource)
+	if err != nil {
+		return nil, err
+	}
+	if matched != "" {
+		return c.Scoped(matched, kind)
+	}
+	return c, nil
+}
+
+// ResolveFor resolves which profile serves (kind, resource): explicit --profile/WORKCTL_PROFILE,
+// then optional resource match on repos/projects (across all kinds when kind is empty), then defaults.<kind> or single profile.
+func (c *Config) ResolveFor(kind, resource string) (string, Profile, error) {
+	if kind != "" {
+		scoped, err := c.ScopedFor("", kind, resource)
+		if err != nil {
+			return "", Profile{}, err
+		}
+		return scoped.ProfileOf(kind)
+	}
+	if c.profile == "" && strings.TrimSpace(os.Getenv("WORKCTL_PROFILE")) == "" && strings.TrimSpace(resource) != "" {
+		matched, err := c.matchProfileWhere(resource, func(Profile) bool { return true })
+		if err != nil {
+			return "", Profile{}, err
+		}
+		if matched != "" {
+			return matched, c.Profiles[matched], nil
+		}
+	}
+	return c.PRProfile("", "")
 }
 
 // Validate checks every profile, and that each default points to an existing profile of the right kind.

@@ -59,6 +59,27 @@ func ReorderIDToBack(args []string) []string {
 	return args
 }
 
+// FlagValue returns the value of --name or -name in args without full flag parsing, or "" if absent.
+func FlagValue(args []string, name string) string {
+	for i, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "--"+name || a == "-"+name {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		}
+		for _, prefix := range []string{"--" + name + "=", "-" + name + "="} {
+			if strings.HasPrefix(a, prefix) {
+				return strings.TrimPrefix(a, prefix)
+			}
+		}
+	}
+	return ""
+}
+
 // PrettyJSON indents a JSON body for the terminal; anything else passes through unchanged.
 func PrettyJSON(b []byte) []byte {
 	if !json.Valid(b) {

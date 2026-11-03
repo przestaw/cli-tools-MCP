@@ -73,10 +73,28 @@ func doTransition(ctx context.Context, c *api.Client, key, id string) ([]byte, e
 	return b, nil
 }
 
+// issueKeyArg extracts the positional issue key of a jira subcommand when present.
+func issueKeyArg(args []string) string {
+	if len(args) < 2 {
+		return ""
+	}
+	switch args[0] {
+	case "issue", "comments", "transitions", "transition", "comment":
+		if last := args[len(args)-1]; !strings.HasPrefix(last, "-") {
+			return last
+		}
+	}
+	return ""
+}
+
 // Command runs `workctl jira ...`.
 func Command(cfg *config.Config, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("jira commands: issue, search, comments, transitions, transition, comment, myself, server-info, raw")
+	}
+	cfg, err := cfg.ScopedFor("", "jira", issueKeyArg(args))
+	if err != nil {
+		return err
 	}
 	c, err := api.NewKindClient(cfg, "jira")
 	if err != nil {
@@ -202,16 +220,21 @@ func Tools(cfg *config.Config) []mcp.Tool {
 			mcp.Tool{Name: "jira_add_comment", Description: "Add a Jira comment. Enabled only when policy.allow_write=true.", InputSchema: mcp.ObjSchema(map[string]any{"key": mcp.StrProp("Issue key"), "body": mcp.StrProp("Comment body")}, "key", "body")},
 		)
 	}
+	mcp.WithProfileArg(tools, "jira_", "Jira profile (account); omit to use defaults.jira")
 	return tools
 }
 
 // CallTool runs one jira_* MCP tool. The client is made per call, so a missing login fails only these tools.
 func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
+	key := mcp.ArgString(a, "key")
+	cfg, err := cfg.ScopedFor(mcp.ArgString(a, "profile"), "jira", key)
+	if err != nil {
+		return nil, err
+	}
 	c, err := api.NewKindClient(cfg, "jira")
 	if err != nil {
 		return nil, err
 	}
-	key := mcp.ArgString(a, "key")
 	switch name {
 	case "jira_get_issue":
 		return GetIssue(ctx, c, key, nil)
