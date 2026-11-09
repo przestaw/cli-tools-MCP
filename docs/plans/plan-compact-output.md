@@ -2,7 +2,8 @@
 
 Author: [przestaw](https://github.com/przestaw)
 
-Status: part 1 (compact output) implemented in 0.4.4 together with `policy.confirm_writes`; parts 2 and 3 open.
+Status: part 1 (compact output) implemented in 0.4.4 together with `policy.confirm_writes`; part 3 (account guard) for
+GitHub and GitLab token profiles implemented, Jira not; part 2 open.
 
 Goal: the agent gets the few fields it needs in one predictable shape, like `issue_*` already does, instead of the
 provider JSON. Raw stays one argument away. Fewer tokens per call, no per-provider parsing in the agent.
