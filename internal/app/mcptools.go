@@ -14,6 +14,7 @@ import (
 	"workctl/internal/generic"
 	"workctl/internal/github"
 	"workctl/internal/gitlab"
+	"workctl/internal/issue"
 	"workctl/internal/jira"
 	"workctl/internal/mcp"
 	"workctl/internal/modules"
@@ -27,6 +28,8 @@ func toolAvailable(cfg *config.Config, name string) bool {
 		return cfg.Has("github") || cfg.Has("gitlab") || cfg.Has("azure")
 	case strings.HasPrefix(name, "jira_"):
 		return cfg.Has("jira")
+	case strings.HasPrefix(name, "issue_"):
+		return issue.Available(cfg)
 	case strings.HasPrefix(name, "gitlab_"):
 		return cfg.Has("gitlab")
 	case strings.HasPrefix(name, "github_"):
@@ -41,7 +44,7 @@ func toolAvailable(cfg *config.Config, name string) bool {
 
 // mcpTools composes the MCP tools of every configured backend.
 func mcpTools(cfg *config.Config) []mcp.Tool {
-	all := append(jira.Tools(cfg), gitlab.Tools(cfg)...)
+	all := append(issue.Tools(), gitlab.Tools(cfg)...) // jira_* stay callable for one release, unlisted
 	all = append(all, mcp.Tool{Name: "task_get_context", Description: "Get Jira issue plus matching branches and merge requests from configured GitLab projects.", InputSchema: mcp.ObjSchema(map[string]any{"key": mcp.StrProp("Jira issue key")}, "key")})
 	tools := append([]mcp.Tool{}, auth.Tools()...)
 	for _, t := range all {
@@ -90,6 +93,8 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 		return gitlab.CallTool(ctx, cfg, name, a)
 	case strings.HasPrefix(name, "jira_"):
 		return jira.CallTool(ctx, cfg, name, a)
+	case strings.HasPrefix(name, "issue_"):
+		return issue.CallTool(ctx, cfg, name, a)
 	case strings.HasPrefix(name, "api_"):
 		return generic.CallTool(ctx, cfg, name, a)
 	}

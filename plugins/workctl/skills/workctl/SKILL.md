@@ -23,8 +23,8 @@ When unsure which account serves a resource, call `accounts` first: it lists the
 - Provider-neutral: `pr_list`, `pr_show`. Accounts: `accounts` (read-only unless asked to bind).
 - GitHub: `github_get_pull_request`, `github_get_pull_request_discussion` (conversation comments), `github_get_pull_request_comments` (inline review comments), `github_get_pull_request_reviews`, `github_get_pull_request_checks`, `github_get_pull_request_reviewers`.
 - GitLab: `gitlab_get_merge_request`, `gitlab_get_merge_request_notes`, `gitlab_list_pipelines`.
-- Jira: `jira_get_issue`, `jira_get_comments`. `task_get_context` joins an issue with its branches and merge requests.
-- Command-wrapper tools, when available, accept argument arrays. Consult their help and use only read operations for an inspection; the wrapper is not permission to change configuration or policy.
+- Issues (Jira Server and Cloud): `issue_show` (with `include: [comments, transitions]`), `issue_search` (JQL). `task_get_context` joins an issue with its branches and merge requests.
+- `cli` runs a module command line (`module`: azure, atlassian, jira; `args` as an array) for anything the tools above do not cover. Consult its help and use only read operations for an inspection; the wrapper is not permission to change configuration or policy.
 - Generic services: `api_request`, `api_download`, `api_exec` require a configured profile of kind `api`. A provider-specific profile is not interchangeable with an `api` profile. HTTP paths must be relative to the profile URL; remote commands must be allow-listed. Do not create a new profile or relax host restrictions as a workaround.
 
 Start with the exact resource the user named, then read the relevant discussion, reviews or checks. Report current provider state separately from older local notes. A passing check is evidence only for the commit and scenario it ran against.
@@ -56,7 +56,7 @@ Write tools exist only when writes are enabled (`policy.allow_write`). Enabled t
 
 1. Read the existing discussion to avoid duplicate comments.
 2. Show the exact proposed text and obtain approval before posting.
-3. Post with the appropriate tool, such as `github_add_pull_request_comment`, `gitlab_add_merge_request_note` or `jira_add_comment`.
+3. Post with the appropriate tool, such as `github_add_pull_request_comment`, `gitlab_add_merge_request_note` or `issue_update` with `comment`.
 4. Verify the result and report the resulting reference. Do not blindly retry a write with an uncertain outcome.
 
 Post only the approved text, without secrets or raw logs. A read-only review does not authorize publishing findings.

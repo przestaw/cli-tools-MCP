@@ -19,6 +19,7 @@ import (
 	"workctl/internal/generic"
 	"workctl/internal/github"
 	"workctl/internal/gitlab"
+	"workctl/internal/issue"
 	"workctl/internal/jira"
 	"workctl/internal/modules"
 	"workctl/internal/pr"
@@ -44,6 +45,7 @@ Usage:
   workctl [--config FILE] api raw METHOD PATH   any HTTP service of a kind "api" profile
 	workctl --profile NAME api session-check   verify form login and server-side logout without page output
   workctl [--config FILE] pr|mr ...    provider-neutral pull/merge requests
+  workctl [--config FILE] issue|i ...  provider-neutral issues (Jira Server and Cloud)
   workctl [--config FILE] task ISSUE-KEY
   workctl [--config FILE] mcp
   workctl [--profile NAME] git-credential get   git credential helper (profile from --profile, else from host and repository path)
@@ -82,6 +84,9 @@ func run(args []string) error {
 	if cmd == "" {
 		cmd = rest[0]
 	}
+	if cmd == "i" {
+		cmd = "issue"
+	}
 	rest = rest[1:]
 	switch cmd {
 	case "help", "-h", "--help":
@@ -118,7 +123,7 @@ func commandHandlers() map[string]func(*config.Config, []string) error {
 	handlers := map[string]func(*config.Config, []string) error{
 		"doctor": func(cfg *config.Config, _ []string) error { return doctorCommand(cfg) },
 		"jira":   jira.Command, "gitlab": gitlab.Command, "github": github.Command, "api": generic.Command,
-		"pr": pr.Command, "mr": pr.Command, "task": taskCommand,
+		"pr": pr.Command, "mr": pr.Command, "task": taskCommand, "issue": issue.Command,
 		"mcp": func(cfg *config.Config, _ []string) error { return runMCP(context.Background(), cfg) },
 		"git-credential": func(cfg *config.Config, args []string) error {
 			return auth.GitCredential(cfg, args, os.Stdin, os.Stdout)
