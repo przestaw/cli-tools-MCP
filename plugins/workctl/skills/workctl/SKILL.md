@@ -51,7 +51,7 @@ Retry only after correcting a known selector or after the user confirms access h
 
 ## Comment and other writes
 
-Write tools exist only when writes are enabled (`policy.allow_write`). Enabled tools are not user approval. If local instructions forbid the write, or the tool is missing, say so; do not work around it.
+Write tools are refused unless writes are enabled (`policy.allow_write`). Enabled tools are not user approval. With `policy.confirm_writes` workctl itself asks the user in the client before each write; a declined or refused confirmation means stop and ask the user, never retry or work around it. If local instructions forbid the write, or the tool is missing, say so; do not work around it.
 
 1. Read the existing discussion to avoid duplicate comments.
 2. Show the exact proposed text and obtain approval before posting.
