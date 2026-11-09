@@ -39,7 +39,7 @@ func TestGetAllPagesReadsUntilAShortPage(t *testing.T) {
 	if err := json.Unmarshal(out, &items); err != nil || len(items) != 105 || strings.Join(pages, ",") != "1,2" {
 		t.Fatalf("items=%d pages=%v err=%v", len(items), pages, err)
 	}
-	if out, _ := c.GetAllPages(context.Background(), "/items", nil, 1); strings.Count(string(out), "{") != 100 {
-		t.Fatalf("maxPages=1 must stop after one page: %d items", strings.Count(string(out), "{"))
+	if out, err := c.GetAllPages(context.Background(), "/items", nil, 1); err == nil || !strings.Contains(err.Error(), "truncated") || out != nil {
+		t.Fatalf("maxPages=1 must report incomplete results: %s, %v", out, err)
 	}
 }

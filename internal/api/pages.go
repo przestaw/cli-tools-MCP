@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -40,8 +41,8 @@ func (c *Client) GetAllPages(ctx context.Context, path string, q url.Values, max
 		}
 		all = append(all, items...)
 		if len(items) < pageSize {
-			break
+			return json.Marshal(all)
 		}
 	}
-	return json.Marshal(all)
+	return nil, fmt.Errorf("pagination limit reached (%d pages, %d items): result may be truncated", maxPages, len(all))
 }
