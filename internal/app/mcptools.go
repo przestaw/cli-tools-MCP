@@ -5,11 +5,13 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"workctl/internal/auth"
+	"workctl/internal/cliutil"
 	"workctl/internal/config"
 	"workctl/internal/generic"
 	"workctl/internal/issue"
@@ -79,6 +81,11 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 	if !listed {
 		return nil, fmt.Errorf("unknown tool %q, or its backend is not configured", name)
 	}
+	if cfg.Policy.AllowWrite && cfg.Policy.ConfirmWrites && isWrite(cfg, name, a) {
+		if err := mcp.Confirm(ctx, describeCall(name, a)); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case strings.HasPrefix(name, "issue_"):
 		return issue.CallTool(ctx, cfg, name, a)
@@ -96,4 +103,37 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 		return taskContextJSON(ctx, cfg, mcp.ArgString(a, "key"))
 	}
 	return nil, fmt.Errorf("unknown tool %q", name)
+}
+
+// isWrite reports whether one tool call changes something on a server or in the configuration.
+func isWrite(cfg *config.Config, name string, a map[string]any) bool {
+	switch name {
+	case "pr_create", "pr_edit", "comment":
+		return true
+	case "issue_update":
+		return !mcp.ArgBool(a, "dry_run")
+	case "request":
+		method := strings.ToUpper(cliutil.FirstNonEmpty(mcp.ArgString(a, "method"), "GET"))
+		return method != "GET" && method != "HEAD"
+	case "api_exec":
+		return generic.ExecIsWrite(cfg, a)
+	case "cli":
+		return modules.IsWrite(a)
+	case "accounts":
+		return mcp.ArgString(a, "bind_profile") != ""
+	}
+	return false
+}
+
+// describeCall is the question the user sees: the tool and its arguments, long values shortened.
+func describeCall(name string, a map[string]any) string {
+	short := map[string]any{}
+	for k, v := range a {
+		if s, ok := v.(string); ok && len(s) > 300 {
+			v = s[:300] + "..."
+		}
+		short[k] = v
+	}
+	args, _ := json.MarshalIndent(short, "", "  ")
+	return fmt.Sprintf("workctl: the agent wants to run %s, which changes something.\n\n%s\n\nApprove?", name, args)
 }

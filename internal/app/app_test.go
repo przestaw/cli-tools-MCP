@@ -79,16 +79,25 @@ func TestMCPProtocolDispatch(t *testing.T) {
 	if len(lines) != 8 {
 		t.Fatalf("unexpected responses: %s", output.String())
 	}
-	for index, code := range []int{-32700, 0, 0, 0, -32602, 0, -32601, -32601} {
-		var resp rpcResult
-		if err := json.Unmarshal([]byte(lines[index]), &resp); err != nil {
+	// Tool calls answer concurrently, so match the answers by id; the parse error has none.
+	byID := map[string]string{}
+	for _, line := range lines {
+		var head struct{ ID json.RawMessage }
+		if err := json.Unmarshal([]byte(line), &head); err != nil {
 			t.Fatal(err)
 		}
+		byID[string(head.ID)] = line
+	}
+	for id, code := range map[string]int{"": -32700, "1": 0, "2": 0, "3": 0, "4": -32602, "5": 0, "6": -32601, "7": -32601} {
+		var resp rpcResult
+		if err := json.Unmarshal([]byte(byID[id]), &resp); err != nil {
+			t.Fatalf("id %q: %v", id, err)
+		}
 		if code != 0 && (resp.Error == nil || resp.Error.Code != code) || code == 0 && resp.Error != nil {
-			t.Fatalf("response %d: %+v", index, resp)
+			t.Fatalf("id %q: %+v", id, resp)
 		}
 	}
-	if !strings.Contains(lines[1], `"protocolVersion":"2024-11-05"`) || !strings.Contains(lines[5], `"isError":true`) {
+	if !strings.Contains(byID["1"], `"protocolVersion":"2024-11-05"`) || !strings.Contains(byID["5"], `"isError":true`) {
 		t.Fatal(output.String())
 	}
 }
