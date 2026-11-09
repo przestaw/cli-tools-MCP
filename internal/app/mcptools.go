@@ -98,7 +98,9 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 		return auth.CallTool(ctx, cfg, name, a)
 	case "pr_list", "pr_show":
 		return pr.CallTool(ctx, cfg, name, a)
-	case "azure", "atlassian":
+	case "cli":
+		return modules.CallCLITool(ctx, cfg, a)
+	case "azure", "atlassian": // hidden aliases of cli for one release
 		args, err := mcp.ArgStrings(a, "args")
 		if err != nil {
 			return nil, err
