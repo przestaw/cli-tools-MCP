@@ -77,6 +77,16 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 		return ListBranches(ctx, c, project, mcp.ArgString(a, "search"))
 	case "gitlab_get_file":
 		return getFile(ctx, c, project, mcp.ArgString(a, "path"), mcp.ArgString(a, "ref"))
+	// Unlisted: served through the provider-neutral pr_show, pr_edit and ci tools.
+	case "gitlab_get_merge_request_pipelines":
+		return mrPipelines(ctx, c, project, iid)
+	case "gitlab_get_merge_request_approvals":
+		return mrApprovals(ctx, c, project, iid)
+	case "gitlab_edit_merge_request":
+		if err := cfg.RequireWrite(); err != nil {
+			return nil, err
+		}
+		return editMR(ctx, c, project, iid, mcp.ArgString(a, "title"), mcp.ArgString(a, "description"), mcp.ArgString(a, "target"), mcp.ArgString(a, "state"))
 	case "gitlab_add_merge_request_note":
 		if err := cfg.RequireWrite(); err != nil {
 			return nil, err

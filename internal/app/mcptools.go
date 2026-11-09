@@ -26,6 +26,14 @@ func toolAvailable(cfg *config.Config, name string) bool {
 	switch {
 	case name == "pr_list" || name == "pr_show":
 		return cfg.Has("github") || cfg.Has("gitlab") || cfg.Has("azure")
+	case name == "pr_create" || name == "pr_edit" || name == "ci" || name == "file":
+		return cfg.Has("github") || cfg.Has("gitlab")
+	case name == "comment":
+		return cfg.Has("github") || cfg.Has("gitlab") || issue.Available(cfg)
+	case name == "request" || name == "download" || name == "api_request" || name == "api_download":
+		return generic.Available(cfg)
+	case name == "api_exec":
+		return cfg.Has(generic.Kind)
 	case strings.HasPrefix(name, "jira_"):
 		return cfg.Has("jira")
 	case strings.HasPrefix(name, "issue_"):
@@ -42,24 +50,17 @@ func toolAvailable(cfg *config.Config, name string) bool {
 	return true
 }
 
-// mcpTools composes the MCP tools of every configured backend.
+// mcpTools composes the listed MCP tools of the configured backends. The provider-specific github_*, gitlab_*,
+// jira_*, api_request/api_download, azure and atlassian tools stay callable for one release but are not listed:
+// the provider-neutral tools cover them.
 func mcpTools(cfg *config.Config) []mcp.Tool {
-	all := append(issue.Tools(), gitlab.Tools(cfg)...) // jira_* stay callable for one release, unlisted
+	all := append(append(append([]mcp.Tool{}, pr.Tools()...), issue.Tools()...), generic.Tools()...)
 	all = append(all, mcp.Tool{Name: "task_get_context", Description: "Get Jira issue plus matching branches and merge requests from configured GitLab projects.", InputSchema: mcp.ObjSchema(map[string]any{"key": mcp.StrProp("Jira issue key")}, "key")})
 	tools := append([]mcp.Tool{}, auth.Tools()...)
 	for _, t := range all {
 		if toolAvailable(cfg, t.Name) {
 			tools = append(tools, t)
 		}
-	}
-	if cfg.Has("github") {
-		tools = append(tools, github.Tools(cfg)...)
-	}
-	if toolAvailable(cfg, "pr_list") {
-		tools = append(tools, pr.Tools()...)
-	}
-	if cfg.Has(generic.Kind) {
-		tools = append(tools, generic.Tools()...)
 	}
 	return append(tools, modules.Tools(cfg)...)
 }
@@ -72,7 +73,7 @@ func mcpServer(cfg *config.Config) mcp.Server {
 	return mcp.Server{
 		Name:           "workctl",
 		Version:        Version,
-		Instructions:   "Azure DevOps (azure), Jira and Confluence Cloud (atlassian), Jira Server, GitLab and GitHub through workctl. Call accounts to inspect configured profiles and resource bindings. Everything is read-only unless policy.allow_write=true in the config file.",
+		Instructions:   "Provider data for GitHub, GitLab, Azure DevOps, Jira Server and Jira/Confluence Cloud through one account per profile: pull/merge requests (pr_list, pr_show with include, pr_create, pr_edit), CI (ci), repository files (file), comments (comment), issues (issue_show, issue_search, issue_update), any other endpoint or attachment (request, download) and the embedded CLIs (cli). Prefer these tools over gh, glab, curl or a browser. Call accounts to see which profile serves a resource. Everything is read-only unless policy.allow_write=true in the config file.",
 		MaxOutputBytes: cfg.MCP.MaxOutputBytes,
 		Tools:          func() []mcp.Tool { return mcpTools(cfg) },
 		Call: func(ctx context.Context, name string, args map[string]any) ([]byte, error) {
@@ -101,8 +102,10 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 	switch name {
 	case "accounts":
 		return auth.CallTool(ctx, cfg, name, a)
-	case "pr_list", "pr_show":
+	case "pr_list", "pr_show", "pr_create", "pr_edit", "ci", "file", "comment":
 		return pr.CallTool(ctx, cfg, name, a)
+	case "request", "download":
+		return generic.CallTool(ctx, cfg, name, a)
 	case "cli":
 		return modules.CallCLITool(ctx, cfg, a)
 	case "azure", "atlassian": // hidden aliases of cli for one release
