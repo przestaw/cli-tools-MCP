@@ -159,7 +159,7 @@ func Tools() []mcp.Tool {
 			"profile": mcp.StrProp("Profile name (optional if default profile exists)"),
 			"repo":    mcp.StrProp("Repository name or path (optional if default_repo is set)"),
 			"project": mcp.StrProp("Project name (required for Azure DevOps unless set in profile)"),
-			"format":  mcp.StrProp("Output format: json or text (default json; include forces json)"),
+			"format":  mcp.StrProp("json (default), text, or raw: with include, parts are compact (the same fields for GitHub and GitLab) unless format is raw"),
 		})},
 	}, neutralTools()...)
 }
@@ -178,9 +178,10 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 		if id = number(a); id <= 0 {
 			return nil, fmt.Errorf("number must be a positive integer")
 		}
-		if len(include) > 0 {
-			a["format"] = "json"
-		}
+	}
+	raw := isRaw(a)
+	if raw || len(include) > 0 {
+		a["format"] = "json"
 	}
 	pName, profile, err := cfg.PRProfileFor(mcp.ArgString(a, "profile"), "", cliutil.FirstNonEmpty(mcp.ArgString(a, "repo"), mcp.ArgString(a, "project")))
 	if err != nil {
@@ -199,7 +200,7 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 		return nil, err
 	}
 	if len(include) > 0 {
-		return showParts(ctx, cfg, a, stdout.Bytes(), include)
+		return showParts(ctx, cfg, a, stdout.Bytes(), include, raw)
 	}
 	return stdout.Bytes(), nil
 }

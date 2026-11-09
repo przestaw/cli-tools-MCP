@@ -78,7 +78,11 @@ Tools (listed only for the backends that are configured):
 | `task_get_context` | a Jira issue with its branches and merge requests |
 | `cli` | `{"module": "azure", "args": ["pr","get","123","-p","MyProject"]}`: azure, atlassian and, with a jira profile, `jira` |
 
-Writes are refused until `allow_write`. Only the tools above exist: the provider-specific `github_*`, `gitlab_*`,
+Writes are refused until `allow_write`. With `"policy": {"confirm_writes": true}` every write of the agent (a build
+started through `request`, `pr_create`, `comment`, `issue_update`, a `cli` write, ...) also waits for the user's approval
+in the MCP client (MCP elicitation); a client that cannot ask refuses the write instead of doing it silently, and
+commands typed in a terminal are not asked about. Repository tools answer in a compact shape (the same fields for
+GitHub and GitLab, with the web URL); `format: "raw"` returns the provider JSON. Only the tools above exist: the provider-specific `github_*`, `gitlab_*`,
 `jira_*`, `api_request`, `api_download`, `azure` and `atlassian` tools were removed in 0.4.3.
 `download` follows redirects only to known storage hosts (GitHub Actions logs and artifacts, release assets, user
 attachments) and never sends the credential there; an HTML answer instead of the file is flagged. In `cli`,
