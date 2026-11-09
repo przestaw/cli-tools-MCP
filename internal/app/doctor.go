@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 
 	"workctl/internal/api"
 	azureclient "workctl/internal/azure/client"
@@ -30,7 +29,7 @@ type doctorCheck struct {
 
 func doctorCommand(cfg *config.Config) error {
 	result := map[string]doctorCheck{}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.MaxTimeout())
 	defer cancel()
 	allOK := true
 

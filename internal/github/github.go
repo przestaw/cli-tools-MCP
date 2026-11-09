@@ -15,7 +15,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"workctl/internal/api"
 	"workctl/internal/cliutil"
@@ -232,7 +231,7 @@ func Command(cfg *config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.CommandTimeout("github"))
 	defer cancel()
 	// idCommand parses `<name> <action> [--repo R] ID` and calls fn.
 	idCommand := func(name string, rest []string, fn func(repo string, id int) ([]byte, error)) error {
