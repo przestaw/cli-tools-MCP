@@ -35,16 +35,16 @@ func (e *Error) Error() string {
 
 // Client sends JSON API requests of one profile. The zero value is not usable; use NewKindClient or NewProfileClient.
 type Client struct {
-	responseHeaders *http.Header
-	baseURL         string
-	prefix          string
-	client          *http.Client
-	headers         http.Header
-	cli             *cliBackend  // set for profiles with backend "cli": requests go to gh or glab, not to client
-	csrf            *config.CSRF // set when writes need an anti-CSRF token (see csrf.go)
-	token           *csrfToken   // fetched on the first write; empty header when the server has CSRF protection off
-	form            *formSession // set for auth "form": logs in before the first request (see formlogin.go)
-	readOnly        bool         // refuse everything but GET and HEAD
+	baseURL  string
+	prefix   string
+	client   *http.Client
+	headers  http.Header
+	response *http.Header
+	cli      *cliBackend  // set for profiles with backend "cli": requests go to gh or glab, not to client
+	csrf     *config.CSRF // set when writes need an anti-CSRF token (see csrf.go)
+	token    *csrfToken   // fetched on the first write; empty header when the server has CSRF protection off
+	form     *formSession // set for auth "form": logs in before the first request (see formlogin.go)
+	readOnly bool         // refuse everything but GET and HEAD
 }
 
 func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Client, error) {
@@ -242,7 +242,7 @@ func (c *Client) DoWithHeaders(ctx context.Context, method, path string, q url.V
 	}
 	var headers http.Header
 	copy := *c
-	copy.responseHeaders = &headers
+	copy.response = &headers
 	data, _, err := copy.Do(ctx, method, path, q, body, contentType)
 	return data, headers, err
 }
@@ -324,8 +324,8 @@ func (c *Client) send(ctx context.Context, method, target string, headers http.H
 	data, hdr, err := httpx.Do(c.client, req, func(status int, url string, body []byte) error {
 		return &Error{Method: method, URL: url, Status: status, Body: string(body)}
 	})
-	if c.responseHeaders != nil {
-		*c.responseHeaders = hdr
+	if c.response != nil {
+		*c.response = hdr
 	}
 	return data, hdr.Get("Content-Type"), err
 }
