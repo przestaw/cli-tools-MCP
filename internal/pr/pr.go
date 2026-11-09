@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"time"
 
 	"workctl/internal/api"
 	azureclient "workctl/internal/azure/client"
@@ -53,7 +52,7 @@ func Command(cfg *config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.ProfileTimeout(profile))
 	defer cancel()
 
 	switch args[0] {

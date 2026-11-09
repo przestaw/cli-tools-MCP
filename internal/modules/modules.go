@@ -194,7 +194,11 @@ func RunDirect(name string, args []string) error {
 	return m.run(args)
 }
 
-func moduleTimeout(cfg *config.Config) time.Duration {
+// moduleTimeout is timeouts.<module>, else modules.timeout_seconds, else 120 s.
+func moduleTimeout(cfg *config.Config, name string) time.Duration {
+	if s := cfg.Timeouts[name]; s > 0 {
+		return time.Duration(s) * time.Second
+	}
 	if s := cfg.Modules.TimeoutSeconds; s > 0 {
 		return time.Duration(s) * time.Second
 	}
@@ -216,7 +220,7 @@ func RunProcess(ctx context.Context, cfg *config.Config, name string, args []str
 	argv = append(argv, name)
 	argv = append(argv, args...)
 	argv = append(argv, "--no-color")
-	timeout := moduleTimeout(cfg)
+	timeout := moduleTimeout(cfg, name)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := proc.Command(ctx, exe, argv...)

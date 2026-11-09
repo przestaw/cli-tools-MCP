@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"workctl/internal/api"
 	"workctl/internal/cliutil"
@@ -234,7 +233,7 @@ func EndpointInit(path, module string, args []string, r *bufio.Reader) error {
 		fmt.Println("token stored in the OS keyring")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.ProfileTimeout(p))
 	defer cancel()
 	c, err := api.NewProfileClient(cfg, name, p)
 	who := ""

@@ -1,6 +1,9 @@
 {
   "version": 2,
   "timeout_seconds": 30,
+  "timeouts": {
+    "api": 120
+  },
   "defaults": {
     "github": "github.com",
     "gitlab": "gitlab.com",
