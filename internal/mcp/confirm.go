@@ -23,6 +23,7 @@ type session struct {
 	out         *bufio.Writer
 	pmu         sync.Mutex // guards the fields below
 	pending     map[string]chan rpcRequest
+	running     map[string]context.CancelFunc // tool calls in flight, by the raw JSON of their id
 	next        int
 	elicitation bool
 	closed      chan struct{} // closed when the client's input ends
@@ -57,6 +58,36 @@ func (s *session) setElicitation(on bool) {
 	s.pmu.Lock()
 	s.elicitation = on
 	s.pmu.Unlock()
+}
+
+// track gives one tool call a context that notifications/cancelled can end; done forgets it.
+func (s *session) track(ctx context.Context, id json.RawMessage) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	s.pmu.Lock()
+	s.running[string(id)] = cancel
+	s.pmu.Unlock()
+	return ctx, func() {
+		s.pmu.Lock()
+		delete(s.running, string(id))
+		s.pmu.Unlock()
+		cancel()
+	}
+}
+
+// cancel ends the tool call named by a notifications/cancelled, including a question it is waiting on.
+func (s *session) cancel(params json.RawMessage) {
+	var p struct {
+		RequestID json.RawMessage `json:"requestId"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+	s.pmu.Lock()
+	cancel := s.running[string(p.RequestID)]
+	s.pmu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // answer hands a client's response to the request waiting for it; unknown ids are dropped.

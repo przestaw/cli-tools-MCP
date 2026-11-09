@@ -44,6 +44,8 @@ Manual registration: any MCP client that starts `workctl mcp` (the binary on `PA
 | --- | --- |
 | `pr_list`, `pr_show` | pull/merge requests; `include: [files, reviews, reviewers, comments, discussion, checks]` |
 | `pr_create`, `pr_edit`, `comment` | create, edit and comment (write) |
+| `upload` | an image or video for a description or comment: GitHub attachment, GitLab upload, Jira attachment (write) |
+| `batch` | several writes (for example Jenkins builds) after one approval |
 | `ci` | CI runs and pipelines, jobs, job logs |
 | `file` | a repository file at a ref |
 | `issue_show`, `issue_search`, `issue_update` | Jira issues; `issue_update` supports `dry_run` |
@@ -60,7 +62,7 @@ Tools are listed only for configured backends. `format: "raw"` returns the provi
 | Switch | Effect |
 | --- | --- |
 | `policy.allow_write: false` (default) | every write is refused |
-| `policy.confirm_writes: true` | every agent write waits for your approval in the MCP client; a client that cannot ask refuses it |
+| `policy.confirm_writes: true` | every agent write waits for your approval in the MCP client; a client that cannot ask refuses it; `batch` asks once for its list |
 | keyring | tokens never touch the config file, the command line or the agent |
 
 Commands you type in a terminal are yours and are not asked about. Details: [docs/cli.md](docs/cli.md#policy-read-only-unless-allowed).

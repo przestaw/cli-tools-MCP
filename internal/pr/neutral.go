@@ -152,10 +152,14 @@ func neutralTools() []mcp.Tool {
 		{Name: "comment", Description: "Add a comment to a pull/merge request (repo + number) or to an issue (issue key, Jira Server or Cloud). Needs policy.allow_write=true.", InputSchema: mcp.ObjSchema(map[string]any{
 			"repo": repo, "number": num, "issue": mcp.StrProp("Issue key, e.g. ABC-123, instead of repo + number"), "body": mcp.StrProp("Comment text"), "format": format, "profile": profile,
 		}, "body")},
+		uploadTool(repo, profile),
 	}
 }
 
 func callNeutral(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
+	if name == "upload" {
+		return upload(ctx, cfg, a)
+	}
 	if name == "comment" && mcp.ArgString(a, "issue") != "" {
 		return issue.CallTool(ctx, cfg, "issue_update", map[string]any{"key": mcp.ArgString(a, "issue"), "comment": mcp.ArgString(a, "body"), "profile": mcp.ArgString(a, "profile")})
 	}

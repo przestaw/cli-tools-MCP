@@ -22,6 +22,8 @@ Tools (listed only for the backends that are configured):
 | `ci` | runs/pipelines for a `ref`, one `run` with `include: [jobs]`, the log of one `job` |
 | `file` | repository file at a ref |
 | `comment` | comment on a pull/merge request (`repo` + `number`) or an issue (`issue`) (write) |
+| `upload` | one local image or video (png, jpg, gif, webp, mp4, mov, webm; up to 100 MB) for a pull request (`repo`, GitHub user attachment on github.com or GitLab upload) or an issue (`issue`, Jira attachment); returns `url` and `markdown` (write) |
+| `batch` | `calls: [{tool, args}, ...]`, 1 to 20 writes run in order after one approval; listed only with `allow_write` |
 | `issue_show`, `issue_search`, `issue_update` | Jira Server and Cloud issues in one shape (see below) |
 | `request`, `download` | any endpoint or file of any HTTP profile (github, gitlab, jira, atlassian, api) |
 | `api_exec` | allow-listed remote commands of ssh-exec profiles |
@@ -31,7 +33,9 @@ Tools (listed only for the backends that are configured):
 Writes are refused until `allow_write`. With `"policy": {"confirm_writes": true}` every write of the agent (a build
 started through `request`, `pr_create`, `comment`, `issue_update`, a `cli` write, ...) also waits for the user's approval
 in the MCP client (MCP elicitation); a client that cannot ask refuses the write instead of doing it silently, and
-commands typed in a terminal are not asked about. Repository tools answer in a compact shape (the same fields for
+commands typed in a terminal are not asked about. Only calls known to read skip the question, so a tool is asked about
+until it is classified; the question shows long values shortened, with their full length. A call the client cancels
+(`notifications/cancelled`) stops, also while it waits for the answer. Repository tools answer in a compact shape (the same fields for
 GitHub and GitLab, with the web URL); `format: "raw"` returns the provider JSON. Only the tools above exist: the provider-specific `github_*`, `gitlab_*`,
 `jira_*`, `api_request`, `api_download`, `azure` and `atlassian` tools were removed in 0.4.3.
 `download` follows redirects only to known storage hosts (GitHub Actions logs and artifacts, release assets, user

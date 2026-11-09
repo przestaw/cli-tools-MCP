@@ -165,10 +165,21 @@ func basicAuth(username, secret string) string {
 }
 
 // WithAccept returns a copy of the client that sends another Accept header (for example a raw-contents media type).
-func (c *Client) WithAccept(accept string) *Client {
+func (c *Client) WithAccept(accept string) *Client { return c.WithHeader("Accept", accept) }
+
+// WithHeader returns a copy of the client that sends one more header (for example Jira's X-Atlassian-Token).
+func (c *Client) WithHeader(key, value string) *Client {
 	copied := *c
 	copied.headers = c.headers.Clone()
-	copied.headers.Set("Accept", accept)
+	copied.headers.Set(key, value)
+	return &copied
+}
+
+// WithBaseURL returns a copy of the client for another host of the same provider (GitHub uploads). Callers pass a
+// fixed host of that provider, never a URL from the agent, because the credential goes with it.
+func (c *Client) WithBaseURL(base string) *Client {
+	copied := *c
+	copied.baseURL = strings.TrimRight(base, "/")
 	return &copied
 }
 

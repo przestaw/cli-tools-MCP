@@ -55,8 +55,10 @@ Write tools are refused unless writes are enabled (`policy.allow_write`). Enable
 
 1. Read the existing discussion to avoid duplicate comments.
 2. Show the exact proposed text and obtain approval before posting.
-3. Post with `comment` (`repo` + `number` for a pull/merge request, `issue` for an issue); other writes: `pr_create`, `pr_edit`, `issue_update`.
+3. Post with `comment` (`repo` + `number` for a pull/merge request, `issue` for an issue); other writes: `pr_create`, `pr_edit`, `issue_update`, `upload` (an image or video, then paste the returned `markdown`).
 4. Verify the result and report the resulting reference. Do not blindly retry a write with an uncertain outcome.
+
+Several approved writes (for example a set of Jenkins builds through `request`) go into one `batch`: the user approves the whole list once. Every call is checked before the question; after a failure the rest is skipped and nothing that already ran is undone.
 
 Post only the approved text, without secrets or raw logs. A read-only review does not authorize publishing findings.
 
