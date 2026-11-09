@@ -27,7 +27,7 @@ import (
 )
 
 // Version is the one version string of the binary, the MCP server and the plugin package.
-const Version = "0.4.1"
+var Version = "0.4.1"
 
 func usage() {
 	fmt.Fprintf(os.Stdout, `workctl %s - one CLI/MCP binary for Azure DevOps, Jira, Confluence, GitLab and GitHub
@@ -43,6 +43,7 @@ Usage:
   workctl [--config FILE] gitlab ...   GitLab
   workctl [--config FILE] github ...   GitHub
   workctl [--config FILE] api raw METHOD PATH   any HTTP service of a kind "api" profile
+	workctl --profile NAME api session-check   verify form login and server-side logout without page output
   workctl [--config FILE] pr|mr ...    provider-neutral pull/merge requests
   workctl [--config FILE] task ISSUE-KEY
   workctl [--config FILE] mcp
