@@ -12,7 +12,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"time"
 
 	"workctl/internal/auth"
 	"workctl/internal/cliutil"
@@ -145,7 +144,7 @@ func taskCommand(cfg *config.Config, args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("usage: workctl task ISSUE-KEY")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds*3)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*max(cfg.CommandTimeout("jira"), cfg.CommandTimeout("gitlab")))
 	defer cancel()
 	body, err := taskContextJSON(ctx, cfg, args[0])
 	if err != nil {
