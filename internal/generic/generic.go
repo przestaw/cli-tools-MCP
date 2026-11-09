@@ -9,6 +9,7 @@ package generic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -25,17 +26,28 @@ import (
 const Kind = "api"
 
 // Command runs `workctl api raw|download|exec ...` against the selected api profile.
-func Command(cfg *config.Config, args []string) error {
-	usage := fmt.Errorf("api commands: raw [--body JSON|@file] METHOD PATH, download [--output FILE] PATH, exec [--] CMD [ARG...]")
+func Command(cfg *config.Config, args []string) (resultErr error) {
+	usage := fmt.Errorf("api commands: raw [--body JSON|@file] METHOD PATH, download [--output FILE] PATH, exec [--] CMD [ARG...], session-check")
 	if len(args) == 0 {
 		return usage
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
 	defer cancel()
 	switch args[0] {
-	case "raw", "download":
+	case "raw", "download", "session-check":
 		c, err := api.NewKindClient(cfg, Kind)
 		if err != nil {
+			return err
+		}
+		defer func() { resultErr = errors.Join(resultErr, c.Close()) }()
+		if args[0] == "session-check" {
+			if len(args) != 1 {
+				return usage
+			}
+			if err := c.CheckSession(ctx); err != nil {
+				return err
+			}
+			_, err := fmt.Fprintln(os.Stdout, "Session check passed: login succeeded; logout rejected the original session cookie.")
 			return err
 		}
 		if args[0] == "download" {
@@ -94,7 +106,7 @@ func Tools() []mcp.Tool {
 }
 
 // CallTool runs one api_* MCP tool against the profile named by the call (default: defaults.api).
-func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
+func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) (out []byte, resultErr error) {
 	cfg, err := cfg.Scoped(mcp.ArgString(a, "profile"), Kind)
 	if err != nil {
 		return nil, err
@@ -107,6 +119,7 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 		if err != nil {
 			return nil, err
 		}
+		defer func() { resultErr = errors.Join(resultErr, c.Close()) }()
 		query, err := queryArg(a["query"])
 		if err != nil {
 			return nil, err
@@ -127,7 +140,7 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 }
 
 // request is the api_request tool: one HTTP request, writes only with the write policy.
-func request(ctx context.Context, cfg *config.Config, a map[string]any) ([]byte, error) {
+func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []byte, resultErr error) {
 	method := strings.ToUpper(mcp.ArgString(a, "method"))
 	if method == "" {
 		method = http.MethodGet
@@ -141,6 +154,7 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) ([]byte,
 	if err != nil {
 		return nil, err
 	}
+	defer func() { resultErr = errors.Join(resultErr, c.Close()) }()
 	query, err := queryArg(a["query"])
 	if err != nil {
 		return nil, err
