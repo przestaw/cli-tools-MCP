@@ -77,6 +77,8 @@ func (c *Client) logIn(ctx context.Context) error {
 	return fmt.Errorf("form login as %q failed: the server set no %s cookie (check the user name and the stored password)", f.username, f.login.SessionCookie)
 }
 
+// Close ends a form-login session when the profile has logout_path: it logs out and, with logout_verify_path,
+// checks that the server rejects the old session. Other clients have nothing to close.
 func (c *Client) Close() error {
 	if c.form == nil || !c.form.loggedIn || c.form.login.LogoutPath == "" {
 		return nil
@@ -147,6 +149,8 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// CheckSession logs in, reads logout_verify_path, logs out and verifies the old session is rejected, without
+// returning page contents or credentials (`workctl api session-check`).
 func (c *Client) CheckSession(ctx context.Context) error {
 	if c.form == nil || c.form.login.LogoutPath == "" || c.form.login.LogoutVerifyPath == "" {
 		return fmt.Errorf("session-check requires form login with logout_path and logout_verify_path")
