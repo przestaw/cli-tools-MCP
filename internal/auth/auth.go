@@ -119,7 +119,7 @@ func setTokenCommand(cfg *config.Config, args []string) error {
 	}
 
 	account := secret.Account(profile.Kind, name)
-	bound, err := api.BindTokenValue(cfg, name, profile, tok)
+	bound, err := api.BindToken(cfg, name, profile, tok)
 	if errors.Is(err, api.ErrOtherAccount) {
 		return fmt.Errorf("token not stored: %w", err)
 	}

@@ -217,16 +217,16 @@ func EndpointInit(path, module string, args []string, r *bufio.Reader) error {
 		return err
 	}
 
+	// Bind the profile to the token's account first: a token of another account is refused before it is stored.
+	// Any other failure is left to the connection test below.
+	if bound, err := api.BindToken(cfg, name, p, tok); errors.Is(err, api.ErrOtherAccount) {
+		return err
+	} else if err == nil {
+		p = bound
+		cfg.Profiles[name] = p
+	}
 	var tokErr error
 	if tok != "" {
-		bound, bindErr := api.BindTokenValue(cfg, name, p, tok)
-		if errors.Is(bindErr, api.ErrOtherAccount) {
-			return bindErr
-		}
-		if bindErr == nil {
-			p = bound
-			cfg.Profiles[name] = p
-		}
 		if tokErr = config.TokenStore.Set(secret.Account(module, name), tok); tokErr != nil {
 			tokErr = fmt.Errorf("%w\nuse the environment variable %s instead", tokErr, p.TokenEnv)
 		}
@@ -254,21 +254,6 @@ func EndpointInit(path, module string, args []string, r *bufio.Reader) error {
 		return nil
 	}
 	fmt.Println(who)
-	bound, err := api.BindToken(cfg, name, p)
-	if errors.Is(err, api.ErrOtherAccount) {
-		return err
-	}
-	if err != nil {
-		fmt.Printf("account not checked: %v\n", err)
-		return nil
-	}
-	if bound.Username != p.Username {
-		cfg.Profiles[name] = bound
-		if err := cfg.Save(); err != nil {
-			return err
-		}
-		fmt.Printf("profile %s is bound to %s\n", name, bound.Username)
-	}
 	return nil
 }
 

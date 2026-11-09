@@ -70,11 +70,11 @@ func TestWriteChecksTheAccountOnce(t *testing.T) {
 
 func TestBindTokenBindsOrRefuses(t *testing.T) {
 	url, _, _ := accountServer(t, "przestaw")
-	bound, err := BindToken(config.Default(), "p", githubProfile(t, url, ""))
+	bound, err := BindToken(config.Default(), "p", githubProfile(t, url, ""), "")
 	if err != nil || bound.Username != "przestaw" {
 		t.Fatalf("bind: %+v %v", bound, err)
 	}
-	if _, err := BindToken(config.Default(), "p", githubProfile(t, url, "cads-bot")); !errors.Is(err, ErrOtherAccount) {
+	if _, err := BindToken(config.Default(), "p", githubProfile(t, url, "cads-bot"), ""); !errors.Is(err, ErrOtherAccount) {
 		t.Fatalf("rebind to another account: %v", err)
 	}
 }

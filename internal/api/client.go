@@ -99,10 +99,10 @@ func NewKindClient(cfg *config.Config, kind string) (*Client, error) {
 
 // NewProfileClient connects to one named profile, resolving its credential and authentication scheme.
 func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (*Client, error) {
-	return newProfileClient(cfg, name, profile, nil)
+	return newProfileClient(cfg, name, profile, "")
 }
 
-func newProfileClient(cfg *config.Config, name string, profile config.Profile, token *string) (*Client, error) {
+func newProfileClient(cfg *config.Config, name string, profile config.Profile, token string) (*Client, error) {
 	if err := config.ValidateProfile(name, profile); err != nil {
 		return nil, err
 	}
@@ -125,10 +125,8 @@ func newProfileClient(cfg *config.Config, name string, profile config.Profile, t
 	if auth == "none" {
 		return client, nil
 	}
-	var credential string
-	if token != nil {
-		credential = *token
-	} else {
+	credential := token // empty: the configured credential
+	if credential == "" {
 		credential, err = config.ResolveProfileSecret(name, profile)
 		if err != nil {
 			return nil, err
@@ -222,16 +220,6 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 	if c.cli != nil {
 		return c.cli.do(ctx, method, target, c.headers.Get("Accept"), body, contentType)
 	}
-	if c.want != "" && !c.checked && !IsReadMethod(method) {
-		who, err := c.Account(ctx)
-		if err != nil {
-			return nil, "", err
-		}
-		if !strings.EqualFold(who, c.want) {
-			return nil, "", fmt.Errorf("the token belongs to %q but the profile is bound to %q: store the right token with `workctl auth set-token`", who, c.want)
-		}
-		c.checked = true
-	}
 	headers, err := c.authorize(ctx, method)
 	if err != nil {
 		return nil, "", err
@@ -273,6 +261,16 @@ func (c *Client) target(method, path string, q url.Values) (string, error) {
 // authorize returns the headers of one native request: it logs in with the form first when the profile needs it,
 // and adds the anti-CSRF token to a write.
 func (c *Client) authorize(ctx context.Context, method string) (http.Header, error) {
+	if c.want != "" && !c.checked && !IsReadMethod(method) {
+		who, err := c.Account(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.EqualFold(who, c.want) {
+			return nil, fmt.Errorf("the token belongs to %q but the profile is bound to %q: store the right token with `workctl auth set-token`", who, c.want)
+		}
+		c.checked = true
+	}
 	if c.form != nil && !c.form.loggedIn {
 		if c.loadSession() {
 			c.form.loggedIn, c.form.cached = true, true
