@@ -101,6 +101,9 @@ func (p Profile) UsesSSHTunnel() bool { return strings.EqualFold(p.Backend, Back
 // PolicyConfig holds the switches that guard what workctl may do.
 type PolicyConfig struct {
 	AllowWrite bool `json:"allow_write"`
+	// ConfirmWrites makes every write of the agent (MCP) wait for the user's approval in the MCP client.
+	// Commands typed in a terminal are the user's own and are not asked about.
+	ConfirmWrites bool `json:"confirm_writes,omitempty"`
 }
 
 // MCPConfig tunes the MCP server.

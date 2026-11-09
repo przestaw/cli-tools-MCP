@@ -393,3 +393,19 @@ func Tools(cfg *config.Config) []mcp.Tool {
 		"profile": mcp.StrProp("workctl profile for native modules (jira); omit to use defaults.<module>"),
 	}, "module", "args")}}
 }
+
+// IsWrite reports whether a cli tool call changes something. A call that will be refused anyway counts as a read:
+// the tool reports the refusal itself.
+func IsWrite(a map[string]any) bool {
+	args, err := mcp.ArgStrings(a, "args")
+	name := mcp.ArgString(a, "module")
+	if alias := Aliases[name]; alias != "" {
+		name = alias
+	}
+	m := cliModules[name]
+	if err != nil || m == nil || len(args) == 0 {
+		return false
+	}
+	write, err := m.classify(args, true)
+	return err == nil && write
+}
