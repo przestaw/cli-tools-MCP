@@ -17,7 +17,7 @@ Tools (listed only for the backends that are configured):
 | Tool | What |
 | --- | --- |
 | `accounts` | profiles, their bindings and credential state; binds a repository/project with consent |
-| `pr_list`, `pr_show` | pull/merge requests (GitHub, GitLab, Azure DevOps); `include: [files, reviews, reviewers, comments, discussion, checks]` |
+| `pr_list`, `pr_show` | pull/merge requests (GitHub, GitLab, Azure DevOps); `include: [files, reviews, reviewers, comments, discussion, checks]`; files, reviews, comments and discussion are read page by page, up to 3000 items |
 | `pr_create`, `pr_edit` | create or edit a pull/merge request (write) |
 | `ci` | runs/pipelines for a `ref`, one `run` with `include: [jobs]`, the log of one `job` |
 | `file` | repository file at a ref |
