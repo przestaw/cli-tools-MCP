@@ -31,7 +31,7 @@ func TestAPIDownloadWritesAFileAndReportsIt(t *testing.T) {
 	cfg := testConfig(srv.URL)
 	ctx := context.Background()
 
-	out, err := CallTool(ctx, cfg, "api_download", map[string]any{"path": "/attachment", "query": map[string]any{"FileID": "3"}})
+	out, err := CallTool(ctx, cfg, "download", map[string]any{"path": "/attachment", "query": map[string]any{"FileID": "3"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestAPIDownloadWritesAFileAndReportsIt(t *testing.T) {
 		t.Fatalf("path %s: want a file in the downloads directory named after the server's file, without its directories", got.Path)
 	}
 
-	if _, err := CallTool(ctx, cfg, "api_download", map[string]any{"path": "/attachment", "query": map[string]any{"FileID": "9"}}); err == nil {
+	if _, err := CallTool(ctx, cfg, "download", map[string]any{"path": "/attachment", "query": map[string]any{"FileID": "9"}}); err == nil {
 		t.Fatal("missing file reported as downloaded")
 	}
 	entries, _ := os.ReadDir(filepath.Dir(got.Path))

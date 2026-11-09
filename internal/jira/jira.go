@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
 // This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
 
-// Package jira is the thin Jira Server provider: REST calls, the `workctl jira ...`
-// commands and the jira_* MCP tools.
+// Package jira is the thin Jira Server provider: REST calls and the `workctl jira ...` commands. The agent reaches
+// issues through the issue package and these commands through the cli tool.
 package jira
 
 import (
@@ -18,7 +18,6 @@ import (
 	"workctl/internal/api"
 	"workctl/internal/cliutil"
 	"workctl/internal/config"
-	"workctl/internal/mcp"
 )
 
 // GetIssue fetches one issue; the task context uses it to show the issue next to its branches.
@@ -204,50 +203,4 @@ func Command(cfg *config.Config, args []string) error {
 	default:
 		return fmt.Errorf("unknown jira command %q", args[0])
 	}
-}
-
-// Tools are the MCP tools of the Jira module; write tools exist only with policy.allow_write.
-func Tools(cfg *config.Config) []mcp.Tool {
-	tools := []mcp.Tool{
-		{Name: "jira_get_issue", Description: "Get a Jira issue by key.", InputSchema: mcp.ObjSchema(map[string]any{"key": mcp.StrProp("Issue key, e.g. DEMO-123")}, "key")},
-		{Name: "jira_search", Description: "Run a JQL query.", InputSchema: mcp.ObjSchema(map[string]any{"jql": mcp.StrProp("JQL query"), "start_at": mcp.IntProp("Start index"), "max_results": mcp.IntProp("Maximum results")}, "jql")},
-		{Name: "jira_get_comments", Description: "Get comments for a Jira issue.", InputSchema: mcp.ObjSchema(map[string]any{"key": mcp.StrProp("Issue key")}, "key")},
-		{Name: "jira_get_transitions", Description: "Get available Jira issue transitions.", InputSchema: mcp.ObjSchema(map[string]any{"key": mcp.StrProp("Issue key")}, "key")},
-	}
-	if cfg.Policy.AllowWrite {
-		tools = append(tools,
-			mcp.Tool{Name: "jira_add_comment", Description: "Add a Jira comment. Enabled only when policy.allow_write=true.", InputSchema: mcp.ObjSchema(map[string]any{"key": mcp.StrProp("Issue key"), "body": mcp.StrProp("Comment body")}, "key", "body")},
-		)
-	}
-	mcp.WithProfileArg(tools, "jira_", "Jira profile (account); omit to use defaults.jira")
-	return tools
-}
-
-// CallTool runs one jira_* MCP tool. The client is made per call, so a missing login fails only these tools.
-func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
-	key := mcp.ArgString(a, "key")
-	cfg, err := cfg.ScopedFor(mcp.ArgString(a, "profile"), "jira", key)
-	if err != nil {
-		return nil, err
-	}
-	c, err := api.NewKindClient(cfg, "jira")
-	if err != nil {
-		return nil, err
-	}
-	switch name {
-	case "jira_get_issue":
-		return GetIssue(ctx, c, key, nil)
-	case "jira_search":
-		return search(ctx, c, mcp.ArgString(a, "jql"), mcp.ArgInt(a, "start_at", 0), cliutil.MustPositive(mcp.ArgInt(a, "max_results", 50), 50))
-	case "jira_get_comments":
-		return comments(ctx, c, key)
-	case "jira_get_transitions":
-		return transitions(ctx, c, key)
-	case "jira_add_comment":
-		if err := cfg.RequireWrite(); err != nil {
-			return nil, err
-		}
-		return addComment(ctx, c, key, mcp.ArgString(a, "body"))
-	}
-	return nil, fmt.Errorf("unknown tool %q", name)
 }

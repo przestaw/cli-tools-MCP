@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"strings"
 )
 
 type rpcRequest struct {
@@ -83,15 +82,6 @@ func BoolProp(desc string) map[string]any {
 // ArrProp describes an argument that is an array of strings.
 func ArrProp(desc string) map[string]any {
 	return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": desc}
-}
-
-// WithProfileArg adds the optional "profile" argument to the tools whose name starts with prefix.
-func WithProfileArg(tools []Tool, prefix, desc string) {
-	for _, t := range tools {
-		if strings.HasPrefix(t.Name, prefix) {
-			t.InputSchema["properties"].(map[string]any)["profile"] = StrProp(desc)
-		}
-	}
 }
 
 // ArgString reads an optional string argument.

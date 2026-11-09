@@ -3,7 +3,7 @@
 Author: [przestaw](https://github.com/przestaw)
 
 Status: proposal (2026-11-09). Extends [plan-agent-accounts.md](plan-agent-accounts.md) (which consolidates `pr_*`, `ci`,
-`file`, `comment`, `request`, `download`). Stages 1-3 implemented; alias removal pending.
+`file`, `comment`, `request`, `download`). Stages 1-3 implemented; the old tool names were removed in 0.4.3.
 
 Goal: the same rule for issues as for pull requests — **one operation, one tool, one output shape; the provider is a
 detail of the resolved profile**. Jira Server, Jira Cloud and later Asana or Azure Boards answer the same questions

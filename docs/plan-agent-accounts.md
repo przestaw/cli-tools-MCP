@@ -4,7 +4,8 @@ Author: [przestaw](https://github.com/przestaw)
 
 Status: implemented (2026-11-09) with these differences: accounts bind repos/projects patterns instead of `owners`;
 `pr_show` keeps `id` next to `number`; GitHub `user-attachments` go through `request` with `accept`
-`application/vnd.github.full+json` and `download` of the signed link from `body_html`. See also plan-issue-layer.md.
+`application/vnd.github.full+json` and `download` of the signed link from `body_html`. The hidden aliases were removed
+in 0.4.3. See also plan-issue-layer.md.
 
 Goal: workctl is the agent's **provider data plane** (PRs, issues, CI, attachments, comments) with one account per
 owner. It is deliberately not the agent's only tool: local git, GitKraken MCP and GitLens handle the working tree and
