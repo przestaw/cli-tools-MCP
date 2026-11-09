@@ -317,13 +317,7 @@ func runProcessIn(ctx context.Context, cfg *config.Config, name, profile, dir st
 	return stdout.Bytes(), nil
 }
 
-// CallTool is the MCP entry for one module: strict policy first, then a child process.
-func CallTool(ctx context.Context, cfg *config.Config, name string, args []string) ([]byte, error) {
-	return callModule(ctx, cfg, name, "", args)
-}
-
-// CallCLITool runs the cli tool: {module, args, profile?}. The old per-module tools (azure, atlassian) call
-// CallTool directly.
+// CallCLITool runs the cli tool: {module, args, profile?}.
 func CallCLITool(ctx context.Context, cfg *config.Config, a map[string]any) ([]byte, error) {
 	args, err := mcp.ArgStrings(a, "args")
 	if err != nil {

@@ -156,25 +156,3 @@ func TestPipelineCommands(t *testing.T) {
 		t.Error("an unknown action sent a request")
 	}
 }
-
-func TestToolsHideWritesWithoutPolicy(t *testing.T) {
-	cfg := config.Default()
-	count := func() (reads, writes int) {
-		for _, tool := range Tools(cfg) {
-			if strings.Contains(tool.Description, "policy.allow_write") {
-				writes++
-			} else {
-				reads++
-			}
-		}
-		return reads, writes
-	}
-	reads, writes := count()
-	if reads == 0 || writes != 0 {
-		t.Errorf("without policy: %d reads, %d writes", reads, writes)
-	}
-	cfg.Policy.AllowWrite = true
-	if _, writes := count(); writes != 2 {
-		t.Errorf("with policy: %d write tools, want 2", writes)
-	}
-}

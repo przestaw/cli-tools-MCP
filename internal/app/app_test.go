@@ -108,12 +108,12 @@ func TestMCPTruncationAndPolicy(t *testing.T) {
 	calls := testutil.FakeChildProcess(t)
 	cfg := config.Default()
 	cfg.MCP.MaxOutputBytes = 5
-	body := callOverRPC(t, cfg, `{"name":"azure","arguments":{"args":["pr","get",1]}}`)
+	body := callOverRPC(t, cfg, `{"name":"cli","arguments":{"module":"azure","args":["pr","get",1]}}`)
 	if !strings.Contains(body, "ARGS:") || !strings.Contains(body, "output truncated") {
 		t.Fatal(body)
 	}
 	before := len(*calls)
-	body = callOverRPC(t, cfg, `{"name":"azure","arguments":{"args":["pr","create"]}}`)
+	body = callOverRPC(t, cfg, `{"name":"cli","arguments":{"module":"azure","args":["pr","create"]}}`)
 	if len(*calls) != before {
 		t.Fatal("a refused write started a process")
 	}
@@ -124,8 +124,8 @@ func TestMCPTruncationAndPolicy(t *testing.T) {
 
 func TestMCPToolCallConvertsNumbersAndUsesTheModule(t *testing.T) {
 	testutil.FakeChildProcess(t)
-	out, err := callMCPTool(context.Background(), config.Default(), "azure", map[string]any{
-		"args": []any{"pr", "get", float64(34438), "--json"},
+	out, err := callMCPTool(context.Background(), config.Default(), "cli", map[string]any{
+		"module": "azure", "args": []any{"pr", "get", float64(34438), "--json"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -133,10 +133,10 @@ func TestMCPToolCallConvertsNumbersAndUsesTheModule(t *testing.T) {
 	if !strings.Contains(string(out), "azure|pr|get|34438|--json|--no-color") {
 		t.Fatalf("child saw %q", out)
 	}
-	if _, err := callMCPTool(context.Background(), config.Default(), "azure", map[string]any{"args": []any{"pr", map[string]any{}}}); err == nil {
+	if _, err := callMCPTool(context.Background(), config.Default(), "cli", map[string]any{"module": "azure", "args": []any{"pr", map[string]any{}}}); err == nil {
 		t.Fatal("a non-scalar argument must be rejected")
 	}
-	if _, err := callMCPTool(context.Background(), config.Default(), "azure", map[string]any{}); err == nil {
+	if _, err := callMCPTool(context.Background(), config.Default(), "cli", map[string]any{"module": "azure"}); err == nil {
 		t.Fatal("empty args must be rejected")
 	}
 }
@@ -196,7 +196,7 @@ func TestOnlyConfiguredBackendsGetMCPTools(t *testing.T) {
 	}
 }
 
-func TestProviderToolsAreUnlistedButCallable(t *testing.T) {
+func TestOnlyTheNeutralToolsExist(t *testing.T) {
 	has := func(cfg *config.Config, name string) bool {
 		for _, tool := range mcpTools(cfg) {
 			if tool.Name == name {
@@ -220,8 +220,10 @@ func TestProviderToolsAreUnlistedButCallable(t *testing.T) {
 			t.Errorf("%s must not be listed", name)
 		}
 	}
-	if !toolAvailable(cfg, "github_get_repo") {
-		t.Error("the old github tools stay callable")
+	for _, old := range []string{"github_get_repo", "gitlab_get_project", "jira_get_issue", "api_request", "azure", "atlassian"} {
+		if _, err := callMCPTool(context.Background(), cfg, old, map[string]any{}); err == nil || !strings.Contains(err.Error(), "unknown tool") {
+			t.Errorf("%s must be gone: %v", old, err)
+		}
 	}
 	if _, err := callMCPTool(context.Background(), cfg, "pr_create", map[string]any{"head": "a", "base": "b", "title": "t"}); err == nil || !strings.Contains(err.Error(), "allow_write") {
 		t.Fatalf("pr_create without allow_write: %v", err)

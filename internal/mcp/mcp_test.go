@@ -25,18 +25,6 @@ func TestObjSchema(t *testing.T) {
 	}
 }
 
-func TestWithProfileArgOnlyTouchesMatchingTools(t *testing.T) {
-	tools := []Tool{
-		{Name: "gitlab_get_project", InputSchema: ObjSchema(map[string]any{})},
-		{Name: "jira_get_issue", InputSchema: ObjSchema(map[string]any{})},
-	}
-	WithProfileArg(tools, "gitlab_", "profile")
-	hasProfile := func(tool Tool) bool { return tool.InputSchema["properties"].(map[string]any)["profile"] != nil }
-	if !hasProfile(tools[0]) || hasProfile(tools[1]) {
-		t.Errorf("profile argument added to the wrong tools: %v", tools)
-	}
-}
-
 func TestArgReaders(t *testing.T) {
 	args := map[string]any{
 		"s": "text", "n": float64(3), "i": 4, "j": json.Number("5"), "bad": "x", "b": true,
