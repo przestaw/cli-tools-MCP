@@ -195,6 +195,15 @@ Go 1.26. Third-party modules come in only through the two built-in modules (cobr
 The azure and atlassian packages' own tests run too; run them with `APPDATA`/`USERPROFILE` pointing at a scratch directory if you
 want to be sure nothing touches your real config.
 
+## Versioning
+
+`X.Y.Z`, kept equal in `internal/app/app.go`, the User-Agent in `internal/api/client.go` and
+`plugins/workctl/.claude-plugin/plugin.json`:
+
+- `Z`: everything stored in the OS keyring stays readable as it is (backward compatible).
+- `Y`: the keyring layout changes and existing entries need `scripts/migrate.py`.
+- `X`: reserved; stays `0` until the toolset covers what the agents need.
+
 ## GitHub
 
 ```powershell
