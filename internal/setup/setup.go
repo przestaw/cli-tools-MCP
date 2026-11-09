@@ -219,6 +219,14 @@ func EndpointInit(path, module string, args []string, r *bufio.Reader) error {
 
 	var tokErr error
 	if tok != "" {
+		bound, bindErr := api.BindTokenValue(cfg, name, p, tok)
+		if errors.Is(bindErr, api.ErrOtherAccount) {
+			return bindErr
+		}
+		if bindErr == nil {
+			p = bound
+			cfg.Profiles[name] = p
+		}
 		if tokErr = config.TokenStore.Set(secret.Account(module, name), tok); tokErr != nil {
 			tokErr = fmt.Errorf("%w\nuse the environment variable %s instead", tokErr, p.TokenEnv)
 		}

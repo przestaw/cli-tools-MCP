@@ -44,10 +44,19 @@ func (c *Client) Account(ctx context.Context) (string, error) {
 // for cli profiles; writes are then refused when the token belongs to someone else. It fails when the profile is
 // already bound to another account; to move a profile to another account, clear its "username" first.
 func BindToken(cfg *config.Config, name string, profile config.Profile) (_ config.Profile, resultErr error) {
+	return bindToken(cfg, name, profile, nil)
+}
+
+// BindTokenValue checks the supplied token rather than the current environment or keyring credential.
+func BindTokenValue(cfg *config.Config, name string, profile config.Profile, token string) (config.Profile, error) {
+	return bindToken(cfg, name, profile, &token)
+}
+
+func bindToken(cfg *config.Config, name string, profile config.Profile, token *string) (_ config.Profile, resultErr error) {
 	if (profile.Kind != "github" && profile.Kind != "gitlab") || profile.UsesCLI() {
 		return profile, nil
 	}
-	c, err := NewProfileClient(cfg, name, profile)
+	c, err := newProfileClient(cfg, name, profile, token)
 	if err != nil {
 		return profile, err
 	}

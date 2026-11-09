@@ -292,11 +292,18 @@ func TestAccountsMCPToolListsResolvesAndBinds(t *testing.T) {
 
 func TestSetTokenKeepsTheOldTokenWhenTheNewOneIsAnotherAccounts(t *testing.T) {
 	keyring.MockInit()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, `{"login":"cads-bot"}`) }))
+	t.Setenv("TEST_BIND_OVERRIDE", "personal-token")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer personal-token" {
+			_, _ = io.WriteString(w, `{"login":"przestaw"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"login":"cads-bot"}`)
+	}))
 	t.Cleanup(srv.Close)
 	cfgPath := filepath.Join(t.TempDir(), "config.json")
 	cfg := config.Default()
-	cfg.Profiles = map[string]config.Profile{"gh": {Kind: "github", URL: srv.URL, VerifyTLS: true, Username: "przestaw"}}
+	cfg.Profiles = map[string]config.Profile{"gh": {Kind: "github", URL: srv.URL, VerifyTLS: true, Username: "przestaw", TokenEnv: "TEST_BIND_OVERRIDE"}}
 	cfg.SetPath(cfgPath)
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)

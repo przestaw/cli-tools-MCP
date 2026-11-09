@@ -58,8 +58,9 @@ The login is one per host: two accounts on the same host need the native backend
 
 Native `github` and `gitlab` profiles are bound the same way: `init` and `auth set-token` store the token's account
 (`GET /user`) in `username`, and the first write of a run checks the token again and is refused when it belongs to
-someone else. `auth set-token` keeps the previous token when the new one is another account's; when the account cannot be
-checked (no network), the token is stored and the profile stays unbound.
+someone else. `init` and `auth set-token` check the supplied token before replacing the keyring entry, independently of
+`token_env`. A token of another account leaves the old entry untouched. When the account cannot be checked (no network),
+the token is stored with a warning and any existing account binding is kept; an unbound profile stays unbound.
 
 Top-level `jira`/`gitlab`/`github` blocks (version 1) are rejected: move them into profiles. Tokens stored by the v2
 release (account `<kind>:<url>`) are not read; the installers migrate them, or run `python scripts/migrate.py` (see its

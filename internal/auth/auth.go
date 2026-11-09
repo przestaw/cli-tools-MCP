@@ -119,19 +119,12 @@ func setTokenCommand(cfg *config.Config, args []string) error {
 	}
 
 	account := secret.Account(profile.Kind, name)
-	old, oldErr := config.TokenStore.Get(account)
-	if err := config.TokenStore.Set(account, tok); err != nil {
-		return err
-	}
-	bound, err := api.BindToken(cfg, name, profile)
+	bound, err := api.BindTokenValue(cfg, name, profile, tok)
 	if errors.Is(err, api.ErrOtherAccount) {
-		// Keep the token that was there: the new one belongs to someone else.
-		if oldErr == nil {
-			_ = config.TokenStore.Set(account, old)
-		} else {
-			_ = config.TokenStore.Delete(account)
-		}
 		return fmt.Errorf("token not stored: %w", err)
+	}
+	if storeErr := config.TokenStore.Set(account, tok); storeErr != nil {
+		return storeErr
 	}
 	fmt.Printf("token stored in keyring for profile %s (%s)\n", name, account)
 	if err != nil {

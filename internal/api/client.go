@@ -99,6 +99,10 @@ func NewKindClient(cfg *config.Config, kind string) (*Client, error) {
 
 // NewProfileClient connects to one named profile, resolving its credential and authentication scheme.
 func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (*Client, error) {
+	return newProfileClient(cfg, name, profile, nil)
+}
+
+func newProfileClient(cfg *config.Config, name string, profile config.Profile, token *string) (*Client, error) {
 	if err := config.ValidateProfile(name, profile); err != nil {
 		return nil, err
 	}
@@ -121,9 +125,14 @@ func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (
 	if auth == "none" {
 		return client, nil
 	}
-	credential, err := config.ResolveProfileSecret(name, profile)
-	if err != nil {
-		return nil, err
+	var credential string
+	if token != nil {
+		credential = *token
+	} else {
+		credential, err = config.ResolveProfileSecret(name, profile)
+		if err != nil {
+			return nil, err
+		}
 	}
 	switch profile.Kind {
 	case "github":
