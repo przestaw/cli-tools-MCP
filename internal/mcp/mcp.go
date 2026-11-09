@@ -163,6 +163,12 @@ func Serve(ctx context.Context, s Server, input io.Reader, output io.Writer) err
 		"ping":       func(context.Context, json.RawMessage) (any, error) { return map[string]any{}, nil },
 		"tools/list": func(context.Context, json.RawMessage) (any, error) { return map[string]any{"tools": s.Tools()}, nil },
 		"tools/call": s.callToolRPC,
+		// workctl has no resources or prompts; empty answers keep clients that always ask (Codex) from logging errors.
+		"resources/list": func(context.Context, json.RawMessage) (any, error) { return map[string]any{"resources": []any{}}, nil },
+		"resources/templates/list": func(context.Context, json.RawMessage) (any, error) {
+			return map[string]any{"resourceTemplates": []any{}}, nil
+		},
+		"prompts/list": func(context.Context, json.RawMessage) (any, error) { return map[string]any{"prompts": []any{}}, nil },
 	}
 	var calls sync.WaitGroup
 	defer calls.Wait()
