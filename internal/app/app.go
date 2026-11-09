@@ -54,7 +54,7 @@ Global:
   --config FILE     config path (or WORKCTL_CONFIG)
   --profile NAME    use this profile instead of defaults.<kind> for its kind
 
-Run workctl help or see README.md for command examples.
+Run workctl help or see docs/cli.md for command examples.
 `, Version)
 }
 

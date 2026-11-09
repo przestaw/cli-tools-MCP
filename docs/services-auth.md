@@ -5,7 +5,7 @@ Author: [przestaw](https://github.com/przestaw)
 What workctl can talk to, how each connection authenticates, and who owns which credential.
 Configuration lives in `config.json` (`workctl config path` shows where); secrets live in the OS
 keyring (Windows Credential Manager, macOS Keychain, Secret Service) under service `workctl`,
-account `<kind>:<profile-name>`. Design background: [plan-generic-api-ssh.md](plan-generic-api-ssh.md).
+account `<kind>:<profile-name>`. Design background: [plan-generic-api-ssh.md](plans/plan-generic-api-ssh.md).
 
 ## The identity rule
 
