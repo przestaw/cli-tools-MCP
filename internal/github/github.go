@@ -43,6 +43,9 @@ func get(ctx context.Context, c *api.Client, path string, q url.Values) ([]byte,
 
 func perPage100() url.Values { return url.Values{"per_page": {"100"}} }
 
+// maxPages bounds a pull request list: 30 pages of 100 cover GitHub's own limit of 3000 files.
+const maxPages = 30
+
 // User fetches the authenticated user; doctor and the setup wizard use it as the connectivity check.
 func User(ctx context.Context, c *api.Client) ([]byte, error) {
 	return get(ctx, c, "/user", nil)
@@ -57,11 +60,11 @@ func prPath(repo string, n int, tail string) string {
 }
 
 func prFiles(ctx context.Context, c *api.Client, repo string, n int) ([]byte, error) {
-	return get(ctx, c, prPath(repo, n, "/files"), perPage100())
+	return c.GetAllPages(ctx, prPath(repo, n, "/files"), nil, maxPages)
 }
 
 func prReviews(ctx context.Context, c *api.Client, repo string, n int) ([]byte, error) {
-	return get(ctx, c, prPath(repo, n, "/reviews"), perPage100())
+	return c.GetAllPages(ctx, prPath(repo, n, "/reviews"), nil, maxPages)
 }
 
 // prRequestedReviewers lists the requested reviewers and teams of a pull request.
@@ -71,12 +74,12 @@ func prRequestedReviewers(ctx context.Context, c *api.Client, repo string, n int
 
 // prComments are the inline review comments (the threads on the diff).
 func prComments(ctx context.Context, c *api.Client, repo string, n int) ([]byte, error) {
-	return get(ctx, c, prPath(repo, n, "/comments"), perPage100())
+	return c.GetAllPages(ctx, prPath(repo, n, "/comments"), nil, maxPages)
 }
 
 // prDiscussion is the conversation tab: the plain comments of the pull request.
 func prDiscussion(ctx context.Context, c *api.Client, repo string, n int) ([]byte, error) {
-	return get(ctx, c, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, n), perPage100())
+	return c.GetAllPages(ctx, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, n), nil, maxPages)
 }
 
 // prChecks lists the check runs of the head commit of a pull request.

@@ -82,7 +82,7 @@ func TestAuthHeadersAndPaths(t *testing.T) {
 			t.Fatalf("%s: %v", tool, err)
 		}
 	}
-	want := []string{"/repos/acme/app/pulls/7", "/repos/acme/app/pulls/7", "/repos/acme/app/commits/abc123/check-runs?per_page=100", "/repos/acme/app/pulls/7/comments?per_page=100"}
+	want := []string{"/repos/acme/app/pulls/7", "/repos/acme/app/pulls/7", "/repos/acme/app/commits/abc123/check-runs?per_page=100", "/repos/acme/app/pulls/7/comments?page=1&per_page=100"}
 	if strings.Join(paths, " ") != strings.Join(want, " ") {
 		t.Fatalf("paths = %v", paths)
 	}
