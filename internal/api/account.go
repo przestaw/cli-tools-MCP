@@ -27,7 +27,10 @@ func (c *Client) Account(ctx context.Context) (string, error) {
 	default:
 		return "", fmt.Errorf("no account check for %s profiles", c.kind)
 	}
-	out, err := BodyOnly(c.Do(ctx, http.MethodGet, path, nil, nil, ""))
+	// The account lives on the profile's API host, also for a copy pointed at another host (GitHub uploads).
+	home := *c
+	home.baseURL = cliutil.FirstNonEmpty(c.home, c.baseURL)
+	out, err := BodyOnly(home.Do(ctx, http.MethodGet, path, nil, nil, ""))
 	if err != nil {
 		return "", err
 	}

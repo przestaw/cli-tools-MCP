@@ -78,3 +78,17 @@ func TestBindTokenBindsOrRefuses(t *testing.T) {
 		t.Fatalf("rebind to another account: %v", err)
 	}
 }
+
+func TestAccountIsCheckedOnTheProfilesHostForAnotherHost(t *testing.T) {
+	url, _, asked := accountServer(t, "przestaw")
+	other, writes, _ := accountServer(t, "nobody") // stands for uploads.github.com, which has no /user
+	c, err := NewProfileClient(config.Default(), "p", githubProfile(t, url, "przestaw"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := *c
+	up.baseURL = other
+	if _, _, err := up.Do(context.Background(), http.MethodPost, "/user-attachments/assets", nil, []byte("x"), "image/png"); err != nil || *asked != 1 || len(*writes) != 1 {
+		t.Fatalf("err=%v account checks on the profile's host=%d writes=%v", err, *asked, *writes)
+	}
+}

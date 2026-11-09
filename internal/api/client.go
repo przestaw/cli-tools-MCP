@@ -45,6 +45,7 @@ type Client struct {
 	form     *formSession // set for auth "form": logs in before the first request (see formlogin.go)
 	readOnly bool         // refuse everything but GET and HEAD
 	kind     string       // profile kind, for the account check
+	home     string       // the profile's own base URL, where the account check goes
 	want     string       // account the token must belong to before a write (github, gitlab); empty: no check
 	checked  bool         // the account was checked once
 }
@@ -112,6 +113,7 @@ func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (
 		return nil, err
 	}
 	client.kind = profile.Kind
+	client.home = client.baseURL
 	if profile.Kind == "github" || profile.Kind == "gitlab" {
 		client.want = profile.Username
 	}
