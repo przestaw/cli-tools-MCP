@@ -22,24 +22,24 @@ func fakeForge(t *testing.T, seen *[]string) *httptest.Server {
 		body, _ := io.ReadAll(r.Body)
 		*seen = append(*seen, r.Method+" "+r.URL.EscapedPath()+"?"+r.URL.RawQuery+" "+string(body))
 		w.Header().Set("Content-Type", "application/json")
-		switch p := r.URL.EscapedPath(); {
-		case p == "/repos/acme/app/pulls/5":
+		switch r.URL.EscapedPath() {
+		case "/repos/acme/app/pulls/5":
 			_, _ = io.WriteString(w, `{"number":5,"title":"T","state":"open","html_url":"https://github.test/acme/app/pull/5","user":{"login":"me"},"head":{"ref":"f","sha":"abc"},"base":{"ref":"main"}}`)
-		case p == "/repos/acme/app/pulls/5/files":
+		case "/repos/acme/app/pulls/5/files":
 			_, _ = io.WriteString(w, `[{"filename":"a.go"}]`)
-		case p == "/repos/acme/app/commits/abc/check-runs":
+		case "/repos/acme/app/commits/abc/check-runs":
 			_, _ = io.WriteString(w, `{"check_runs":[{"name":"build","conclusion":"success"}]}`)
-		case p == "/repos/acme/app/actions/jobs/7/logs":
+		case "/repos/acme/app/actions/jobs/7/logs":
 			w.Header().Set("Content-Type", "text/plain")
 			_, _ = io.WriteString(w, "step 1\nok\n")
-		case p == "/repos/acme/app/actions/runs/9", p == "/api/v4/projects/g%2Fp/pipelines/9":
+		case "/repos/acme/app/actions/runs/9", "/api/v4/projects/g%2Fp/pipelines/9":
 			_, _ = io.WriteString(w, `{"id":9}`)
-		case p == "/repos/acme/app/actions/runs/9/jobs", p == "/api/v4/projects/g%2Fp/pipelines/9/jobs":
+		case "/repos/acme/app/actions/runs/9/jobs", "/api/v4/projects/g%2Fp/pipelines/9/jobs":
 			_, _ = io.WriteString(w, `{"jobs":[{"id":7}]}`)
-		case p == "/api/v4/projects/g%2Fp/repository/files/a%2Fb.txt/raw":
+		case "/api/v4/projects/g%2Fp/repository/files/a%2Fb.txt/raw":
 			w.Header().Set("Content-Type", "text/plain")
 			_, _ = io.WriteString(w, "content")
-		case p == "/api/v4/projects/g%2Fp/merge_requests/3":
+		case "/api/v4/projects/g%2Fp/merge_requests/3":
 			_, _ = io.WriteString(w, `{"iid":3,"state":"closed"}`)
 		default:
 			_, _ = io.WriteString(w, `{}`)
@@ -68,11 +68,11 @@ func forgeConfig(t *testing.T, kind string, seen *[]string) *config.Config {
 func TestPRShowIncludeAddsParts(t *testing.T) {
 	var seen []string
 	cfg := forgeConfig(t, "github", &seen)
-	out, err := CallTool(context.Background(), cfg, "pr_show", map[string]any{"number": float64(5), "include": []any{"files", "checks", "nope"}})
+	_, err := CallTool(context.Background(), cfg, "pr_show", map[string]any{"number": float64(5), "include": []any{"files", "checks", "nope"}})
 	if err == nil || !strings.Contains(err.Error(), "nope") {
 		t.Fatalf("unknown part: %v", err)
 	}
-	out, err = CallTool(context.Background(), cfg, "pr_show", map[string]any{"number": float64(5), "include": []any{"files", "checks"}})
+	out, err := CallTool(context.Background(), cfg, "pr_show", map[string]any{"number": float64(5), "include": []any{"files", "checks"}})
 	if err != nil {
 		t.Fatal(err)
 	}
