@@ -157,7 +157,7 @@ func sendRPC(w *bufio.Writer, resp rpcResponse) error {
 // Serve runs the JSON-RPC loop on input and output until input ends. Tool calls run concurrently, so a call can
 // ask the client a question (see Confirm) while the loop keeps reading the answer.
 func Serve(ctx context.Context, s Server, input io.Reader, output io.Writer) error {
-	sess := &session{out: bufio.NewWriter(output), pending: map[string]chan rpcRequest{}, closed: make(chan struct{})}
+	sess := &session{out: bufio.NewWriter(output), pending: map[string]chan rpcRequest{}, running: map[string]context.CancelFunc{}, closed: make(chan struct{})}
 	handlers := map[string]func(context.Context, json.RawMessage) (any, error){
 		"initialize": func(_ context.Context, p json.RawMessage) (any, error) { return s.initializeRPC(sess, p) },
 		"ping":       func(context.Context, json.RawMessage) (any, error) { return map[string]any{}, nil },
@@ -190,10 +190,20 @@ func Serve(ctx context.Context, s Server, input io.Reader, output io.Writer) err
 		// Notifications have no id and must not receive a response.
 		notification := len(req.ID) == 0 || string(req.ID) == "null"
 		if req.Method == "" && !notification {
+			if req.Result == nil && req.Error == nil {
+				if err := sess.send(rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32600, Message: "Invalid Request: no method"}}); err != nil {
+					return err
+				}
+				continue
+			}
 			sess.answer(req)
 			continue
 		}
-		if req.Method == "notifications/initialized" || req.Method == "notifications/cancelled" {
+		if req.Method == "notifications/cancelled" {
+			sess.cancel(req.Params)
+			continue
+		}
+		if req.Method == "notifications/initialized" {
 			continue
 		}
 		if req.Method == "server/discover" {
@@ -214,7 +224,7 @@ func Serve(ctx context.Context, s Server, input io.Reader, output io.Writer) err
 			}
 			continue
 		}
-		run := func() error {
+		run := func(ctx context.Context) error {
 			result, callErr := handler(context.WithValue(ctx, sessionKey{}, sess), req.Params)
 			if notification {
 				return nil
@@ -227,15 +237,17 @@ func Serve(ctx context.Context, s Server, input io.Reader, output io.Writer) err
 			return sess.send(resp)
 		}
 		if req.Method != "tools/call" {
-			if err := run(); err != nil {
+			if err := run(ctx); err != nil {
 				return err
 			}
 			continue
 		}
+		callCtx, done := sess.track(ctx, req.ID)
 		calls.Add(1)
 		go func() {
 			defer calls.Done()
-			_ = run() // a broken output also ends the read loop
+			defer done()
+			_ = run(callCtx) // a broken output also ends the read loop
 		}()
 	}
 	return in.Err()
