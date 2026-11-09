@@ -62,29 +62,27 @@ VS Code: `python3 scripts/install.py --vscode` (`python` on Windows) builds the 
 it to the VS Code user profile as the MCP server `workctl` (`workctl mcp`, default config path, tokens from the keyring).
 Then start it under **MCP: List Servers** and enable its tools in agent mode; restart it after changing the config.
 
-Tools: `cli` runs a module command line as an array: `{"module": "azure", "args": ["pr","get","123","-p","MyProject"]}`.
-Modules are `azure`, `atlassian` and, when a jira profile exists, `jira` (the `workctl jira` commands, with an optional
-`profile`; `transition`, `comment add` and `raw` with a method other than GET/HEAD are writes). Next to it come
-`issue_show`/`issue_search`/`issue_update` (Jira Server and Cloud in one shape; see below), `gitlab_*`, `github_*`, `api_request`/`api_download`/`api_exec` and `task_get_context` for the backends that are
-configured. Write tools of `jira`/`gitlab`/`github` appear only with `allow_write`; `cli` refuses writes until then.
-The former `azure`, `atlassian` and `jira_*` tools still answer for one release but are no longer listed.
+Tools (listed only for the backends that are configured):
 
-Issues work the same for Jira Server/Data Center (profile kind `jira`) and Jira Cloud (kind `atlassian`, `auth: "basic"`,
-`username` = e-mail, the API token as the secret). `issue_update` applies a link, a transition with resolution, fix
-versions and comment, an assignee and a comment in one call; names are resolved to ids from the issue's own metadata
-(English built-in resolution names work on localised servers), and `dry_run` shows the steps. For people:
+| Tool | What |
+| --- | --- |
+| `accounts` | profiles, their bindings and credential state; binds a repository/project with consent |
+| `pr_list`, `pr_show` | pull/merge requests (GitHub, GitLab, Azure DevOps); `include: [files, reviews, reviewers, comments, discussion, checks]` |
+| `pr_create`, `pr_edit` | create or edit a pull/merge request (write) |
+| `ci` | runs/pipelines for a `ref`, one `run` with `include: [jobs]`, the log of one `job` |
+| `file` | repository file at a ref |
+| `comment` | comment on a pull/merge request (`repo` + `number`) or an issue (`issue`) (write) |
+| `issue_show`, `issue_search`, `issue_update` | Jira Server and Cloud issues in one shape (see below) |
+| `request`, `download` | any endpoint or file of any HTTP profile (github, gitlab, jira, atlassian, api) |
+| `api_exec` | allow-listed remote commands of ssh-exec profiles |
+| `task_get_context` | a Jira issue with its branches and merge requests |
+| `cli` | `{"module": "azure", "args": ["pr","get","123","-p","MyProject"]}`: azure, atlassian and, with a jira profile, `jira` |
 
-```bash
-workctl i ARGOS-1                               # show (add --include comments,transitions, --json or --raw)
-workctl i find "project = ARGOS AND text ~ WATS"
-workctl i move ARGOS-1 "Review Issue"
-workctl i close ARGOS-1 --as Duplicate --fix REJECTED
-workctl i dup ARGOS-1 ARGOS-2 --fix REJECTED   # link "duplicates" + resolve as Duplicate
-workctl i link ARGOS-1 relates to ARGOS-3
-workctl i comment ARGOS-1 "text"
-```
-
-Writes print their steps and ask before applying; `--yes` skips the question, `--dry-run` only prints the steps.
+Writes are refused until `allow_write`. The former provider-specific tools (`github_*`, `gitlab_*`, `jira_*`,
+`api_request`, `api_download`, `azure`, `atlassian`) still answer for one release but are no longer listed.
+`download` follows redirects only to known storage hosts (GitHub Actions logs and artifacts, release assets, user
+attachments) and never sends the credential there; an HTML answer instead of the file is flagged. In `cli`,
+`atlassian attachment download` and `page attachment-download` are reads that save into the downloads directory.
 Each `cli` call runs as a child process of workctl with its own timeout (`timeouts.<module>`, else `modules.timeout_seconds`).
 
 Timeouts are resolved per request: `profiles.<name>.timeout_seconds`, else `timeouts.<kind>` (for example

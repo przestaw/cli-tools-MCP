@@ -188,7 +188,7 @@ func TestOnlyConfiguredBackendsGetMCPTools(t *testing.T) {
 		t.Fatalf("jira only, tools = %v", got)
 	}
 	cfg.Profiles["gitlab"] = config.Profile{Kind: "gitlab", URL: "https://gitlab.example.test"}
-	if got := names(); !got["task_get_context"] || !got["gitlab_get_project"] || !got["pr_list"] {
+	if got := names(); !got["task_get_context"] || got["gitlab_get_project"] || !got["pr_list"] || !got["ci"] || !got["comment"] || !got["request"] {
 		t.Fatalf("both configured, tools = %v", got)
 	}
 	if _, err := callMCPTool(context.Background(), config.Default(), "jira_get_issue", map[string]any{"key": "X-1"}); err == nil {
@@ -196,7 +196,7 @@ func TestOnlyConfiguredBackendsGetMCPTools(t *testing.T) {
 	}
 }
 
-func TestGitHubToolsOnlyWhenConfigured(t *testing.T) {
+func TestProviderToolsAreUnlistedButCallable(t *testing.T) {
 	has := func(cfg *config.Config, name string) bool {
 		for _, tool := range mcpTools(cfg) {
 			if tool.Name == name {
@@ -206,19 +206,25 @@ func TestGitHubToolsOnlyWhenConfigured(t *testing.T) {
 		return false
 	}
 	cfg := config.Default()
-	if has(cfg, "github_get_repo") {
-		t.Fatal("github tool advertised without configuration")
+	if has(cfg, "pr_show") || has(cfg, "request") {
+		t.Fatal("repository tools advertised without configuration")
 	}
 	cfg.Profiles["gh"] = config.Profile{Kind: "github", URL: "https://api.github.com"}
-	if !has(cfg, "github_get_repo") || has(cfg, "github_create_pull_request") {
-		t.Fatal("expected read tools only")
+	for _, name := range []string{"pr_show", "pr_create", "pr_edit", "ci", "file", "comment", "request", "download"} {
+		if !has(cfg, name) {
+			t.Errorf("%s missing with a github profile (write tools are listed and refused by the policy)", name)
+		}
 	}
-	cfg.Policy.AllowWrite = true
-	if !has(cfg, "github_create_pull_request") {
-		t.Fatal("write tool missing with allow_write")
+	for _, name := range []string{"github_get_repo", "github_create_pull_request", "api_request", "api_exec"} {
+		if has(cfg, name) {
+			t.Errorf("%s must not be listed", name)
+		}
 	}
-	if !has(cfg, "github_request_reviewers") || !has(cfg, "github_edit_pull_request") {
-		t.Fatal("reviewer and edit tools missing with allow_write")
+	if !toolAvailable(cfg, "github_get_repo") {
+		t.Error("the old github tools stay callable")
+	}
+	if _, err := callMCPTool(context.Background(), cfg, "pr_create", map[string]any{"head": "a", "base": "b", "title": "t"}); err == nil || !strings.Contains(err.Error(), "allow_write") {
+		t.Fatalf("pr_create without allow_write: %v", err)
 	}
 }
 

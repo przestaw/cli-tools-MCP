@@ -20,20 +20,19 @@ When unsure which account serves a resource, call `accounts` first: it lists the
 
 ## Read
 
-- Provider-neutral: `pr_list`, `pr_show`. Accounts: `accounts` (read-only unless asked to bind).
-- GitHub: `github_get_pull_request`, `github_get_pull_request_discussion` (conversation comments), `github_get_pull_request_comments` (inline review comments), `github_get_pull_request_reviews`, `github_get_pull_request_checks`, `github_get_pull_request_reviewers`.
-- GitLab: `gitlab_get_merge_request`, `gitlab_get_merge_request_notes`, `gitlab_list_pipelines`.
+- Pull/merge requests (GitHub, GitLab; Azure DevOps for list/show): `pr_list`, `pr_show` with `include: [files, reviews, reviewers, comments, discussion, checks]` (`comments` = inline review threads, `discussion` = conversation). Accounts: `accounts` (read-only unless asked to bind).
+- CI: `ci` lists runs/pipelines for a `ref`, shows one `run` (with `include: [jobs]`) or the log of one `job` (GitHub logs arrive as a downloaded file). Files: `file` with `path` and optional `ref`.
 - Issues (Jira Server and Cloud): `issue_show` (with `include: [comments, transitions]`), `issue_search` (JQL). `task_get_context` joins an issue with its branches and merge requests.
 - `cli` runs a module command line (`module`: azure, atlassian, jira; `args` as an array) for anything the tools above do not cover. Consult its help and use only read operations for an inspection; the wrapper is not permission to change configuration or policy.
-- Generic services: `api_request`, `api_download`, `api_exec` require a configured profile of kind `api`. A provider-specific profile is not interchangeable with an `api` profile. HTTP paths must be relative to the profile URL; remote commands must be allow-listed. Do not create a new profile or relax host restrictions as a workaround.
+- Anything else: `request` (one HTTP request) and `download` (one file to the downloads directory) work with every HTTP profile (github, gitlab, jira, atlassian, api). A relative path gets the API prefix (`repos/o/r/branches`, `projects/1/merge_requests/2/approvals`, `issue/ABC-1/remotelink`), a path starting with `/` is taken from the site root; full URLs are refused. `api_exec` runs allow-listed remote commands of ssh-exec profiles. Do not create a new profile or relax host restrictions as a workaround.
 
 Start with the exact resource the user named, then read the relevant discussion, reviews or checks. Report current provider state separately from older local notes. A passing check is evidence only for the commit and scenario it ran against.
 
 ## Inspect screenshots and attachments
 
 1. Read the description and relevant comments through MCP. Collect attachment references, captions, before/after roles and the associated revision when available. Captions describe intended evidence; they do not prove the image shows it.
-2. Check the available tool schema for an attachment-reading or download capability. Do not assume a PR reader returns rendered HTML, signed image URLs or image bytes. If supported by an already configured HTTP `api` profile, use `api_request` with GET for metadata and `api_download` for the file, with its relative `path` and optional `query` or `filename`. Never feed an arbitrary full URL into a relative-path tool or silently replace the attachment host.
-3. `api_download` returns a local path, size, SHA-256, content type and server file name. Check the returned metadata and file signature before viewing. HTTP 200 alone does not prove success: a login or SSO HTML page saved with a PNG suffix is not an image. Do not print signed URLs or credentials that may appear in metadata.
+2. Check the available tool schema for an attachment-reading or download capability. Do not assume a PR reader returns rendered HTML, signed image URLs or image bytes. With the profile that serves the resource, use `request` with GET for metadata and `download` for the file (GitHub `user-attachments`: `request` the issue or pull request with `accept: application/vnd.github.full+json`, then `download` the signed `private-user-images.githubusercontent.com` link from `body_html`; GitLab uploads: `projects/:id/uploads/:secret/:file`), with its relative `path` and optional `query` or `filename`. Never feed an arbitrary full URL into a relative-path tool or silently replace the attachment host.
+3. `download` returns a local path, size, SHA-256, content type, the server file name and a `warning` when an HTML page came instead of the file. Check the returned metadata and file signature before viewing. HTTP 200 alone does not prove success: a login or SSO HTML page saved with a PNG suffix is not an image. Do not print signed URLs or credentials that may appear in metadata.
 4. Open the downloaded original with an image/file viewing tool. Readable crops may help inspect small labels; keep the original and do not alter evidence to make it look correct. For video or animation, inspect the relevant sequence or representative frames, not just a thumbnail. If the format cannot be inspected, say so.
 5. Compare the same objects, values, camera framing and workflow stage where possible. Separate directly visible results, inferences and what is not demonstrated. Screenshots alone do not prove persistence, Undo/Redo, timing, all inputs or the current branch after a rebase.
 6. If MCP cannot retrieve the attachment with its supported capabilities, report that limitation. Ask the user to attach the original file or restore access to the intended profile. Do not fall back to scraping browser sessions, extracting tokens or using a different provider client. A local copy is evidence only if its provenance is established; otherwise label it as an unverified alternative.
@@ -56,7 +55,7 @@ Write tools exist only when writes are enabled (`policy.allow_write`). Enabled t
 
 1. Read the existing discussion to avoid duplicate comments.
 2. Show the exact proposed text and obtain approval before posting.
-3. Post with the appropriate tool, such as `github_add_pull_request_comment`, `gitlab_add_merge_request_note` or `issue_update` with `comment`.
+3. Post with `comment` (`repo` + `number` for a pull/merge request, `issue` for an issue); other writes: `pr_create`, `pr_edit`, `issue_update`.
 4. Verify the result and report the resulting reference. Do not blindly retry a write with an uncertain outcome.
 
 Post only the approved text, without secrets or raw logs. A read-only review does not authorize publishing findings.
