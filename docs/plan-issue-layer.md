@@ -3,7 +3,7 @@
 Author: [przestaw](https://github.com/przestaw)
 
 Status: proposal (2026-11-09). Extends [plan-agent-accounts.md](plan-agent-accounts.md) (which consolidates `pr_*`, `ci`,
-`file`, `comment`, `request`, `download`). Stages 1 and 2 implemented; stage 3 open.
+`file`, `comment`, `request`, `download`). Stages 1-3 implemented; alias removal pending.
 
 Goal: the same rule for issues as for pull requests — **one operation, one tool, one output shape; the provider is a
 detail of the resolved profile**. Jira Server, Jira Cloud and later Asana or Azure Boards answer the same questions
@@ -22,7 +22,7 @@ Revises plan-agent-accounts.md:
 | --- | --- | --- |
 | `issue_show` | `key`, `include?: [comments, transitions, links]`, `profile?` | `jira_get_issue`, `jira_get_comments`, `jira_get_transitions`, `atlassian issue get/transitions` |
 | `issue_search` | `query` (JQL for Jira), `start_at?`, `max_results?`, `profile?` | `jira_search`, `atlassian jql` |
-| `issue_update` (write) | `key`, `transition?` (id or name), `fields?` (resolution, fix_versions, assignee, …), `link?: {type, key}`, `profile?` | none today (Jira Server had no write besides comments) |
+| `issue_update` (write) | `key`, `transition?` (id, name or target status), `resolve?`, `resolution?`, `fix_versions?`, `assignee?`, `comment?`, `link_type?` + `link_key?`, `dry_run?`, `profile?` | none today (Jira Server had no write besides comments) |
 | `comment` | unchanged from plan-agent-accounts.md (`issue` covers Jira) | `jira_add_comment` |
 | `cli` | `module: azure \| atlassian \| jira \| gitlab \| github`, `args: []` | `azure`, `atlassian` |
 
@@ -56,11 +56,11 @@ modules: `timeouts.<module>` → `modules.timeout_seconds` → 120 s. Old config
 3. `gitlab` / `github` CLIs join the same way when needed.
 4. Hidden aliases `azure`, `atlassian`; skill and README updated.
 
-## Stage 3 — `issue_*`
+## Stage 3 — `issue_*` (done)
 
 1. `internal/issue`: `Reader`/`Writer` interface + normalised `Issue` type (like `vcs` for PRs).
-2. Backends: `jira` (existing `internal/jira` functions plus `PUT /issue/{key}`, `POST /issue/{key}/transitions` with
-   `fields`, `POST /issueLink`), `atlassian` (existing `internal/atlassian/client`: `UpdateIssue`, `DoTransition`, links).
+2. One backend over REST API v2 and the workctl api client for both kinds (Jira Cloud still serves v2); they differ
+   only in search (`/search` + startAt vs `/search/jql` + nextPageToken) and assignee (`name` vs `accountId`).
 3. `workctl issue ...` CLI and the three MCP tools; `jira_*` become hidden aliases.
 4. Tests: one shared table of cases run against both backends with recorded HTTP.
 

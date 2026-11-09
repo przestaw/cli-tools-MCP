@@ -184,7 +184,7 @@ func TestOnlyConfiguredBackendsGetMCPTools(t *testing.T) {
 	}
 	cfg.Profiles["jira"] = config.Profile{Kind: "jira", URL: "https://jira.example.test"}
 	got := names()
-	if !got["jira_get_issue"] || got["gitlab_get_project"] || got["task_get_context"] || got["pr_list"] {
+	if !got["issue_show"] || !got["issue_update"] || got["jira_get_issue"] || got["gitlab_get_project"] || got["task_get_context"] || got["pr_list"] {
 		t.Fatalf("jira only, tools = %v", got)
 	}
 	cfg.Profiles["gitlab"] = config.Profile{Kind: "gitlab", URL: "https://gitlab.example.test"}

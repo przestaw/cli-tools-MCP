@@ -135,6 +135,13 @@ func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (
 			client.headers.Set("Authorization", "Bearer "+credential)
 		}
 		client.prefix = "/rest/api/2"
+	case "atlassian": // Jira Cloud: e-mail and API token over Basic, or an OAuth bearer token
+		if auth == "bearer" {
+			client.headers.Set("Authorization", "Bearer "+credential)
+		} else {
+			client.headers.Set("Authorization", basicAuth(profile.Username, credential))
+		}
+		client.prefix = "/rest/api/2"
 	case "api":
 		switch auth {
 		case "basic":

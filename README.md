@@ -64,10 +64,27 @@ Then start it under **MCP: List Servers** and enable its tools in agent mode; re
 
 Tools: `cli` runs a module command line as an array: `{"module": "azure", "args": ["pr","get","123","-p","MyProject"]}`.
 Modules are `azure`, `atlassian` and, when a jira profile exists, `jira` (the `workctl jira` commands, with an optional
-`profile`; `transition`, `comment add` and `raw` with a method other than GET/HEAD are writes). Next to it come `jira_*`,
-`gitlab_*`, `github_*`, `api_request`/`api_download`/`api_exec` and `task_get_context` for the backends that are
+`profile`; `transition`, `comment add` and `raw` with a method other than GET/HEAD are writes). Next to it come
+`issue_show`/`issue_search`/`issue_update` (Jira Server and Cloud in one shape; see below), `gitlab_*`, `github_*`, `api_request`/`api_download`/`api_exec` and `task_get_context` for the backends that are
 configured. Write tools of `jira`/`gitlab`/`github` appear only with `allow_write`; `cli` refuses writes until then.
-The former `azure` and `atlassian` tools still answer for one release but are no longer listed.
+The former `azure`, `atlassian` and `jira_*` tools still answer for one release but are no longer listed.
+
+Issues work the same for Jira Server/Data Center (profile kind `jira`) and Jira Cloud (kind `atlassian`, `auth: "basic"`,
+`username` = e-mail, the API token as the secret). `issue_update` applies a link, a transition with resolution, fix
+versions and comment, an assignee and a comment in one call; names are resolved to ids from the issue's own metadata
+(English built-in resolution names work on localised servers), and `dry_run` shows the steps. For people:
+
+```bash
+workctl i ARGOS-1                               # show (add --include comments,transitions, --json or --raw)
+workctl i find "project = ARGOS AND text ~ WATS"
+workctl i move ARGOS-1 "Review Issue"
+workctl i close ARGOS-1 --as Duplicate --fix REJECTED
+workctl i dup ARGOS-1 ARGOS-2 --fix REJECTED   # link "duplicates" + resolve as Duplicate
+workctl i link ARGOS-1 relates to ARGOS-3
+workctl i comment ARGOS-1 "text"
+```
+
+Writes print their steps and ask before applying; `--yes` skips the question, `--dry-run` only prints the steps.
 Each `cli` call runs as a child process of workctl with its own timeout (`timeouts.<module>`, else `modules.timeout_seconds`).
 
 Timeouts are resolved per request: `profiles.<name>.timeout_seconds`, else `timeouts.<kind>` (for example
