@@ -239,15 +239,6 @@ func TestPRReadRegistryMatchesCLIAndMCP(t *testing.T) {
 			if strings.Join(paths, "|") != cliPaths {
 				t.Fatalf("CLI %s differs from MCP %v", cliPaths, paths)
 			}
-			found := false
-			for _, tool := range Tools(cfg) {
-				if tool.Name == entry.tool {
-					found = true
-				}
-			}
-			if !found {
-				t.Fatalf("unadvertised tool %s", entry.tool)
-			}
 		})
 	}
 	for _, args := range [][]string{{"pr", "unknown"}, {"pr", "create"}, {"pr", "edit", "7", "--title", "new"}, {"pr", "comment", "add", "7", "--body", "text"}} {

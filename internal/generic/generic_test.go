@@ -34,18 +34,18 @@ func TestAPIRequestReadsAndGuardsWrites(t *testing.T) {
 	cfg := testConfig(srv.URL + "/base")
 	ctx := context.Background()
 
-	out, err := CallTool(ctx, cfg, "api_request", map[string]any{"path": "/job/x/api/json"})
+	out, err := CallTool(ctx, cfg, "request", map[string]any{"path": "/job/x/api/json"})
 	if err != nil || string(out) != `{"ok":true}` || method != "GET" || path != "/base/job/x/api/json" {
 		t.Fatalf("GET: %s %v %s %s", out, err, method, path)
 	}
-	if _, err := CallTool(ctx, cfg, "api_request", map[string]any{"method": "post", "path": "/build"}); err == nil || !strings.Contains(err.Error(), "policy") {
+	if _, err := CallTool(ctx, cfg, "request", map[string]any{"method": "post", "path": "/build"}); err == nil || !strings.Contains(err.Error(), "policy") {
 		t.Fatalf("POST without allow_write: %v", err)
 	}
-	if _, err := CallTool(ctx, cfg, "api_request", map[string]any{"path": "https://elsewhere.test/"}); err == nil {
+	if _, err := CallTool(ctx, cfg, "request", map[string]any{"path": "https://elsewhere.test/"}); err == nil {
 		t.Fatal("absolute URL accepted")
 	}
 	cfg.Policy.AllowWrite = true
-	if _, err := CallTool(ctx, cfg, "api_request", map[string]any{"method": "POST", "path": "/build", "body": `{"a":1}`}); err != nil || method != "POST" || body != `{"a":1}` {
+	if _, err := CallTool(ctx, cfg, "request", map[string]any{"method": "POST", "path": "/build", "body": `{"a":1}`}); err != nil || method != "POST" || body != `{"a":1}` {
 		t.Fatalf("POST: %v %s %q", err, method, body)
 	}
 }
@@ -91,7 +91,7 @@ func TestFormSessionCleanupReachesCallers(t *testing.T) {
 					}
 					return
 				default:
-					_, err = CallTool(context.Background(), cfg, "api_"+call, map[string]any{"path": "/home"})
+					_, err = CallTool(context.Background(), cfg, call, map[string]any{"path": "/home"})
 				}
 				if (err == nil) != logoutOK || logouts.Load() != 1 {
 					t.Fatalf("err=%v, logouts=%d", err, logouts.Load())
@@ -115,14 +115,14 @@ func TestAPIRequestEncodesQuery(t *testing.T) {
 		"dry_run": false,
 		"retries": float64(2),
 	}
-	if _, err := CallTool(context.Background(), cfg, "api_request", map[string]any{"method": "POST", "path": "/job/x/buildWithParameters", "query": query}); err != nil {
+	if _, err := CallTool(context.Background(), cfg, "request", map[string]any{"method": "POST", "path": "/job/x/buildWithParameters", "query": query}); err != nil {
 		t.Fatal(err)
 	}
 	want := "dry_run=false&region=eu-west&region=eu-central&retries=2"
 	if rawQuery != want {
 		t.Fatalf("query = %s\nwant    %s", rawQuery, want)
 	}
-	if _, err := CallTool(context.Background(), cfg, "api_request", map[string]any{"path": "/", "query": map[string]any{"a": map[string]any{}}}); err == nil {
+	if _, err := CallTool(context.Background(), cfg, "request", map[string]any{"path": "/", "query": map[string]any{"a": map[string]any{}}}); err == nil {
 		t.Fatal("nested object accepted as a query value")
 	}
 }
@@ -156,7 +156,7 @@ func TestAPIExecRunsOnlyAllowedQuotedCommands(t *testing.T) {
 	if _, err := call("gerrit", "review", "1,1", "--code-review", "+1"); err == nil || !strings.Contains(err.Error(), "policy") {
 		t.Fatalf("write without allow_write: %v", err)
 	}
-	if _, err := CallTool(ctx, cfg, "api_request", map[string]any{"path": "/"}); err == nil || !strings.Contains(err.Error(), "api exec") {
+	if _, err := CallTool(ctx, cfg, "request", map[string]any{"path": "/"}); err == nil || !strings.Contains(err.Error(), "api exec") {
 		t.Fatalf("HTTP on an ssh-exec profile: %v", err)
 	}
 	if len(*calls) != 1 {

@@ -72,11 +72,6 @@ func TestToolsUseTheProfileOfTheCall(t *testing.T) {
 	if _, err := CallTool(ctx, cfg, "gitlab_get_project", map[string]any{"profile": "nope"}); err == nil {
 		t.Fatal("unknown profile accepted")
 	}
-	for _, tool := range Tools(cfg) {
-		if strings.HasPrefix(tool.Name, "gitlab_") && tool.InputSchema["properties"].(map[string]any)["profile"] == nil {
-			t.Errorf("%s has no profile argument", tool.Name)
-		}
-	}
 }
 
 func TestNormalizePullRequest(t *testing.T) {

@@ -12,33 +12,8 @@ import (
 	"workctl/internal/mcp"
 )
 
-// Tools are the MCP tools of the GitLab module; write tools exist only with policy.allow_write.
-func Tools(cfg *config.Config) []mcp.Tool {
-	project := mcp.StrProp("Project path group/name; omit to use default")
-	tools := []mcp.Tool{
-		{Name: "gitlab_get_project", Description: "Get GitLab project metadata.", InputSchema: mcp.ObjSchema(map[string]any{"project": project})},
-		{Name: "gitlab_get_merge_request", Description: "Get a GitLab merge request.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "iid": mcp.IntProp("Merge request IID")}, "iid")},
-		{Name: "gitlab_get_merge_request_changes", Description: "Get merge request diff/changes (compatible with older GitLab v4 APIs).", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "iid": mcp.IntProp("Merge request IID")}, "iid")},
-		{Name: "gitlab_get_merge_request_notes", Description: "Get merge request notes/comments.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "iid": mcp.IntProp("Merge request IID")}, "iid")},
-		{Name: "gitlab_list_merge_requests", Description: "List/search merge requests in a project.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "search": mcp.StrProp("Search text"), "state": mcp.StrProp("opened, closed, merged, all")})},
-		{Name: "gitlab_list_pipelines", Description: "List pipelines, optionally for a ref.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "ref": mcp.StrProp("Branch/tag ref"), "per_page": mcp.IntProp("Items per page")})},
-		{Name: "gitlab_get_pipeline", Description: "Get one pipeline.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "id": mcp.IntProp("Pipeline ID")}, "id")},
-		{Name: "gitlab_get_pipeline_jobs", Description: "Get jobs belonging to a pipeline.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "id": mcp.IntProp("Pipeline ID")}, "id")},
-		{Name: "gitlab_get_job_trace", Description: "Get a GitLab CI job log/trace.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "job_id": mcp.IntProp("Job ID")}, "job_id")},
-		{Name: "gitlab_list_branches", Description: "List/search branches in a project.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "search": mcp.StrProp("Branch search text")})},
-		{Name: "gitlab_get_file", Description: "Get raw repository file contents at a ref.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "path": mcp.StrProp("Repository-relative file path"), "ref": mcp.StrProp("Branch/tag/commit; default HEAD")}, "path")},
-	}
-	if cfg.Policy.AllowWrite {
-		tools = append(tools,
-			mcp.Tool{Name: "gitlab_add_merge_request_note", Description: "Add a GitLab merge request note. Enabled only when policy.allow_write=true.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "iid": mcp.IntProp("MR IID"), "body": mcp.StrProp("Note body")}, "iid", "body")},
-			mcp.Tool{Name: "gitlab_create_merge_request", Description: "Create a merge request. Enabled only when policy.allow_write=true.", InputSchema: mcp.ObjSchema(map[string]any{"project": project, "source": mcp.StrProp("Source branch"), "target": mcp.StrProp("Target branch"), "title": mcp.StrProp("Title"), "description": mcp.StrProp("Description"), "draft": mcp.BoolProp("Prefix title with Draft")}, "source", "target", "title")},
-		)
-	}
-	mcp.WithProfileArg(tools, "gitlab_", "GitLab profile (account); omit to use defaults.gitlab")
-	return tools
-}
-
-// CallTool runs one gitlab_* MCP tool against the profile named by the call (default: defaults.gitlab).
+// CallTool runs one GitLab operation by its former MCP tool name against the profile named by the call (default:
+// defaults.gitlab); the provider-neutral tools in package pr call it.
 // The client is made per call, so a missing login fails only these tools.
 func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
 	cfg, err := cfg.ScopedFor(mcp.ArgString(a, "profile"), "gitlab", mcp.ArgString(a, "project"))
@@ -77,7 +52,6 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 		return ListBranches(ctx, c, project, mcp.ArgString(a, "search"))
 	case "gitlab_get_file":
 		return getFile(ctx, c, project, mcp.ArgString(a, "path"), mcp.ArgString(a, "ref"))
-	// Unlisted: served through the provider-neutral pr_show, pr_edit and ci tools.
 	case "gitlab_get_merge_request_pipelines":
 		return mrPipelines(ctx, c, project, iid)
 	case "gitlab_get_merge_request_approvals":

@@ -26,11 +26,14 @@ func TestSearchToolSendsJQLAndPaging(t *testing.T) {
 	base, seen := testutil.RecordingServer(t, 200, `{}`)
 	cfg := testConfig(t, base)
 
-	args := map[string]any{"jql": "project = A AND status = Open", "start_at": 5, "max_results": 10}
-	if _, err := CallTool(context.Background(), cfg, "jira_search", args); err != nil {
+	c, err := api.NewKindClient(cfg, "jira")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CallTool(context.Background(), cfg, "jira_search", map[string]any{"jql": "x"}); err != nil {
+	if _, err := search(context.Background(), c, "project = A AND status = Open", 5, 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := Command(cfg, []string{"search", "--jql", "x"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -59,20 +62,18 @@ func TestIssueKeyIsEscaped(t *testing.T) {
 	}
 }
 
-func TestWritesNeedPolicy(t *testing.T) {
+func TestCommentWriteNeedsPolicy(t *testing.T) {
 	base, seen := testutil.RecordingServer(t, 200, `{}`)
 	cfg := testConfig(t, base)
-	args := map[string]any{"key": "DEMO-1", "body": "hi"}
-
-	if _, err := CallTool(context.Background(), cfg, "jira_add_comment", args); err == nil || !strings.Contains(err.Error(), "allow_write") {
+	args := []string{"comment", "add", "--body", "hi", "DEMO-1"}
+	if err := Command(cfg, args); err == nil || !strings.Contains(err.Error(), "allow_write") {
 		t.Fatalf("write without policy: %v", err)
 	}
 	if len(*seen) != 0 {
 		t.Fatalf("a refused write sent a request: %v", *seen)
 	}
-
 	cfg.Policy.AllowWrite = true
-	if _, err := CallTool(context.Background(), cfg, "jira_add_comment", args); err != nil {
+	if err := Command(cfg, args); err != nil {
 		t.Fatal(err)
 	}
 	got := (*seen)[0]
@@ -96,25 +97,6 @@ func TestDoTransitionAnswersOKForAnEmptyResponse(t *testing.T) {
 	}
 }
 
-func TestToolsHideWritesWithoutPolicy(t *testing.T) {
-	cfg := config.Default()
-	has := func(name string) bool {
-		for _, tool := range Tools(cfg) {
-			if tool.Name == name {
-				return true
-			}
-		}
-		return false
-	}
-	if !has("jira_get_issue") || has("jira_add_comment") {
-		t.Error("expected read tools only")
-	}
-	cfg.Policy.AllowWrite = true
-	if !has("jira_add_comment") {
-		t.Error("write tool missing with allow_write")
-	}
-}
-
 func TestCommandUsageErrorsSendNothing(t *testing.T) {
 	base, seen := testutil.RecordingServer(t, 200, `{}`)
 	cfg := testConfig(t, base)
@@ -132,12 +114,5 @@ func TestCommandUsageErrorsSendNothing(t *testing.T) {
 	}
 	if len(*seen) != 0 {
 		t.Fatalf("usage errors sent requests: %v", *seen)
-	}
-}
-
-func TestUnknownToolIsRejected(t *testing.T) {
-	base, _ := testutil.RecordingServer(t, 200, `{}`)
-	if _, err := CallTool(context.Background(), testConfig(t, base), "jira_nope", nil); err == nil {
-		t.Fatal("unknown tool accepted")
 	}
 }

@@ -152,7 +152,7 @@ func TestCallToolChecksThePolicyBeforeStartingAnything(t *testing.T) {
 	cfg := config.Default()
 	cfg.SetPath("C:/some/workctl.json")
 
-	out, err := CallTool(context.Background(), cfg, "azure", []string{"pr", "get", "34438", "-p", "Some Project"})
+	out, err := callModule(context.Background(), cfg, "azure", "", []string{"pr", "get", "34438", "-p", "Some Project"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,10 +162,10 @@ func TestCallToolChecksThePolicyBeforeStartingAnything(t *testing.T) {
 	}
 
 	before := len(*calls)
-	if _, err := CallTool(context.Background(), cfg, "azure", []string{"pr", "create", "--title", "x"}); err == nil || !strings.Contains(err.Error(), "allow_write") {
+	if _, err := callModule(context.Background(), cfg, "azure", "", []string{"pr", "create", "--title", "x"}); err == nil || !strings.Contains(err.Error(), "allow_write") {
 		t.Fatalf("a write must be refused while allow_write is off, err = %v", err)
 	}
-	if _, err := CallTool(context.Background(), cfg, "atlassian", []string{"config", "set-token"}); err == nil {
+	if _, err := callModule(context.Background(), cfg, "atlassian", "", []string{"config", "set-token"}); err == nil {
 		t.Fatal("credentials commands must be refused")
 	}
 	if len(*calls) != before {
@@ -173,20 +173,20 @@ func TestCallToolChecksThePolicyBeforeStartingAnything(t *testing.T) {
 	}
 
 	cfg.Policy.AllowWrite = true
-	if _, err := CallTool(context.Background(), cfg, "atlassian", []string{"comment", "add", "ABC-1", "--body", "hi"}); err != nil {
+	if _, err := callModule(context.Background(), cfg, "atlassian", "", []string{"comment", "add", "ABC-1", "--body", "hi"}); err != nil {
 		t.Fatalf("with allow_write the write must run: %v", err)
 	}
 	if len(*calls) != before+1 {
 		t.Fatal("expected exactly one more process")
 	}
-	if _, err := CallTool(context.Background(), cfg, "atlassian", []string{"config", "set-token"}); err == nil {
+	if _, err := callModule(context.Background(), cfg, "atlassian", "", []string{"config", "set-token"}); err == nil {
 		t.Fatal("credentials commands stay refused even with allow_write")
 	}
 }
 
 func TestCallToolReportsStderrOfAFailingCommand(t *testing.T) {
 	testutil.FakeChildProcess(t)
-	_, err := CallTool(context.Background(), config.Default(), "atlassian", []string{"issue", "get", "fail"})
+	_, err := callModule(context.Background(), config.Default(), "atlassian", "", []string{"issue", "get", "fail"})
 	if err == nil || !strings.Contains(err.Error(), "boom: no token") || !strings.HasPrefix(err.Error(), "atlassian:") {
 		t.Fatalf("err = %v", err)
 	}
