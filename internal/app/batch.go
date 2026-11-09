@@ -34,6 +34,13 @@ type batchCall struct {
 	Args map[string]any `json:"args"`
 }
 
+type batchResult struct {
+	Tool   string          `json:"tool"`
+	Status string          `json:"status"` // ok, failed or skipped
+	Error  string          `json:"error,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"`
+}
+
 // callBatch checks every call, asks once for all of them, then runs them in order. Nothing runs when a call is
 // invalid or the user declines; a write that already ran is not undone when a later one fails.
 func callBatch(ctx context.Context, cfg *config.Config, a map[string]any) ([]byte, error) {
@@ -55,15 +62,16 @@ func callBatch(ctx context.Context, cfg *config.Config, a map[string]any) ([]byt
 		if c.Args == nil {
 			c.Args = map[string]any{}
 		}
+		tool, ok := findTool(cfg, c.Tool)
 		switch {
 		case c.Tool == "batch":
 			return nil, fmt.Errorf("calls[%d]: a batch cannot contain a batch", i)
-		case !listed(cfg, c.Tool):
+		case !ok:
 			return nil, fmt.Errorf("calls[%d]: unknown tool %q, or its backend is not configured", i, c.Tool)
 		case !isWrite(cfg, c.Tool, c.Args):
 			return nil, fmt.Errorf("calls[%d]: %s does not write; call it directly", i, c.Tool)
 		}
-		if err := validateBatchCall(cfg, *c); err != nil {
+		if err := validateBatchCall(cfg, tool, c.Args); err != nil {
 			return nil, fmt.Errorf("calls[%d]: %w", i, err)
 		}
 		ask = ask || mcp.ArgBool(c.Args, "confirm")
@@ -80,57 +88,48 @@ func callBatch(ctx context.Context, cfg *config.Config, a map[string]any) ([]byt
 	if v, ok := a["stop_on_error"].(bool); ok {
 		stop = v
 	}
-	results := make([]map[string]any, len(calls))
+	results := make([]batchResult, len(calls))
 	failed := false
 	for i, c := range calls {
-		r := map[string]any{"tool": c.Tool}
-		results[i] = r
+		r := &results[i]
+		r.Tool = c.Tool
 		if failed && stop || ctx.Err() != nil {
-			r["status"] = "skipped"
+			r.Status = "skipped"
 			continue
 		}
 		out, err := dispatch(ctx, cfg, c.Tool, c.Args)
 		if err != nil {
 			failed = true
-			r["status"], r["error"] = "failed", err.Error()
+			r.Status, r.Error = "failed", err.Error()
 			continue
 		}
-		r["status"] = "ok"
-		if json.Valid(out) {
-			r["result"] = json.RawMessage(out)
-		} else {
-			r["result"] = string(out)
+		r.Status, r.Result = "ok", out
+		if !json.Valid(out) {
+			r.Result, _ = json.Marshal(string(out))
 		}
 	}
 	return json.MarshalIndent(results, "", "  ")
 }
 
-func validateBatchCall(cfg *config.Config, call batchCall) error {
-	for _, tool := range mcpTools(cfg) {
-		if tool.Name != call.Tool {
-			continue
-		}
-		required, _ := tool.InputSchema["required"].([]string)
-		for _, key := range required {
-			value, ok := call.Args[key]
-			if !ok || value == nil || value == "" {
-				return fmt.Errorf("%s requires %s", call.Tool, key)
-			}
-		}
-		properties := tool.InputSchema["properties"].(map[string]any)
-		for key, value := range call.Args {
-			property, ok := properties[key].(map[string]any)
-			if !ok {
-				return fmt.Errorf("%s: unknown argument %s", call.Tool, key)
-			}
-			if property["type"] == "string" {
-				if _, ok := value.(string); !ok {
-					return fmt.Errorf("%s: %s must be a string", call.Tool, key)
-				}
-			}
+// validateBatchCall checks one call against its tool schema and the profile policy, locally and before anything runs.
+func validateBatchCall(cfg *config.Config, tool mcp.Tool, args map[string]any) error {
+	required, _ := tool.InputSchema["required"].([]string)
+	for _, key := range required {
+		if v, ok := args[key]; !ok || v == nil || v == "" {
+			return fmt.Errorf("%s requires %s", tool.Name, key)
 		}
 	}
-	if name := mcp.ArgString(call.Args, "profile"); name != "" {
+	properties, _ := tool.InputSchema["properties"].(map[string]any)
+	for key, value := range args {
+		property, ok := properties[key].(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s: unknown argument %s", tool.Name, key)
+		}
+		if _, isString := value.(string); property["type"] == "string" && !isString {
+			return fmt.Errorf("%s: %s must be a string", tool.Name, key)
+		}
+	}
+	if name := mcp.ArgString(args, "profile"); name != "" {
 		profile, ok := cfg.Profiles[name]
 		if !ok {
 			return fmt.Errorf("profile %q is not configured", name)
@@ -139,14 +138,13 @@ func validateBatchCall(cfg *config.Config, call batchCall) error {
 			return fmt.Errorf("profile %q is read-only", name)
 		}
 	}
-	if call.Tool == "request" {
-		return generic.ValidateRequest(cfg, call.Args)
-	}
-	switch call.Tool {
+	switch tool.Name {
+	case "request":
+		return generic.ValidateRequest(cfg, args)
 	case "pr_create", "pr_edit", "comment", "upload":
-		return pr.ValidateWrite(cfg, call.Tool, call.Args)
+		return pr.ValidateWrite(cfg, tool.Name, args)
 	case "issue_update":
-		_, _, err := issue.ResolveProfile(cfg, mcp.ArgString(call.Args, "profile"), mcp.ArgString(call.Args, "key"))
+		_, _, err := issue.ResolveProfile(cfg, mcp.ArgString(args, "profile"), mcp.ArgString(args, "key"))
 		return err
 	}
 	return nil

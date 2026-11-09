@@ -92,7 +92,7 @@ func mcpServer(cfg *config.Config) mcp.Server {
 // callMCPTool runs one MCP tool. Only listed tools are callable. Provider clients are made per call, so a missing
 // login fails only that provider's tools.
 func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
-	if !listed(cfg, name) {
+	if _, ok := findTool(cfg, name); !ok {
 		return nil, fmt.Errorf("unknown tool %q, or its backend is not configured", name)
 	}
 	if name == "batch" {
@@ -106,13 +106,13 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 	return dispatch(ctx, cfg, name, a)
 }
 
-func listed(cfg *config.Config, name string) bool {
+func findTool(cfg *config.Config, name string) (mcp.Tool, bool) {
 	for _, t := range mcpTools(cfg) {
 		if t.Name == name {
-			return true
+			return t, true
 		}
 	}
-	return false
+	return mcp.Tool{}, false
 }
 
 // dispatch runs one tool without asking: callMCPTool and callBatch ask first.

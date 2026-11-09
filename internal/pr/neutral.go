@@ -159,7 +159,7 @@ func neutralTools() []mcp.Tool {
 // ValidateWrite checks local targets and media before a batch sends its first write.
 func ValidateWrite(cfg *config.Config, name string, a map[string]any) error {
 	if name == "upload" {
-		if _, _, err := readMedia(mcp.ArgString(a, "path")); err != nil {
+		if err := checkMedia(mcp.ArgString(a, "path")); err != nil {
 			return err
 		}
 	}

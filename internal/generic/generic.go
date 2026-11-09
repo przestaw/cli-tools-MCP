@@ -171,29 +171,55 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 	return nil, fmt.Errorf("unknown tool %q", name)
 }
 
+// requestSpec is the parsed arguments of one request call; validation and execution share it so they cannot differ.
+type requestSpec struct {
+	method, path, accept, ctype string
+	query                       url.Values
+	body                        []byte
+	meta                        bool // response_metadata: answer {body, location}
+}
+
+func parseRequest(a map[string]any) (requestSpec, error) {
+	query, err := queryArg(a["query"])
+	if err != nil {
+		return requestSpec{}, err
+	}
+	s := requestSpec{
+		method: strings.ToUpper(mcp.ArgString(a, "method")),
+		path:   mcp.ArgString(a, "path"),
+		accept: mcp.ArgString(a, "accept"),
+		ctype:  mcp.ArgString(a, "content_type"),
+		query:  query,
+		meta:   mcp.ArgBool(a, "response_metadata"),
+	}
+	if s.method == "" {
+		s.method = http.MethodGet
+	}
+	if b := mcp.ArgString(a, "body"); b != "" {
+		s.body = []byte(b)
+	}
+	return s, nil
+}
+
 // ValidateRequest checks the profile, query and target before a batch sends its first write.
 func ValidateRequest(cfg *config.Config, a map[string]any) error {
+	s, err := parseRequest(a)
+	if err != nil {
+		return err
+	}
 	c, err := httpClient(cfg, mcp.ArgString(a, "profile"))
 	if err != nil {
 		return err
 	}
-	query, err := queryArg(a["query"])
-	if err != nil {
-		return err
-	}
-	method := strings.ToUpper(mcp.ArgString(a, "method"))
-	if method == "" {
-		method = http.MethodGet
-	}
-	return c.ValidateRequest(method, mcp.ArgString(a, "path"), query)
+	return c.ValidateRequest(s.method, s.path, s.query, s.meta)
 }
 
 func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []byte, resultErr error) {
-	method := strings.ToUpper(mcp.ArgString(a, "method"))
-	if method == "" {
-		method = http.MethodGet
+	s, err := parseRequest(a)
+	if err != nil {
+		return nil, err
 	}
-	if !api.IsReadMethod(method) {
+	if !api.IsReadMethod(s.method) {
 		if err := cfg.RequireWrite(); err != nil {
 			return nil, err
 		}
@@ -203,30 +229,21 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []b
 		return nil, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, c.Close()) }()
-	query, err := queryArg(a["query"])
+	if s.accept != "" {
+		c = c.WithAccept(s.accept)
+	}
+	if !s.meta {
+		return api.BodyOnly(c.Do(ctx, s.method, s.path, s.query, s.body, s.ctype))
+	}
+	data, hdr, err := c.DoHeader(ctx, s.method, s.path, s.query, s.body, s.ctype)
 	if err != nil {
 		return nil, err
 	}
-	var body []byte
-	if s := mcp.ArgString(a, "body"); s != "" {
-		body = []byte(s)
+	var result any = string(data)
+	if json.Valid(data) {
+		result = json.RawMessage(data)
 	}
-	if accept := mcp.ArgString(a, "accept"); accept != "" {
-		c = c.WithAccept(accept)
-	}
-	ctype := mcp.ArgString(a, "content_type")
-	if mcp.ArgBool(a, "response_metadata") {
-		data, headers, err := c.DoWithHeaders(ctx, method, mcp.ArgString(a, "path"), query, body, ctype)
-		if err != nil {
-			return nil, err
-		}
-		var result any = string(data)
-		if json.Valid(data) {
-			result = json.RawMessage(data)
-		}
-		return json.Marshal(map[string]any{"body": result, "location": headers.Get("Location")})
-	}
-	return api.BodyOnly(c.Do(ctx, method, mcp.ArgString(a, "path"), query, body, ctype))
+	return json.Marshal(map[string]any{"body": result, "location": hdr.Get("Location")})
 }
 
 // queryArg turns the query argument of api_request into URL parameters; an array adds one parameter per item.

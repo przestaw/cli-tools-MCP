@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -86,29 +87,66 @@ func upload(ctx context.Context, cfg *config.Config, a map[string]any) (out []by
 	return uploadGitHub(ctx, c, host, t.repo, name, ctype, data)
 }
 
-// readMedia reads a local image or video and refuses anything whose bytes are not one, whatever its name says.
-func readMedia(path string) ([]byte, string, error) {
+// mediaType checks the path and extension of an upload and returns its content type.
+func mediaType(path string) (string, error) {
 	if !filepath.IsAbs(path) {
-		return nil, "", fmt.Errorf("path must be absolute: %q", path)
+		return "", fmt.Errorf("path must be absolute: %q", path)
 	}
 	ext := strings.ToLower(filepath.Ext(path))
 	ctype, ok := uploadTypes[ext]
 	if !ok {
-		return nil, "", fmt.Errorf("upload takes images and videos only (png, jpg, gif, webp, mp4, mov, webm), not %q", ext)
+		return "", fmt.Errorf("upload takes images and videos only (png, jpg, gif, webp, mp4, mov, webm), not %q", ext)
+	}
+	return ctype, nil
+}
+
+func checkMediaFile(path string, st os.FileInfo) error {
+	if !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > maxUploadBytes {
+		return fmt.Errorf("%s: not a regular file of 1 byte to 100 MB", path)
+	}
+	return nil
+}
+
+// checkMedia is the cheap check of a batch preflight: it reads no content.
+func checkMedia(path string) error {
+	if _, err := mediaType(path); err != nil {
+		return err
 	}
 	st, err := os.Stat(path)
 	if err != nil {
-		return nil, "", err
+		return err
 	}
-	if !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > maxUploadBytes {
-		return nil, "", fmt.Errorf("%s: not a regular file of 1 byte to 100 MB", path)
-	}
-	data, err := os.ReadFile(path)
+	return checkMediaFile(path, st)
+}
+
+// readMedia reads a local image or video and refuses anything whose bytes are not one, whatever its name says.
+// It opens the file once, so the checked file is the one read, and never reads more than the limit.
+func readMedia(path string) ([]byte, string, error) {
+	ctype, err := mediaType(path)
 	if err != nil {
 		return nil, "", err
 	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, "", err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, "", err
+	}
+	if err := checkMediaFile(path, st); err != nil {
+		return nil, "", err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxUploadBytes+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) > maxUploadBytes {
+		return nil, "", fmt.Errorf("%s: not a regular file of 1 byte to 100 MB", path)
+	}
 	sniffed := http.DetectContentType(data)
-	quickTime := ext == ".mov" && len(data) > 8 && string(data[4:8]) == "ftyp" // Go does not sniff QuickTime
+	quickTime := strings.EqualFold(filepath.Ext(path), ".mov") && len(data) > 8 && string(data[4:8]) == "ftyp" // Go does not sniff QuickTime
 	if !strings.HasPrefix(sniffed, "image/") && !strings.HasPrefix(sniffed, "video/") && !quickTime {
 		return nil, "", fmt.Errorf("%s does not contain an image or a video (found %s)", path, sniffed)
 	}
