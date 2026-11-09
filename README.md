@@ -78,8 +78,8 @@ Tools (listed only for the backends that are configured):
 | `task_get_context` | a Jira issue with its branches and merge requests |
 | `cli` | `{"module": "azure", "args": ["pr","get","123","-p","MyProject"]}`: azure, atlassian and, with a jira profile, `jira` |
 
-Writes are refused until `allow_write`. The former provider-specific tools (`github_*`, `gitlab_*`, `jira_*`,
-`api_request`, `api_download`, `azure`, `atlassian`) still answer for one release but are no longer listed.
+Writes are refused until `allow_write`. Only the tools above exist: the provider-specific `github_*`, `gitlab_*`,
+`jira_*`, `api_request`, `api_download`, `azure` and `atlassian` tools were removed in 0.4.3.
 `download` follows redirects only to known storage hosts (GitHub Actions logs and artifacts, release assets, user
 attachments) and never sends the credential there; an HTML answer instead of the file is flagged. In `cli`,
 `atlassian attachment download` and `page attachment-download` are reads that save into the downloads directory.

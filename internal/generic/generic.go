@@ -134,12 +134,12 @@ func httpClient(cfg *config.Config, name string) (*api.Client, error) {
 	return api.NewProfileClient(cfg, name, p)
 }
 
-// CallTool runs request, download (and their former names api_request, api_download) and api_exec.
+// CallTool runs request, download and api_exec.
 func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) (out []byte, resultErr error) {
 	switch name {
-	case "request", "api_request":
+	case "request":
 		return request(ctx, cfg, a)
-	case "download", "api_download":
+	case "download":
 		c, err := httpClient(cfg, mcp.ArgString(a, "profile"))
 		if err != nil {
 			return nil, err

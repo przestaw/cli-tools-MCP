@@ -12,47 +12,34 @@ import (
 	"workctl/internal/auth"
 	"workctl/internal/config"
 	"workctl/internal/generic"
-	"workctl/internal/github"
-	"workctl/internal/gitlab"
 	"workctl/internal/issue"
-	"workctl/internal/jira"
 	"workctl/internal/mcp"
 	"workctl/internal/modules"
 	"workctl/internal/pr"
 )
 
-// toolAvailable reports whether the backend of an MCP tool is configured (Jira and GitLab are each optional).
+// toolAvailable reports whether the backend of an MCP tool is configured.
 func toolAvailable(cfg *config.Config, name string) bool {
-	switch {
-	case name == "pr_list" || name == "pr_show":
+	switch name {
+	case "pr_list", "pr_show":
 		return cfg.Has("github") || cfg.Has("gitlab") || cfg.Has("azure")
-	case name == "pr_create" || name == "pr_edit" || name == "ci" || name == "file":
+	case "pr_create", "pr_edit", "ci", "file":
 		return cfg.Has("github") || cfg.Has("gitlab")
-	case name == "comment":
+	case "comment":
 		return cfg.Has("github") || cfg.Has("gitlab") || issue.Available(cfg)
-	case name == "request" || name == "download" || name == "api_request" || name == "api_download":
-		return generic.Available(cfg)
-	case name == "api_exec":
-		return cfg.Has(generic.Kind)
-	case strings.HasPrefix(name, "jira_"):
-		return cfg.Has("jira")
-	case strings.HasPrefix(name, "issue_"):
+	case "issue_show", "issue_search", "issue_update":
 		return issue.Available(cfg)
-	case strings.HasPrefix(name, "gitlab_"):
-		return cfg.Has("gitlab")
-	case strings.HasPrefix(name, "github_"):
-		return cfg.Has("github")
-	case strings.HasPrefix(name, "task_"):
-		return cfg.Has("jira") && cfg.Has("gitlab")
-	case strings.HasPrefix(name, "api_"):
+	case "request", "download":
+		return generic.Available(cfg)
+	case "api_exec":
 		return cfg.Has(generic.Kind)
+	case "task_get_context":
+		return cfg.Has("jira") && cfg.Has("gitlab")
 	}
 	return true
 }
 
-// mcpTools composes the listed MCP tools of the configured backends. The provider-specific github_*, gitlab_*,
-// jira_*, api_request/api_download, azure and atlassian tools stay callable for one release but are not listed:
-// the provider-neutral tools cover them.
+// mcpTools composes the MCP tools of the configured backends.
 func mcpTools(cfg *config.Config) []mcp.Tool {
 	all := append(append(append([]mcp.Tool{}, pr.Tools()...), issue.Tools()...), generic.Tools()...)
 	all = append(all, mcp.Tool{Name: "task_get_context", Description: "Get Jira issue plus matching branches and merge requests from configured GitLab projects.", InputSchema: mcp.ObjSchema(map[string]any{"key": mcp.StrProp("Jira issue key")}, "key")})
@@ -82,41 +69,31 @@ func mcpServer(cfg *config.Config) mcp.Server {
 	}
 }
 
-// callMCPTool runs one MCP tool. Provider clients are made per call, so a missing login fails only that provider's tools.
+// callMCPTool runs one MCP tool. Only listed tools are callable. Provider clients are made per call, so a missing
+// login fails only that provider's tools.
 func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
-	if !toolAvailable(cfg, name) {
-		return nil, fmt.Errorf("tool %q is not available: its backend is not configured", name)
+	listed := false
+	for _, t := range mcpTools(cfg) {
+		listed = listed || t.Name == name
+	}
+	if !listed {
+		return nil, fmt.Errorf("unknown tool %q, or its backend is not configured", name)
 	}
 	switch {
-	case strings.HasPrefix(name, "github_"):
-		return github.CallTool(ctx, cfg, name, a)
-	case strings.HasPrefix(name, "gitlab_"):
-		return gitlab.CallTool(ctx, cfg, name, a)
-	case strings.HasPrefix(name, "jira_"):
-		return jira.CallTool(ctx, cfg, name, a)
 	case strings.HasPrefix(name, "issue_"):
 		return issue.CallTool(ctx, cfg, name, a)
-	case strings.HasPrefix(name, "api_"):
+	case strings.HasPrefix(name, "pr_"), name == "ci", name == "file", name == "comment":
+		return pr.CallTool(ctx, cfg, name, a)
+	case name == "request", name == "download", name == "api_exec":
 		return generic.CallTool(ctx, cfg, name, a)
 	}
 	switch name {
 	case "accounts":
 		return auth.CallTool(ctx, cfg, name, a)
-	case "pr_list", "pr_show", "pr_create", "pr_edit", "ci", "file", "comment":
-		return pr.CallTool(ctx, cfg, name, a)
-	case "request", "download":
-		return generic.CallTool(ctx, cfg, name, a)
 	case "cli":
 		return modules.CallCLITool(ctx, cfg, a)
-	case "azure", "atlassian": // hidden aliases of cli for one release
-		args, err := mcp.ArgStrings(a, "args")
-		if err != nil {
-			return nil, err
-		}
-		return modules.CallTool(ctx, cfg, name, args)
 	case "task_get_context":
 		return taskContextJSON(ctx, cfg, mcp.ArgString(a, "key"))
-	default:
-		return nil, fmt.Errorf("unknown tool %q", name)
 	}
+	return nil, fmt.Errorf("unknown tool %q", name)
 }
