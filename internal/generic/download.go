@@ -58,14 +58,20 @@ func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, 
 		f, err = os.OpenFile(output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	} else {
 		var dir string
-		if dir, err = downloadsDir(); err == nil {
+		if dir, err = DownloadsDir(); err == nil {
 			f, err = os.CreateTemp(dir, "download-*.part")
 		}
 	}
 	if err != nil {
 		return nil, err
 	}
-	meta, err := c.Stream(ctx, urlPath, q, f)
+	var meta api.Streamed
+	if strings.HasPrefix(urlPath, "https://") {
+		meta, err = c.StreamStorageURL(ctx, urlPath, f)
+		urlPath = strings.SplitN(urlPath, "?", 2)[0]
+	} else {
+		meta, err = c.Stream(ctx, urlPath, q, f)
+	}
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
@@ -84,8 +90,8 @@ func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, 
 	return json.Marshal(downloaded{Path: final, Streamed: meta})
 }
 
-// downloadsDir is where downloads without --output land: <user cache dir>/workctl/downloads, private to the user.
-func downloadsDir() (string, error) {
+// DownloadsDir is where downloads without --output land: <user cache dir>/workctl/downloads, private to the user.
+func DownloadsDir() (string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
