@@ -51,14 +51,16 @@ Retry only after correcting a known selector or after the user confirms access h
 
 ## Comment and other writes
 
-Write tools are refused unless writes are enabled (`policy.allow_write`). Enabled tools are not user approval. With `policy.confirm_writes` workctl itself asks the user in the client before each write; a declined or refused confirmation means stop and ask the user, never retry or work around it. If local instructions forbid the write, or the tool is missing, say so; do not work around it.
+Write tools are refused unless writes are enabled (`policy.allow_write`). Enabled tools are not user approval. Confirmation is optional: `policy.confirm_writes` asks for every write, or `confirm: true` requests approval for one operation the user considers high risk. `confirm: false` never overrides policy. Do not add a second question when the user has already approved the exact operation; use one batch for its known writes.
+
+A decline, cancellation, policy refusal or missing client confirmation support means stop. Never retry that operation through a terminal, another CLI, provider client or profile, and never edit configuration, environment variables or policy to get around it. Report the blocker. Only a separate, explicit instruction from the user may change policy; the agent must not propose disabling protection merely to finish a refused action.
 
 1. Read the existing discussion to avoid duplicate comments.
 2. Show the exact proposed text and obtain approval before posting.
 3. Post with `comment` (`repo` + `number` for a pull/merge request, `issue` for an issue); other writes: `pr_create`, `pr_edit`, `issue_update`, `upload` (an image or video, then paste the returned `markdown`).
 4. Verify the result and report the resulting reference. Do not blindly retry a write with an uncertain outcome.
 
-Several approved writes (for example a set of Jenkins builds through `request`) go into one `batch`: the user approves the whole list once. Every call is checked before the question; after a failure the rest is skipped and nothing that already ran is undone.
+Several writes for one user goal (for example stopping 14 known builds of a Jenkins pipeline) go into one `batch`. If confirmation is requested, ask once for the exact list, not once per HTTP request. Do discovery and verification with reads. For independent stops use `stop_on_error: false` and report each result; default true skips remaining writes after a failure. Never silently add newly discovered targets or retry a write with an uncertain result. Nothing that already ran is undone.
 
 Post only the approved text, without secrets or raw logs. A read-only review does not authorize publishing findings.
 

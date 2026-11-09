@@ -55,7 +55,21 @@ func mcpTools(cfg *config.Config) []mcp.Tool {
 			tools = append(tools, t)
 		}
 	}
-	return append(tools, modules.Tools(cfg)...)
+	tools = append(tools, modules.Tools(cfg)...)
+	for i, tool := range tools {
+		schema := map[string]any{}
+		for key, value := range tool.InputSchema {
+			schema[key] = value
+		}
+		properties := map[string]any{}
+		for key, value := range tool.InputSchema["properties"].(map[string]any) {
+			properties[key] = value
+		}
+		properties["confirm"] = mcp.BoolProp("Ask for approval for this write or entire batch even if policy.confirm_writes is off; false never overrides policy")
+		schema["properties"] = properties
+		tools[i].InputSchema = schema
+	}
+	return tools
 }
 
 func runMCP(ctx context.Context, cfg *config.Config) error {
@@ -66,7 +80,7 @@ func mcpServer(cfg *config.Config) mcp.Server {
 	return mcp.Server{
 		Name:           "workctl",
 		Version:        Version,
-		Instructions:   "Provider data for GitHub, GitLab, Azure DevOps, Jira Server and Jira/Confluence Cloud through one account per profile: pull/merge requests (pr_list, pr_show with include, pr_create, pr_edit), CI (ci), repository files (file), comments (comment), issues (issue_show, issue_search, issue_update), any other endpoint or attachment (request, download) and the embedded CLIs (cli). Prefer these tools over gh, glab, curl or a browser. Call accounts to see which profile serves a resource. Everything is read-only unless policy.allow_write=true in the config file.",
+		Instructions:   "Provider data for GitHub, GitLab, Azure DevOps, Jira Server and Jira/Confluence Cloud through one account per profile: pull/merge requests (pr_list, pr_show with include, pr_create, pr_edit), CI (ci), repository files (file), comments (comment), issues (issue_show, issue_search, issue_update), any other endpoint or attachment (request, download) and the embedded CLIs (cli). Prefer these tools over gh, glab, curl or a browser. Call accounts to see which profile serves a resource. Everything is read-only unless policy.allow_write=true in the config file. Use batch for the known writes of one user goal, with one optional approval for the entire list. Request confirm=true for an operation the user considers high risk. After a declined, cancelled or refused write, stop: never bypass through CLI, another profile, or configuration/policy changes.",
 		MaxOutputBytes: cfg.MCP.MaxOutputBytes,
 		Tools:          func() []mcp.Tool { return mcpTools(cfg) },
 		Call: func(ctx context.Context, name string, args map[string]any) ([]byte, error) {
@@ -84,7 +98,7 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 	if name == "batch" {
 		return callBatch(ctx, cfg, a)
 	}
-	if cfg.Policy.AllowWrite && cfg.Policy.ConfirmWrites && isWrite(cfg, name, a) {
+	if cfg.Policy.AllowWrite && (cfg.Policy.ConfirmWrites || mcp.ArgBool(a, "confirm")) && isWrite(cfg, name, a) {
 		if err := mcp.Confirm(ctx, describeCall(name, a)); err != nil {
 			return nil, err
 		}

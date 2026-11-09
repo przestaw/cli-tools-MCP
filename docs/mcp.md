@@ -23,7 +23,7 @@ Tools (listed only for the backends that are configured):
 | `file` | repository file at a ref |
 | `comment` | comment on a pull/merge request (`repo` + `number`) or an issue (`issue`) (write) |
 | `upload` | one local image or video (png, jpg, gif, webp, mp4, mov, webm; up to 100 MB) for a pull request (`repo`, GitHub user attachment on github.com or GitLab upload) or an issue (`issue`, Jira attachment); returns `url` and `markdown` (write) |
-| `batch` | `calls: [{tool, args}, ...]`, 1 to 20 writes run in order after one approval; listed only with `allow_write` |
+| `batch` | `calls: [{tool, args}, ...]`, 1 to 20 writes run in order; one approval if requested, never one per item; listed only with `allow_write` |
 | `issue_show`, `issue_search`, `issue_update` | Jira Server and Cloud issues in one shape (see below) |
 | `request`, `download` | any endpoint or file of any HTTP profile (github, gitlab, jira, atlassian, api) |
 | `api_exec` | allow-listed remote commands of ssh-exec profiles |
@@ -42,6 +42,21 @@ GitHub and GitLab, with the web URL); `format: "raw"` returns the provider JSON.
 attachments) and never sends the credential there; an HTML answer instead of the file is flagged. In `cli`,
 `atlassian attachment download` and `page attachment-download` are reads that save into the downloads directory.
 Each `cli` call runs as a child process of workctl with its own timeout (`timeouts.<module>`, else `modules.timeout_seconds`).
+
+Confirmation defaults to off. For a single high-risk operation pass `confirm: true` to a write or to `batch`;
+`confirm: false` cannot disable `policy.confirm_writes`. A batch item requesting confirmation also asks once for the whole list.
+Policy is chosen by the user, not changed by the agent to complete an action. After refusal or cancellation, an agent
+must not switch to CLI, another profile, or configuration changes to bypass it. This is agent guidance: workctl cannot
+prevent an independent program from using the same API.
+
+For example, discover the 14 component builds of a pipeline with reads, then pass their exact stop requests to one
+`batch` with `stop_on_error: false`. If requested, one approval covers the list. Report each result and verify with reads;
+do not include new targets or automatically repeat uncertain writes. Input checks run before the first write; remote
+failures can still produce partial execution and there is no rollback.
+
+For Jenkins `buildWithParameters`, `request` accepts `content_type: "application/x-www-form-urlencoded"` and an encoded
+form body. Set `response_metadata: true` to get `{body, location}` including the queue item's `Location` header (native
+HTTP profiles only). Default request output remains the response body. A returned location may be relative to the server.
 
 Timeouts are resolved per request: `profiles.<name>.timeout_seconds`, else `timeouts.<kind>` (for example
 `"timeouts": {"jira": 60, "api": 120}`), else the global `timeout_seconds`. Both overrides are optional, so existing

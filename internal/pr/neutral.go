@@ -156,6 +156,26 @@ func neutralTools() []mcp.Tool {
 	}
 }
 
+// ValidateWrite checks local targets and media before a batch sends its first write.
+func ValidateWrite(cfg *config.Config, name string, a map[string]any) error {
+	if name == "upload" {
+		if _, _, err := readMedia(mcp.ArgString(a, "path")); err != nil {
+			return err
+		}
+	}
+	if key := mcp.ArgString(a, "issue"); key != "" {
+		_, _, err := issue.ResolveProfile(cfg, mcp.ArgString(a, "profile"), key)
+		return err
+	}
+	if name == "pr_edit" || name == "comment" {
+		if number(a) <= 0 {
+			return fmt.Errorf("number must be a positive integer")
+		}
+	}
+	_, err := resolveRepo(cfg, a)
+	return err
+}
+
 func callNeutral(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
 	if name == "upload" {
 		return upload(ctx, cfg, a)

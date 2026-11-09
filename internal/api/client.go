@@ -35,15 +35,16 @@ func (e *Error) Error() string {
 
 // Client sends JSON API requests of one profile. The zero value is not usable; use NewKindClient or NewProfileClient.
 type Client struct {
-	baseURL  string
-	prefix   string
-	client   *http.Client
-	headers  http.Header
-	cli      *cliBackend  // set for profiles with backend "cli": requests go to gh or glab, not to client
-	csrf     *config.CSRF // set when writes need an anti-CSRF token (see csrf.go)
-	token    *csrfToken   // fetched on the first write; empty header when the server has CSRF protection off
-	form     *formSession // set for auth "form": logs in before the first request (see formlogin.go)
-	readOnly bool         // refuse everything but GET and HEAD
+	responseHeaders *http.Header
+	baseURL         string
+	prefix          string
+	client          *http.Client
+	headers         http.Header
+	cli             *cliBackend  // set for profiles with backend "cli": requests go to gh or glab, not to client
+	csrf            *config.CSRF // set when writes need an anti-CSRF token (see csrf.go)
+	token           *csrfToken   // fetched on the first write; empty header when the server has CSRF protection off
+	form            *formSession // set for auth "form": logs in before the first request (see formlogin.go)
+	readOnly        bool         // refuse everything but GET and HEAD
 }
 
 func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Client, error) {
@@ -234,7 +235,29 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 	return out, respType, err
 }
 
-// target turns path and query into the server-relative target of a request and refuses a write on a read-only profile.
+// DoWithHeaders retains response headers for callers that need Location as well as the body.
+func (c *Client) DoWithHeaders(ctx context.Context, method, path string, q url.Values, body []byte, contentType string) ([]byte, http.Header, error) {
+	if c.cli != nil {
+		return nil, nil, fmt.Errorf("response metadata requires a native HTTP profile")
+	}
+	var headers http.Header
+	copy := *c
+	copy.responseHeaders = &headers
+	data, _, err := copy.Do(ctx, method, path, q, body, contentType)
+	return data, headers, err
+}
+
+// ValidateRequest checks a request locally without authenticating or sending it.
+func (c *Client) ValidateRequest(method, path string, q url.Values) error {
+	target, err := c.target(method, path, q)
+	if err != nil {
+		return err
+	}
+	_, err = http.NewRequest(method, c.baseURL+target, nil)
+	return err
+}
+
+// target turns path and query into a server-relative target and enforces profile read-only policy.
 func (c *Client) target(method, path string, q url.Values) (string, error) {
 	target, err := c.relPath(path)
 	if err != nil {
@@ -301,6 +324,9 @@ func (c *Client) send(ctx context.Context, method, target string, headers http.H
 	data, hdr, err := httpx.Do(c.client, req, func(status int, url string, body []byte) error {
 		return &Error{Method: method, URL: url, Status: status, Body: string(body)}
 	})
+	if c.responseHeaders != nil {
+		*c.responseHeaders = hdr
+	}
 	return data, hdr.Get("Content-Type"), err
 }
 

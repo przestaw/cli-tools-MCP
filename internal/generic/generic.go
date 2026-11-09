@@ -9,6 +9,7 @@ package generic
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -85,7 +86,9 @@ func Tools() []mcp.Tool {
 		Name:        "request",
 		Description: "Send one HTTP request through a configured profile (any provider API or a generic service) for what the other tools do not cover. GET/HEAD always allowed, other methods need policy.allow_write=true.",
 		InputSchema: mcp.ObjSchema(map[string]any{"method": mcp.StrProp("HTTP method, default GET"), "path": path, "query": query, "body": mcp.StrProp("Request body (JSON text)"),
-			"accept": mcp.StrProp("Accept header, e.g. application/vnd.github.full+json for body_html with signed attachment links"), "profile": profile}, "path"),
+			"content_type":      mcp.StrProp("Body media type; default application/json; use application/x-www-form-urlencoded for form parameters"),
+			"response_metadata": mcp.BoolProp("Return body and Location (e.g. Jenkins queue item URL); native HTTP profiles only"),
+			"accept":            mcp.StrProp("Accept header, e.g. application/vnd.github.full+json for body_html with signed attachment links"), "profile": profile}, "path"),
 	}, {
 		Name:        "download",
 		Description: "Download one file through a configured profile without changing a byte (attachments, logs, artifacts, archives). Streams it to a new file in the workctl downloads directory and returns its path, size, SHA-256, content type, the server's file name and a warning when an HTML page came instead. Redirects to known storage hosts (GitHub Actions logs, release assets) are followed without the credential.",
@@ -168,7 +171,23 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 	return nil, fmt.Errorf("unknown tool %q", name)
 }
 
-// request is the request tool: one HTTP request, writes only with the write policy.
+// ValidateRequest checks the profile, query and target before a batch sends its first write.
+func ValidateRequest(cfg *config.Config, a map[string]any) error {
+	c, err := httpClient(cfg, mcp.ArgString(a, "profile"))
+	if err != nil {
+		return err
+	}
+	query, err := queryArg(a["query"])
+	if err != nil {
+		return err
+	}
+	method := strings.ToUpper(mcp.ArgString(a, "method"))
+	if method == "" {
+		method = http.MethodGet
+	}
+	return c.ValidateRequest(method, mcp.ArgString(a, "path"), query)
+}
+
 func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []byte, resultErr error) {
 	method := strings.ToUpper(mcp.ArgString(a, "method"))
 	if method == "" {
@@ -195,7 +214,19 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []b
 	if accept := mcp.ArgString(a, "accept"); accept != "" {
 		c = c.WithAccept(accept)
 	}
-	return api.BodyOnly(c.Do(ctx, method, mcp.ArgString(a, "path"), query, body, "application/json"))
+	ctype := mcp.ArgString(a, "content_type")
+	if mcp.ArgBool(a, "response_metadata") {
+		data, headers, err := c.DoWithHeaders(ctx, method, mcp.ArgString(a, "path"), query, body, ctype)
+		if err != nil {
+			return nil, err
+		}
+		var result any = string(data)
+		if json.Valid(data) {
+			result = json.RawMessage(data)
+		}
+		return json.Marshal(map[string]any{"body": result, "location": headers.Get("Location")})
+	}
+	return api.BodyOnly(c.Do(ctx, method, mcp.ArgString(a, "path"), query, body, ctype))
 }
 
 // queryArg turns the query argument of api_request into URL parameters; an array adds one parameter per item.

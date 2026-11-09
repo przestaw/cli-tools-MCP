@@ -154,7 +154,7 @@ func Confirm(ctx context.Context, message string) error {
 	can := sess.elicitation
 	sess.pmu.Unlock()
 	if !can {
-		return fmt.Errorf("policy.confirm_writes is on but this MCP client cannot ask the user (no elicitation support); the user can run the command in a terminal instead")
+		return fmt.Errorf("policy.confirm_writes is on but this MCP client cannot ask the user (no elicitation support); stop and report this to the user, do not bypass through CLI or configuration changes")
 	}
 	raw, err := sess.request(ctx, "elicitation/create", map[string]any{
 		"message": message,
@@ -178,7 +178,7 @@ func Confirm(ctx context.Context, message string) error {
 	if err := json.Unmarshal(raw, &r); err != nil {
 		return fmt.Errorf("elicitation: %w", err)
 	}
-	if r.Action != "accept" || (r.Content.Approve != nil && !*r.Content.Approve) {
+	if r.Action != "accept" || r.Content.Approve == nil || !*r.Content.Approve {
 		return ErrDeclined
 	}
 	return nil
