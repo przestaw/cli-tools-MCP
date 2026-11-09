@@ -44,6 +44,9 @@ type Client struct {
 	token    *csrfToken   // fetched on the first write; empty header when the server has CSRF protection off
 	form     *formSession // set for auth "form": logs in before the first request (see formlogin.go)
 	readOnly bool         // refuse everything but GET and HEAD
+	kind     string       // profile kind, for the account check
+	want     string       // account the token must belong to before a write (github, gitlab); empty: no check
+	checked  bool         // the account was checked once
 }
 
 func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Client, error) {
@@ -107,6 +110,10 @@ func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (
 	client, err := newClient(profile, "", cfg.ProfileTimeout(profile))
 	if err != nil {
 		return nil, err
+	}
+	client.kind = profile.Kind
+	if profile.Kind == "github" || profile.Kind == "gitlab" {
+		client.want = profile.Username
 	}
 	auth := strings.ToLower(profile.Auth)
 	if auth == "none" {
@@ -203,6 +210,16 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 	}
 	if c.cli != nil {
 		return c.cli.do(ctx, method, target, c.headers.Get("Accept"), body, contentType)
+	}
+	if c.want != "" && !c.checked && !IsReadMethod(method) {
+		who, err := c.Account(ctx)
+		if err != nil {
+			return nil, "", err
+		}
+		if !strings.EqualFold(who, c.want) {
+			return nil, "", fmt.Errorf("the token belongs to %q but the profile is bound to %q: store the right token with `workctl auth set-token`", who, c.want)
+		}
+		c.checked = true
 	}
 	headers, err := c.authorize(ctx, method)
 	if err != nil {

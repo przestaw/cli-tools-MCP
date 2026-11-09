@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/url"
@@ -245,6 +246,21 @@ func EndpointInit(path, module string, args []string, r *bufio.Reader) error {
 		return nil
 	}
 	fmt.Println(who)
+	bound, err := api.BindToken(cfg, name, p)
+	if errors.Is(err, api.ErrOtherAccount) {
+		return err
+	}
+	if err != nil {
+		fmt.Printf("account not checked: %v\n", err)
+		return nil
+	}
+	if bound.Username != p.Username {
+		cfg.Profiles[name] = bound
+		if err := cfg.Save(); err != nil {
+			return err
+		}
+		fmt.Printf("profile %s is bound to %s\n", name, bound.Username)
+	}
 	return nil
 }
 
