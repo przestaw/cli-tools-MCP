@@ -62,10 +62,13 @@ VS Code: `python3 scripts/install.py --vscode` (`python` on Windows) builds the 
 it to the VS Code user profile as the MCP server `workctl` (`workctl mcp`, default config path, tokens from the keyring).
 Then start it under **MCP: List Servers** and enable its tools in agent mode; restart it after changing the config.
 
-Tools: `azure` and `atlassian` (one each; the argument is the command line as an array, for example
-`["pr","get","123","-p","MyProject"]`), plus `jira_*`, `gitlab_*`, `github_*`, `api_request`/`api_download`/`api_exec` and `task_get_context` for the backends that are
-configured. Write tools of `jira`/`gitlab`/`github` appear only with `allow_write`; the `azure`/`atlassian` tools refuse writes until then.
-Each `azure`/`atlassian` call runs as a child process of workctl with its own timeout (`timeouts.azure`/`timeouts.atlassian`, else `modules.timeout_seconds`).
+Tools: `cli` runs a module command line as an array: `{"module": "azure", "args": ["pr","get","123","-p","MyProject"]}`.
+Modules are `azure`, `atlassian` and, when a jira profile exists, `jira` (the `workctl jira` commands, with an optional
+`profile`; `transition`, `comment add` and `raw` with a method other than GET/HEAD are writes). Next to it come `jira_*`,
+`gitlab_*`, `github_*`, `api_request`/`api_download`/`api_exec` and `task_get_context` for the backends that are
+configured. Write tools of `jira`/`gitlab`/`github` appear only with `allow_write`; `cli` refuses writes until then.
+The former `azure` and `atlassian` tools still answer for one release but are no longer listed.
+Each `cli` call runs as a child process of workctl with its own timeout (`timeouts.<module>`, else `modules.timeout_seconds`).
 
 Timeouts are resolved per request: `profiles.<name>.timeout_seconds`, else `timeouts.<kind>` (for example
 `"timeouts": {"jira": 60, "api": 120}`), else the global `timeout_seconds`. Both overrides are optional, so existing
@@ -228,7 +231,7 @@ It is a CLI command only; the MCP server does not offer it.
 - **Macros as MCP tools:** a named, parameterised sequence of module calls defined in a JSON file, for example
   "everything about ticket X" (Jira issue, matching pull requests, their open threads) in one call. A macro is one MCP
   tool (`macro_run`, with `macro_list` to discover them); it counts as a read only if every step is a read, and its steps
-  go through the same policy and child-process path as the single `azure`/`atlassian` tools. `task ISSUE-KEY` is the
+  go through the same policy and child-process path as the `cli` tool. `task ISSUE-KEY` is the
   hand-written ancestor of this.
 
 ## License

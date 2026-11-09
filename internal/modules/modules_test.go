@@ -96,6 +96,9 @@ func TestAliasesAndFlagsBeforeTheCommand(t *testing.T) {
 func TestHelpIsAlwaysRead(t *testing.T) {
 	groups := map[string]string{"azure": "pr", "atlassian": "issue"}
 	for _, m := range cliModules {
+		if m.run == nil {
+			continue // native commands (jira) have no help or version command
+		}
 		g := groups[m.name]
 		for _, args := range [][]string{nil, {g}, {g, "create", "--help"}, {g, "delete", "-h"}, {"help"}, {"version"}} {
 			if write, err := m.classify(args, true); err != nil || write {
@@ -201,5 +204,80 @@ func TestToolsDescribeThePolicy(t *testing.T) {
 		if !strings.Contains(tool.Description, "allowed (policy.allow_write=true)") {
 			t.Errorf("%s: description = %q", tool.Name, tool.Description)
 		}
+	}
+}
+
+func TestJiraCommandsClassification(t *testing.T) {
+	m := cliModules["jira"]
+	cases := []struct {
+		args  []string
+		write bool
+		err   bool
+	}{
+		{[]string{"issue", "ABC-1"}, false, false},
+		{[]string{"search", "--jql", "project = ABC"}, false, false},
+		{[]string{"transitions", "ABC-1"}, false, false},
+		{[]string{"transition", "--id", "5", "ABC-1"}, true, false},
+		{[]string{"comment", "add", "--body", "x", "ABC-1"}, true, false},
+		{[]string{"raw", "GET", "/rest/api/2/myself"}, false, false},
+		{[]string{"raw", "--query", "a=b", "head", "/rest/api/2/myself"}, false, false},
+		{[]string{"raw", "--body", "{}", "PUT", "/rest/api/2/issue/ABC-1"}, true, false},
+		{[]string{"raw", "POST", "/rest/api/2/issueLink"}, true, false},
+		{[]string{"raw", "GET", "https://evil.test/x"}, false, true},
+		{[]string{"raw", "GET", "//evil.test/x"}, false, true},
+		{[]string{"nope"}, false, true},
+	}
+	for _, c := range cases {
+		write, err := m.classify(c.args, true)
+		if (err != nil) != c.err || write != c.write {
+			t.Errorf("jira %q: write=%v err=%v, want write=%v err=%v", c.args, write, err, c.write, c.err)
+		}
+	}
+}
+
+func TestCLIToolModulesFollowTheConfiguration(t *testing.T) {
+	cfg := config.Default()
+	if got := strings.Join(toolModules(cfg), ","); got != "atlassian,azure" {
+		t.Fatalf("no jira profile: modules = %s", got)
+	}
+	if _, err := CallCLITool(context.Background(), cfg, map[string]any{"module": "jira", "args": []any{"issue", "A-1"}}); err == nil || !strings.Contains(err.Error(), "not available") {
+		t.Fatalf("jira without a profile: err = %v", err)
+	}
+	cfg.Profiles["j"] = config.Profile{Kind: "jira", URL: "https://jira.example.test"}
+	if got := strings.Join(toolModules(cfg), ","); got != "atlassian,azure,jira" {
+		t.Fatalf("with a jira profile: modules = %s", got)
+	}
+	if _, err := CallCLITool(context.Background(), cfg, map[string]any{"module": "jira", "args": []any{"transition", "--id", "5", "A-1"}}); err == nil || !strings.Contains(err.Error(), "allow_write") {
+		t.Fatalf("jira write without allow_write: err = %v", err)
+	}
+	if _, err := CallCLITool(context.Background(), cfg, map[string]any{"module": "jira", "profile": "other", "args": []any{"issue", "A-1"}}); err == nil || !strings.Contains(err.Error(), "not a configured jira profile") {
+		t.Fatalf("unknown profile: err = %v", err)
+	}
+	if _, err := CallCLITool(context.Background(), cfg, map[string]any{"module": "ado", "profile": "j", "args": []any{"pr", "list"}}); err == nil || !strings.Contains(err.Error(), "own profiles") {
+		t.Fatalf("profile on a cobra module: err = %v", err)
+	}
+	if tools := Tools(cfg); len(tools) != 1 || tools[0].Name != "cli" {
+		t.Fatalf("tools = %v", tools)
+	}
+}
+
+func TestCLIToolRunsJiraWithItsProfileAndNoColorFlag(t *testing.T) {
+	testutil.FakeChildProcess(t)
+	cfg := config.Default()
+	cfg.SetPath("/cfg/workctl.json")
+	cfg.Profiles["j"] = config.Profile{Kind: "jira", URL: "https://jira.example.test"}
+	out, err := CallCLITool(context.Background(), cfg, map[string]any{"module": "jira", "profile": "j", "args": []any{"issue", "ABC-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ARGS:--config|/cfg/workctl.json|--profile|j|jira|issue|ABC-1"; string(out) != want {
+		t.Fatalf("got %s, want %s", out, want)
+	}
+	out, err = CallCLITool(context.Background(), cfg, map[string]any{"module": "atl", "args": []any{"issue", "get", "ABC-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ARGS:--config|/cfg/workctl.json|atlassian|issue|get|ABC-1|--no-color"; string(out) != want {
+		t.Fatalf("got %s, want %s", out, want)
 	}
 }
