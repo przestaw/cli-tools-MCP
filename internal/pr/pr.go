@@ -141,9 +141,9 @@ func newReader(cfg *config.Config, name string, profile config.Profile) (vcs.Pul
 	}
 }
 
-// Tools are the provider-neutral pr_* MCP tools.
+// Tools are the provider-neutral repository tools: pr_list, pr_show, pr_create, pr_edit, ci, file and comment.
 func Tools() []mcp.Tool {
-	return []mcp.Tool{
+	return append([]mcp.Tool{
 		{Name: "pr_list", Description: "List pull requests or merge requests from GitHub, GitLab, or Azure DevOps using unified profiles.", InputSchema: mcp.ObjSchema(map[string]any{
 			"profile": mcp.StrProp("Profile name (optional if default profile exists)"),
 			"repo":    mcp.StrProp("Repository name or path (optional if default_repo is set)"),
@@ -152,22 +152,34 @@ func Tools() []mcp.Tool {
 			"search":  mcp.StrProp("Search text (title and description)"),
 			"format":  mcp.StrProp("Output format: json or text (default json)"),
 		})},
-		{Name: "pr_show", Description: "Get details and description of a pull request or merge request.", InputSchema: mcp.ObjSchema(map[string]any{
-			"id":      mcp.IntProp("Pull request or merge request number"),
+		{Name: "pr_show", Description: "Get details and description of a pull request or merge request; include adds files, reviews, reviewers, comments (inline), discussion and checks (GitHub and GitLab).", InputSchema: mcp.ObjSchema(map[string]any{
+			"number":  mcp.IntProp("Pull request or merge request number"),
+			"id":      mcp.IntProp("Same as number (older name)"),
+			"include": mcp.ArrProp("Optional parts: files, reviews, reviewers, comments, discussion, checks"),
 			"profile": mcp.StrProp("Profile name (optional if default profile exists)"),
 			"repo":    mcp.StrProp("Repository name or path (optional if default_repo is set)"),
 			"project": mcp.StrProp("Project name (required for Azure DevOps unless set in profile)"),
-			"format":  mcp.StrProp("Output format: json or text (default json)"),
-		}, "id")},
-	}
+			"format":  mcp.StrProp("Output format: json or text (default json; include forces json)"),
+		})},
+	}, neutralTools()...)
 }
 
-// CallTool runs pr_list or pr_show.
+// CallTool runs one of the repository tools.
 func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
+	if name != "pr_list" && name != "pr_show" {
+		return callNeutral(ctx, cfg, name, a)
+	}
 	id := 0
+	include, err := mcp.ArgStrings(a, "include")
+	if err != nil {
+		return nil, err
+	}
 	if name == "pr_show" {
-		if id = mcp.ArgInt(a, "id", 0); id <= 0 {
-			return nil, fmt.Errorf("id must be a positive integer")
+		if id = number(a); id <= 0 {
+			return nil, fmt.Errorf("number must be a positive integer")
+		}
+		if len(include) > 0 {
+			a["format"] = "json"
 		}
 	}
 	pName, profile, err := cfg.PRProfileFor(mcp.ArgString(a, "profile"), "", cliutil.FirstNonEmpty(mcp.ArgString(a, "repo"), mcp.ArgString(a, "project")))
@@ -185,6 +197,9 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 	var stdout, stderr bytes.Buffer
 	if err := render.PullRequests(&stdout, &stderr, res, format, id > 0); err != nil {
 		return nil, err
+	}
+	if len(include) > 0 {
+		return showParts(ctx, cfg, a, stdout.Bytes(), include)
 	}
 	return stdout.Bytes(), nil
 }

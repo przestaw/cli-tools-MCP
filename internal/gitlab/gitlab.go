@@ -374,3 +374,37 @@ func mrCommand(ctx context.Context, c *api.Client, cfg *config.Config, args []st
 		return fmt.Errorf("unknown mr action %q", action)
 	}
 }
+
+func mrPipelines(ctx context.Context, c *api.Client, project string, iid int) ([]byte, error) {
+	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/pipelines", projectID(project), iid)
+	return api.BodyOnly(c.Do(ctx, http.MethodGet, p, nil, nil, ""))
+}
+
+func mrApprovals(ctx context.Context, c *api.Client, project string, iid int) ([]byte, error) {
+	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/approvals", projectID(project), iid)
+	return api.BodyOnly(c.Do(ctx, http.MethodGet, p, nil, nil, ""))
+}
+
+// editMR changes title, description, target branch or state (open reopens, closed closes) of a merge request.
+func editMR(ctx context.Context, c *api.Client, project string, iid int, title, description, target, state string) ([]byte, error) {
+	q := url.Values{}
+	for key, value := range map[string]string{"title": title, "description": description, "target_branch": target} {
+		if value != "" {
+			q.Set(key, value)
+		}
+	}
+	switch state {
+	case "":
+	case "closed", "close":
+		q.Set("state_event", "close")
+	case "open", "opened", "reopen":
+		q.Set("state_event", "reopen")
+	default:
+		return nil, fmt.Errorf("state %q: use open or closed", state)
+	}
+	if len(q) == 0 {
+		return nil, fmt.Errorf("at least one of title, body, base or state must be provided")
+	}
+	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d", projectID(project), iid)
+	return api.BodyOnly(c.Do(ctx, http.MethodPut, p, q, nil, ""))
+}
