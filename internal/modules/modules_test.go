@@ -41,7 +41,7 @@ func TestEveryCommandIsClassifiedAndWritesNeedThePolicy(t *testing.T) {
 				if m.read[key] {
 					t.Errorf("%s %s is on the read list but classifies as a write", name, key)
 				}
-			case !m.read[key] && leaf[0] != "completion" && leaf[len(leaf)-1] != "open":
+			case !m.read[key] && !m.downloads[key] && leaf[0] != "completion" && leaf[len(leaf)-1] != "open":
 				t.Errorf("%s %s is neither read-listed nor a write", name, key)
 			}
 		}
@@ -57,7 +57,7 @@ func TestKnownWriteCommandsNeedAllowWrite(t *testing.T) {
 			"pr reactivate", "pr reopen", "pr autocomplete", "build queue", "pipeline run", "release create"},
 		"atlassian": {"issue create", "issue transition", "issue update", "issue set-field", "issue assign", "issue delete",
 			"comment add", "comment delete", "link add", "link delete", "worklog add", "attachment upload",
-			"attachment delete", "attachment download", "page create", "page update", "sprint add"},
+			"attachment delete", "page create", "page update", "sprint add"},
 	}
 	for name, keys := range cases {
 		m := cliModules[name]
@@ -279,5 +279,28 @@ func TestCLIToolRunsJiraWithItsProfileAndNoColorFlag(t *testing.T) {
 	}
 	if want := "ARGS:--config|/cfg/workctl.json|atlassian|issue|get|ABC-1|--no-color"; string(out) != want {
 		t.Fatalf("got %s, want %s", out, want)
+	}
+}
+
+func TestDownloadsAreReadsInTheDownloadsDirectory(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	atl := cliModules["atlassian"]
+	for _, args := range [][]string{{"attachment", "download", "10001"}, {"page", "attachment-download", "1", "a.png"}} {
+		if write, err := atl.classify(args, true); err != nil || write {
+			t.Errorf("%q: write=%v err=%v, want a read", args, write, err)
+		}
+		if write, _ := atl.classify(args, false); !write {
+			t.Errorf("%q on the human CLI writes where the user says, so it stays a write", args)
+		}
+		if _, err := atl.classify(append(args, "-o", "/etc/x"), true); err == nil {
+			t.Errorf("%q with -o must be refused on the agent surface", args)
+		}
+		dir, err := atl.downloadDir(args)
+		if err != nil || !strings.HasSuffix(dir, "downloads") {
+			t.Errorf("%q: dir=%q err=%v", args, dir, err)
+		}
+	}
+	if dir, _ := atl.downloadDir([]string{"issue", "get", "A-1"}); dir != "" {
+		t.Errorf("other commands run in the server's directory, got %q", dir)
 	}
 }
