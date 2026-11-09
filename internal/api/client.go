@@ -75,7 +75,7 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 	}
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
-	h.Set("User-Agent", "workctl/0.4.1")
+	h.Set("User-Agent", "workctl/0.4.2")
 	client := &Client{baseURL: base, prefix: prefix, client: c, headers: h, csrf: cfg.CSRF, readOnly: cfg.ReadOnly}
 	if cfg.CSRF != nil || cfg.FormLogin != nil {
 		// Servers tie the token or the login to the session cookie.
