@@ -5,10 +5,12 @@ package generic
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"workctl/internal/config"
@@ -49,6 +51,58 @@ func TestAPIRequestReadsAndGuardsWrites(t *testing.T) {
 }
 
 func TestCLIHelperProcess(t *testing.T) { testutil.CLIHelperProcess() }
+
+func TestFormSessionCleanupReachesCallers(t *testing.T) {
+	for _, call := range []string{"cli", "request", "download", "session-check"} {
+		for _, logoutOK := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/logout=%v", call, logoutOK), func(t *testing.T) {
+				var logouts atomic.Int32
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/login":
+						if r.Method == http.MethodPost {
+							http.SetCookie(w, &http.Cookie{Name: "sid", Value: "session", Path: "/"})
+						}
+					case "/logout":
+						logouts.Add(1)
+						if !logoutOK {
+							http.Error(w, "private session details", http.StatusForbidden)
+							return
+						}
+						http.SetCookie(w, &http.Cookie{Name: "sid", Path: "/", MaxAge: -1})
+					default:
+						_, _ = w.Write([]byte("ok"))
+					}
+				}))
+				t.Cleanup(srv.Close)
+				t.Setenv("WORKCTL_TEST_SESSION_PASSWORD", "pw")
+				t.Setenv("XDG_CACHE_HOME", t.TempDir())
+				cfg := testConfig(srv.URL)
+				cfg.Profiles["svc"] = config.Profile{Kind: Kind, URL: srv.URL, Auth: "form", Username: "me", TokenEnv: "WORKCTL_TEST_SESSION_PASSWORD", VerifyTLS: true, ReadOnly: true,
+					FormLogin: &config.FormLogin{Path: "/login", UserField: "User", PasswordField: "Password", SessionCookie: "sid", LogoutPath: "/logout"}}
+				var err error
+				switch call {
+				case "cli":
+					err = Command(cfg, []string{"raw", "GET", "/home"})
+				case "session-check":
+					err = Command(cfg, []string{"session-check"})
+					if err == nil || logouts.Load() != 0 {
+						t.Fatalf("incomplete session-check: %v, logouts=%d", err, logouts.Load())
+					}
+					return
+				default:
+					_, err = CallTool(context.Background(), cfg, "api_"+call, map[string]any{"path": "/home"})
+				}
+				if (err == nil) != logoutOK || logouts.Load() != 1 {
+					t.Fatalf("err=%v, logouts=%d", err, logouts.Load())
+				}
+				if err != nil && strings.Contains(err.Error(), "private") {
+					t.Fatal("logout exposed response contents")
+				}
+			})
+		}
+	}
+}
 
 func TestAPIRequestEncodesQuery(t *testing.T) {
 	var rawQuery string
