@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -88,16 +89,25 @@ func newCLIClient(profile config.Profile, timeout time.Duration) (*Client, error
 // not logged in) as a plain error. A POST is never retried: it could post a comment twice. A write is refused
 // unless the CLI is logged in as the account the profile is bound to.
 func (b *cliBackend) do(ctx context.Context, method, target, accept string, body []byte, contentType string) ([]byte, string, error) {
+	var stdout bytes.Buffer
+	if err := b.run(ctx, method, target, accept, body, contentType, &stdout); err != nil {
+		return nil, "", err
+	}
+	return stdout.Bytes(), "", nil
+}
+
+// run is do with the answer written to stdout as it arrives (downloads stream it to a file).
+func (b *cliBackend) run(ctx context.Context, method, target, accept string, body []byte, contentType string, stdout io.Writer) error {
 	if strings.HasPrefix(target, "//") {
-		return nil, "", fmt.Errorf("invalid request path %q", target)
+		return fmt.Errorf("invalid request path %q", target)
 	}
 	if method != http.MethodGet && b.want != "" && !b.checked {
 		who, err := b.whoami(ctx)
 		if err != nil {
-			return nil, "", err
+			return err
 		}
 		if !strings.EqualFold(who, b.want) {
-			return nil, "", fmt.Errorf("%s is logged in as %q but the profile is bound to %q: run `workctl auth login`", b.tool, who, b.want)
+			return fmt.Errorf("%s is logged in as %q but the profile is bound to %q: run `workctl auth login`", b.tool, who, b.want)
 		}
 		b.checked = true
 	}
@@ -105,7 +115,7 @@ func (b *cliBackend) do(ctx context.Context, method, target, accept string, body
 	if b.tool == "glab" {
 		var ok bool
 		if endpoint, ok = strings.CutPrefix(target, gitlabAPIPrefix); !ok {
-			return nil, "", fmt.Errorf("glab serves only %s, got %q", gitlabAPIPrefix, target)
+			return fmt.Errorf("glab serves only %s, got %q", gitlabAPIPrefix, target)
 		}
 	}
 	args := []string{"api", "--hostname", b.host, "--method", method}
@@ -130,27 +140,31 @@ func (b *cliBackend) do(ctx context.Context, method, target, accept string, body
 	if body != nil {
 		cmd.Stdin = bytes.NewReader(body)
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	var stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = stdout, &stderr
 	err := cmd.Run()
 	if err == nil {
-		return stdout.Bytes(), "", nil
+		return nil
+	}
+	answer := ""
+	if buf, ok := stdout.(*bytes.Buffer); ok {
+		answer = strings.TrimSpace(buf.String())
 	}
 	if ctx.Err() != nil {
-		return nil, "", fmt.Errorf("%s: %w", b.tool, ctx.Err())
+		return fmt.Errorf("%s: %w", b.tool, ctx.Err())
 	}
 	if errors.Is(err, exec.ErrNotFound) {
-		return nil, "", fmt.Errorf("%s not found in PATH: install it and run `%s auth login`", b.tool, b.tool)
+		return fmt.Errorf("%s not found in PATH: install it and run `%s auth login`", b.tool, b.tool)
 	}
 	msg := strings.TrimSpace(stderr.String())
 	if m := cliStatusRe.FindStringSubmatch(msg); m != nil {
 		status, _ := strconv.Atoi(m[1])
-		return nil, "", &Error{Method: method, URL: b.host + target, Status: status, Body: cliutil.FirstNonEmpty(strings.TrimSpace(stdout.String()), msg)}
+		return &Error{Method: method, URL: b.host + target, Status: status, Body: cliutil.FirstNonEmpty(answer, msg)}
 	}
 	if len(msg) > 2000 {
 		msg = msg[:2000] + "..."
 	}
-	return nil, "", fmt.Errorf("%s: %s", b.tool, cliutil.FirstNonEmpty(msg, err.Error()))
+	return fmt.Errorf("%s: %s", b.tool, cliutil.FirstNonEmpty(msg, err.Error()))
 }
 
 // cliEnv returns env without the cliEnvDrop variables and with colors switched off.

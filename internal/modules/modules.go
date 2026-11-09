@@ -20,6 +20,7 @@ import (
 	atlassiancmd "workctl/internal/atlassian/cmd"
 	azurecmd "workctl/internal/azure/cmd"
 	"workctl/internal/config"
+	"workctl/internal/generic"
 	"workctl/internal/jira"
 	"workctl/internal/mcp"
 	"workctl/internal/proc"
@@ -43,6 +44,9 @@ type cliModule struct {
 	// native: a `workctl <name>` command using workctl profiles; listed only when a profile of that kind exists,
 	// accepts the profile argument and takes no --no-color.
 	native bool
+	// downloads are commands that only fetch a file. On the agent surface they count as reads, run in the workctl
+	// downloads directory and refuse an output path of their own.
+	downloads map[string]bool
 }
 
 func setOf(items ...string) map[string]bool {
@@ -68,6 +72,7 @@ var cliModules = map[string]*cliModule{
 	"atlassian": {
 		name: "atlassian", desc: "Atlassian Cloud: Jira and Confluence",
 		run: atlassiancmd.Run, resolve: atlassiancmd.Resolve, leaves: atlassiancmd.Leaves,
+		downloads: setOf("attachment download", "page attachment-download"),
 		read: setOf("version", "help", "jql", "cql", "trace",
 			"attachment list",
 			"board issues", "board list", "board sprints",
@@ -110,6 +115,25 @@ func toolModules(cfg *config.Config) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func hasOutputFlag(args []string) bool {
+	for _, a := range args {
+		flag, _, _ := strings.Cut(a, "=")
+		if flag == "-o" || flag == "--output" || strings.HasPrefix(a, "-o") && len(a) > 2 && !strings.HasPrefix(a, "--") {
+			return true
+		}
+	}
+	return false
+}
+
+// downloadDir is the working directory of a download command on the agent surface; empty for other commands.
+func (m *cliModule) downloadDir(args []string) (string, error) {
+	path, group, _, err := m.resolve(args)
+	if err != nil || group || !m.downloads[strings.Join(path, " ")] {
+		return "", nil
+	}
+	return generic.DownloadsDir()
 }
 
 func hasHelpFlag(args []string) bool {
@@ -158,6 +182,12 @@ func (m *cliModule) classify(args []string, strict bool) (write bool, err error)
 			return false, fmt.Errorf("%s %s starts a browser and is not available here", m.name, key)
 		}
 		return false, nil
+	}
+	if m.downloads[key] {
+		if strict && hasOutputFlag(args) {
+			return false, fmt.Errorf("%s %s: the output path is chosen by workctl (the downloads directory); drop -o/--output", m.name, key)
+		}
+		return !strict, nil
 	}
 	if key == "raw" {
 		if m.raw != nil {
@@ -243,6 +273,10 @@ func RunProcess(ctx context.Context, cfg *config.Config, name string, args []str
 }
 
 func runProcess(ctx context.Context, cfg *config.Config, name, profile string, args []string) ([]byte, error) {
+	return runProcessIn(ctx, cfg, name, profile, "", args)
+}
+
+func runProcessIn(ctx context.Context, cfg *config.Config, name, profile, dir string, args []string) ([]byte, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -264,6 +298,7 @@ func runProcess(ctx context.Context, cfg *config.Config, name, profile string, a
 	defer cancel()
 	cmd := proc.Command(ctx, exe, argv...)
 	cmd.Env = append(cmd.Environ(), "NO_COLOR=1")
+	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -329,7 +364,15 @@ func callModule(ctx context.Context, cfg *config.Config, name, profile string, a
 			return nil, err
 		}
 	}
-	return runProcess(ctx, cfg, name, profile, args)
+	dir, err := m.downloadDir(args)
+	if err != nil {
+		return nil, err
+	}
+	out, err := runProcessIn(ctx, cfg, name, profile, dir, args)
+	if err == nil && dir != "" {
+		out = append(out, []byte("\n(saved in "+dir+")\n")...)
+	}
+	return out, err
 }
 
 // Tools is the one MCP tool of the module CLIs: the command line as an array, the module as an argument.
