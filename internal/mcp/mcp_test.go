@@ -129,3 +129,16 @@ func TestServeUsesTheInjectedTools(t *testing.T) {
 		t.Errorf("output not truncated to 8 bytes: %q", text)
 	}
 }
+
+func TestEmptyResourcesAndPrompts(t *testing.T) {
+	got := serveLines(t, Server{Tools: func() []Tool { return nil }},
+		`{"jsonrpc":"2.0","id":1,"method":"resources/list"}`,
+		`{"jsonrpc":"2.0","id":2,"method":"resources/templates/list"}`,
+		`{"jsonrpc":"2.0","id":3,"method":"prompts/list"}`,
+	)
+	for i, key := range []string{"resources", "resourceTemplates", "prompts"} {
+		if items, ok := got[i]["result"].(map[string]any)[key].([]any); !ok || len(items) != 0 {
+			t.Errorf("%s: %v", key, got[i])
+		}
+	}
+}
