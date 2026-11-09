@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"sync"
 )
 
 type rpcRequest struct {
@@ -20,6 +21,9 @@ type rpcRequest struct {
 	ID      json.RawMessage `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	// Result and Error are set when the line is the client's answer to a request of the server (elicitation).
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  *rpcError       `json:"error,omitempty"`
 }
 
 type rpcError struct {
@@ -150,17 +154,21 @@ func sendRPC(w *bufio.Writer, resp rpcResponse) error {
 	return w.Flush()
 }
 
-// Serve runs the JSON-RPC loop on input and output until input ends.
+// Serve runs the JSON-RPC loop on input and output until input ends. Tool calls run concurrently, so a call can
+// ask the client a question (see Confirm) while the loop keeps reading the answer.
 func Serve(ctx context.Context, s Server, input io.Reader, output io.Writer) error {
-	handlers := map[string]func(json.RawMessage) (any, error){
-		"initialize": s.initializeRPC,
-		"ping":       func(json.RawMessage) (any, error) { return map[string]any{}, nil },
-		"tools/list": func(json.RawMessage) (any, error) { return map[string]any{"tools": s.Tools()}, nil },
-		"tools/call": func(params json.RawMessage) (any, error) { return s.callToolRPC(ctx, params) },
+	sess := &session{out: bufio.NewWriter(output), pending: map[string]chan rpcRequest{}, closed: make(chan struct{})}
+	handlers := map[string]func(context.Context, json.RawMessage) (any, error){
+		"initialize": func(_ context.Context, p json.RawMessage) (any, error) { return s.initializeRPC(sess, p) },
+		"ping":       func(context.Context, json.RawMessage) (any, error) { return map[string]any{}, nil },
+		"tools/list": func(context.Context, json.RawMessage) (any, error) { return map[string]any{"tools": s.Tools()}, nil },
+		"tools/call": s.callToolRPC,
 	}
+	var calls sync.WaitGroup
+	defer calls.Wait()
+	defer close(sess.closed) // runs before Wait: questions still open when input ends get no answer; calls finish
 	in := bufio.NewScanner(input)
 	in.Buffer(make([]byte, 64*1024), 8*1024*1024)
-	out := bufio.NewWriter(output)
 	for in.Scan() {
 		line := in.Bytes()
 		if len(line) == 0 {
@@ -168,20 +176,24 @@ func Serve(ctx context.Context, s Server, input io.Reader, output io.Writer) err
 		}
 		var req rpcRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			if err := sendRPC(out, rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "Parse error"}}); err != nil {
+			if err := sess.send(rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "Parse error"}}); err != nil {
 				return err
 			}
 			continue
 		}
 		// Notifications have no id and must not receive a response.
 		notification := len(req.ID) == 0 || string(req.ID) == "null"
+		if req.Method == "" && !notification {
+			sess.answer(req)
+			continue
+		}
 		if req.Method == "notifications/initialized" || req.Method == "notifications/cancelled" {
 			continue
 		}
 		if req.Method == "server/discover" {
 			// Intentionally legacy-only MCP. Modern clients are expected to fall back to initialize.
 			if !notification {
-				if err := sendRPC(out, rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "Method not found; use legacy MCP initialize"}}); err != nil {
+				if err := sess.send(rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "Method not found; use legacy MCP initialize"}}); err != nil {
 					return err
 				}
 			}
@@ -190,33 +202,48 @@ func Serve(ctx context.Context, s Server, input io.Reader, output io.Writer) err
 		handler := handlers[req.Method]
 		if handler == nil {
 			if !notification {
-				if err := sendRPC(out, rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "Method not found"}}); err != nil {
+				if err := sess.send(rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "Method not found"}}); err != nil {
 					return err
 				}
 			}
 			continue
 		}
-		result, callErr := handler(req.Params)
-		if notification {
+		run := func() error {
+			result, callErr := handler(context.WithValue(ctx, sessionKey{}, sess), req.Params)
+			if notification {
+				return nil
+			}
+			resp := rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
+			if callErr != nil {
+				resp.Result = nil
+				resp.Error = &rpcError{Code: -32602, Message: callErr.Error()}
+			}
+			return sess.send(resp)
+		}
+		if req.Method != "tools/call" {
+			if err := run(); err != nil {
+				return err
+			}
 			continue
 		}
-		resp := rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: result}
-		if callErr != nil {
-			resp.Result = nil
-			resp.Error = &rpcError{Code: -32602, Message: callErr.Error()}
-		}
-		if err := sendRPC(out, resp); err != nil {
-			return err
-		}
+		calls.Add(1)
+		go func() {
+			defer calls.Done()
+			_ = run() // a broken output also ends the read loop
+		}()
 	}
 	return in.Err()
 }
 
-func (s Server) initializeRPC(params json.RawMessage) (any, error) {
+func (s Server) initializeRPC(sess *session, params json.RawMessage) (any, error) {
 	var args struct {
 		ProtocolVersion string `json:"protocolVersion"`
+		Capabilities    struct {
+			Elicitation json.RawMessage `json:"elicitation"`
+		} `json:"capabilities"`
 	}
 	_ = json.Unmarshal(params, &args)
+	sess.setElicitation(len(args.Capabilities.Elicitation) > 0 && string(args.Capabilities.Elicitation) != "null")
 	pv := args.ProtocolVersion
 	switch pv {
 	case "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05":

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -70,6 +71,12 @@ func serveLines(t *testing.T, s Server, lines ...string) []map[string]any {
 		}
 		responses = append(responses, m)
 	}
+	// Tool calls run concurrently, so answers may come in any order; order them by id.
+	sort.SliceStable(responses, func(i, j int) bool {
+		a, _ := responses[i]["id"].(float64)
+		b, _ := responses[j]["id"].(float64)
+		return a < b
+	})
 	return responses
 }
 

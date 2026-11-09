@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"workctl/internal/config"
+	"workctl/internal/mcp"
 	"workctl/internal/proc"
 )
 
@@ -82,4 +83,23 @@ func sshExecProfile(cfg *config.Config) (string, config.Profile, error) {
 		return "", profile, fmt.Errorf("profile %q is not an ssh-exec profile: use `workctl api raw` for HTTP", name)
 	}
 	return name, profile, nil
+}
+
+// ExecIsWrite reports whether an api_exec call runs a command not marked read_only. A call that will be refused
+// anyway (unknown profile, command not allowed) counts as a read: the tool reports the refusal itself.
+func ExecIsWrite(cfg *config.Config, a map[string]any) bool {
+	scoped, err := cfg.Scoped(mcp.ArgString(a, "profile"), Kind)
+	if err != nil {
+		return false
+	}
+	name, profile, err := sshExecProfile(scoped)
+	if err != nil {
+		return false
+	}
+	argv, err := mcp.ArgStrings(a, "args")
+	if err != nil {
+		return false
+	}
+	c, err := allowedCommand(name, profile, argv)
+	return err == nil && !c.ReadOnly
 }
