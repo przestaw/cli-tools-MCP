@@ -76,13 +76,17 @@ type CSRF struct {
 
 // FormLogin describes the login form of a web application without an API token: Fields plus the user name and the
 // secret (under UserField and PasswordField) are posted to Path, and the login worked when the answer sets the cookie
-// SessionCookie.
+// SessionCookie. LogoutPath, when set, is requested with GET when the client is closed, so short-lived runs do not
+// leave sessions behind (servers cap the sessions per user).
 type FormLogin struct {
-	Path          string            `json:"path"`
-	Fields        map[string]string `json:"fields,omitempty"`
-	UserField     string            `json:"user_field"`
-	PasswordField string            `json:"password_field"`
-	SessionCookie string            `json:"session_cookie"`
+	Path             string            `json:"path"`
+	Fields           map[string]string `json:"fields,omitempty"`
+	UserField        string            `json:"user_field"`
+	PasswordField    string            `json:"password_field"`
+	SessionCookie    string            `json:"session_cookie"`
+	LogoutPath       string            `json:"logout_path,omitempty"`
+	LogoutTokenField string            `json:"logout_token_field,omitempty"`
+	LogoutVerifyPath string            `json:"logout_verify_path,omitempty"`
 }
 
 // UsesSSHExec reports whether the profile runs remote commands over ssh instead of sending HTTP requests.
@@ -641,6 +645,12 @@ func validateFormLogin(name, auth string, profile Profile) error {
 		return fmt.Errorf("profiles.%s.username is required for form login", name)
 	case !strings.HasPrefix(f.Path, "/") || f.UserField == "" || f.PasswordField == "" || f.SessionCookie == "":
 		return fmt.Errorf("profiles.%s.form_login needs path (starting with /), user_field, password_field and session_cookie", name)
+	case f.LogoutPath != "" && !strings.HasPrefix(f.LogoutPath, "/"):
+		return fmt.Errorf("profiles.%s.form_login.logout_path must start with /", name)
+	case f.LogoutVerifyPath != "" && !strings.HasPrefix(f.LogoutVerifyPath, "/"):
+		return fmt.Errorf("profiles.%s.form_login.logout_verify_path must start with /", name)
+	case f.LogoutPath == "" && (f.LogoutTokenField != "" || f.LogoutVerifyPath != ""):
+		return fmt.Errorf("profiles.%s.form_login.logout_path is required for logout verification or a token", name)
 	}
 	return nil
 }

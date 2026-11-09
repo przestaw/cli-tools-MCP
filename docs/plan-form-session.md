@@ -17,23 +17,19 @@ which every login fails until the old sessions expire. The failure reads like a 
 | Config | optional `form_login.logout_path` | none |
 | Sessions held | 0 after a run | 1 per profile |
 | Requests per command | login page, login, request, logout | request only, login once |
-| Code | about 15 lines | about 85 lines |
-| Main risk | the server may want an anti-CSRF token on the logout request | session cookie stored on disk |
+| Verification | replay original cookies against a protected page | session cookie stored on disk |
+| Main risk | cleanup failures must stop the caller | session cookie stored on disk |
 
-Neither adds a CLI command or an MCP tool.
+Variant B supports a logout challenge token and adds `api session-check`; it adds no MCP tool.
 
 ## Check before relying on B
 
-The logout request has to work as a plain GET. OTRS puts a `ChallengeToken` in the logout link of its pages and
-may refuse `Action=Logout` without it. Validate once the session limit allows a login:
-
-1. `workctl --profile otrs api raw GET '/index.pl?Action=Logout'` after a login (the call itself logs in first)
-   and read the answer: the login page with a "logged out" message means it works, a token error means it does not.
-2. Run a few commands in a row with `logout_path` set and confirm the logins keep working, i.e. the sessions
-   are really released.
-
-If the token is required, B needs the token read from a logged-in page, which is no longer a small change:
-use A instead.
+Configure `logout_path`, `logout_token_field: "ChallengeToken"` and a protected
+`logout_verify_path`, as described in [services-auth.md](services-auth.md). Then run
+`workctl --profile otrs api session-check`. It checks login and server-side invalidation in one
+operation without printing page contents or credentials. A successful response from `Action=Logout`
+alone is not evidence that the session was invalidated. Do not use a standalone raw logout request:
+that request opens its own session and does not close sessions from previous processes.
 
 ## Design of A
 

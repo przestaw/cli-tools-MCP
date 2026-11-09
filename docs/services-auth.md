@@ -94,6 +94,41 @@ and reading them is up to the consumer. Combine it with `"read_only": true`:
 only when the answer sets `session_cookie`: a wrong password usually comes back as the login page
 with HTTP 200. SSO or two-factor logins cannot be automated this way.
 
+Set `logout_path` to close each CLI/MCP session, including after a failed request. Cleanup has its
+own timeout, independent of the request context, and failures are returned to the caller rather
+than silently ignored. Without `logout_verify_path`, cleanup only checks that the session cookie
+was removed; that alone does not prove server-side invalidation.
+
+For OTRS, add these fields inside `form_login`:
+
+```json
+{
+  "logout_path": "/index.pl?Action=Logout",
+  "logout_token_field": "ChallengeToken",
+  "logout_verify_path": "/index.pl?Action=AgentPreferences"
+}
+```
+
+`logout_token_field` is optional: workctl reads its value from a hidden input or a link/form query
+in an authenticated page and sends it only to the configured logout endpoint. It understands OTRS
+semicolon-separated queries and HTML entities. Tokens and cookies remain in memory.
+`logout_verify_path` must identify a protected, non-mutating page, not a public login page. After
+logout, workctl replays the original cookies against that page without logging in again and requires
+the login form's password input. It does not merely trust HTTP 200 or a deleted browser cookie.
+
+Verify a profile without printing HTML, cookies, passwords or tokens:
+
+```sh
+workctl --profile otrs api session-check
+```
+
+This checks that the verification page is authenticated before logout and rejects the original
+session afterwards. It never requests ticket details. All `api raw`, `api download`, `api_request`
+and `api_download` calls use the same automatic cleanup. Check the command's exit status; stop on
+a cleanup error rather than repeatedly opening sessions. `workctl auth logout` removes the stored
+credential; it is not the server-session logout command. Restart existing MCP servers after
+installing a new binary; already-running processes still use the old code.
+
 ### `read_only` — reads only
 
 Any HTTP profile may set `"read_only": true`: workctl then refuses every method but GET and HEAD

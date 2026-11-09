@@ -5,9 +5,11 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"workctl/internal/config"
@@ -88,5 +90,159 @@ func TestFormLoginReportsAWrongPassword(t *testing.T) {
 	_, _, err = c.Do(context.Background(), http.MethodGet, "/ticket", nil, nil, "")
 	if err == nil || !strings.Contains(err.Error(), "no sid cookie") || strings.Contains(err.Error(), "wrong") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFormLoginClosesTheSession(t *testing.T) {
+	logins, logouts := 0, 0
+	app := formApp(t, &logins)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/logout" {
+			logouts++
+			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "", Path: "/app/", MaxAge: -1})
+			return
+		}
+		app.Config.Handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("WORKCTL_TEST_FORM_PASSWORD", "pw")
+	profile := formProfile(srv.URL)
+	profile.FormLogin.LogoutPath = "/logout"
+	c, err := NewProfileClient(config.Default(), "app", profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close() // never logged in: nothing to end
+	if _, _, err := c.Do(context.Background(), http.MethodGet, "/ticket?id=7", nil, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	if logins != 1 || logouts != 1 {
+		t.Fatalf("logins = %d, logouts = %d, want 1 and 1", logins, logouts)
+	}
+}
+
+func TestFormLogoutRequiresSessionInvalidation(t *testing.T) {
+	logins := 0
+	srv := formApp(t, &logins)
+	t.Setenv("WORKCTL_TEST_FORM_PASSWORD", "pw")
+	profile := formProfile(srv.URL)
+	profile.FormLogin.LogoutPath = "/logout"
+	c, err := NewProfileClient(config.Default(), "app", profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.Do(context.Background(), http.MethodGet, "/home", nil, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	if !c.form.loggedIn {
+		t.Fatal("HTTP 200 without invalidating the session must not mark it logged out")
+	}
+}
+
+func TestFormLogoutWithChallengeToken(t *testing.T) {
+	for _, tokenHTML := range []string{
+		`<a href="/app/index.pl?Action=Logout;ChallengeToken=test%2Btoken&amp;Other=1">Logout</a>`,
+		`<input value="test+token" name="ChallengeToken" type="hidden">`,
+	} {
+		for _, broken := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/broken=%v", tokenHTML[:2], broken), func(t *testing.T) {
+				var active atomic.Bool
+				var logouts, probes atomic.Int32
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == http.MethodPost {
+						active.Store(true)
+						http.SetCookie(w, &http.Cookie{Name: "sid", Value: "old-session", Path: "/app/"})
+						_, _ = fmt.Fprint(w, tokenHTML)
+						return
+					}
+					if r.URL.Query().Get("Action") == "Logout" {
+						logouts.Add(1)
+						cookie, err := r.Cookie("sid")
+						if err != nil || cookie.Value != "old-session" || r.URL.Query().Get("ChallengeToken") != "test+token" {
+							http.Error(w, "bad logout credentials", http.StatusForbidden)
+							return
+						}
+						if !broken {
+							active.Store(false)
+						}
+						http.SetCookie(w, &http.Cookie{Name: "sid", Path: "/app/", MaxAge: -1})
+						return
+					}
+					if cookie, err := r.Cookie("sid"); err == nil && cookie.Value == "old-session" {
+						probes.Add(1)
+						if active.Load() {
+							_, _ = fmt.Fprint(w, tokenHTML)
+							return
+						}
+					}
+					_, _ = fmt.Fprint(w, `<form><input name="Password" type="password"></form>`)
+				}))
+				t.Cleanup(srv.Close)
+				t.Setenv("WORKCTL_TEST_FORM_PASSWORD", "pw")
+				profile := formProfile(srv.URL)
+				profile.FormLogin.LogoutPath = "/index.pl?Action=Logout"
+				profile.FormLogin.LogoutTokenField = "ChallengeToken"
+				profile.FormLogin.LogoutVerifyPath = "/index.pl?Action=AgentPreferences"
+				client, err := NewProfileClient(config.Default(), "app", profile)
+				if err != nil {
+					t.Fatal(err)
+				}
+				ctx, cancel := context.WithCancel(context.Background())
+				if _, _, err := client.Do(ctx, http.MethodGet, "/home", nil, nil, ""); err != nil {
+					t.Fatal(err)
+				}
+				cancel()
+				err = client.Close()
+				if (err != nil) != broken || client.form.loggedIn != broken {
+					t.Fatalf("Close = %v, loggedIn = %v, broken = %v", err, client.form.loggedIn, broken)
+				}
+				if logouts.Load() != 1 || probes.Load() != 2 {
+					t.Fatalf("logouts = %d, probes with old cookie = %d", logouts.Load(), probes.Load())
+				}
+				if !broken {
+					if err := client.Close(); err != nil || logouts.Load() != 1 {
+						t.Fatalf("second Close = %v, logouts = %d", err, logouts.Load())
+					}
+					if err := client.CheckSession(context.Background()); err != nil {
+						t.Fatalf("session-check = %v", err)
+					}
+					if logouts.Load() != 2 || probes.Load() != 4 {
+						t.Fatalf("session-check logouts = %d, probes with old cookie = %d", logouts.Load(), probes.Load())
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestFormLogoutErrorsDoNotExposeCredentials(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			logins := 0
+			app := formApp(t, &logins)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/app/logout" {
+					http.Error(w, "private-cookie-value", status)
+					return
+				}
+				app.Config.Handler.ServeHTTP(w, r)
+			}))
+			t.Cleanup(srv.Close)
+			t.Setenv("WORKCTL_TEST_FORM_PASSWORD", "pw")
+			profile := formProfile(srv.URL)
+			profile.FormLogin.LogoutPath = "/logout?ChallengeToken=private-token-value"
+			client, err := NewProfileClient(config.Default(), "app", profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := client.Do(context.Background(), http.MethodGet, "/home", nil, nil, ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := client.Close(); err == nil || strings.Contains(err.Error(), "private-") || !client.form.loggedIn {
+				t.Fatalf("Close = %v, loggedIn = %v", err, client.form.loggedIn)
+			}
+		})
 	}
 }
