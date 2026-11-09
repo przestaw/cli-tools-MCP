@@ -4,7 +4,8 @@
 // Package modules embeds the full cobra CLIs (azure, atlassian) into workctl and
 // polices what the agent surface may run. Each module keeps its own config file and
 // OS keyring entries (under the names ado and atl), so profiles and tokens made
-// earlier still work.
+// earlier still work. The agent reaches them, and the `workctl jira` commands, through
+// one `cli` tool.
 package modules
 
 import (
@@ -12,12 +13,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
 	atlassiancmd "workctl/internal/atlassian/cmd"
 	azurecmd "workctl/internal/azure/cmd"
 	"workctl/internal/config"
+	"workctl/internal/jira"
 	"workctl/internal/mcp"
 	"workctl/internal/proc"
 )
@@ -25,7 +28,8 @@ import (
 // Aliases maps the short names to the module names.
 var Aliases = map[string]string{"ado": "azure", "atl": "atlassian"}
 
-// cliModule is one of the CLIs compiled into this binary (a cobra command tree under internal/<name>).
+// cliModule is a CLI the agent may run through the cli tool: a cobra command tree compiled into this binary
+// (internal/<name>, with run set), or a native workctl command over workctl profiles (native set, run nil).
 type cliModule struct {
 	name    string
 	desc    string
@@ -34,6 +38,11 @@ type cliModule struct {
 	leaves  func() [][]string
 	// read holds the commands that only read, as canonical words joined by a space. Every other command is a write.
 	read map[string]bool
+	// raw classifies the module's raw command; nil means the cobra form (rawIsWrite).
+	raw func(rest []string, strict bool) (bool, error)
+	// native: a `workctl <name>` command using workctl profiles; listed only when a profile of that kind exists,
+	// accepts the profile argument and takes no --no-color.
+	native bool
 }
 
 func setOf(items ...string) map[string]bool {
@@ -74,14 +83,32 @@ var cliModules = map[string]*cliModule{
 			"user find", "user get", "user me",
 			"worklog list"),
 	},
+	"jira": {
+		name: "jira", desc: "Jira Server / Data Center (workctl jira)", native: true,
+		resolve: jira.Resolve, leaves: jira.Leaves, read: setOf(jira.ReadCommands...), raw: jira.RawIsWrite,
+	},
 }
 
-// Names lists the embedded module names.
+// Names lists the embedded module names (the cobra trees; native commands have their own handlers).
 func Names() []string {
 	names := make([]string, 0, len(cliModules))
-	for name := range cliModules {
-		names = append(names, name)
+	for name, m := range cliModules {
+		if m.run != nil {
+			names = append(names, name)
+		}
 	}
+	return names
+}
+
+// toolModules lists the modules the cli tool offers with this configuration, sorted.
+func toolModules(cfg *config.Config) []string {
+	var names []string
+	for name, m := range cliModules {
+		if !m.native || cfg.Has(name) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
 	return names
 }
 
@@ -133,6 +160,9 @@ func (m *cliModule) classify(args []string, strict bool) (write bool, err error)
 		return false, nil
 	}
 	if key == "raw" {
+		if m.raw != nil {
+			return m.raw(rest, strict)
+		}
 		return rawIsWrite(m.name, args, rest, strict)
 	}
 	return !m.read[key], nil
@@ -167,7 +197,7 @@ func rawIsWrite(name string, args, rest []string, strict bool) (bool, error) {
 // Command runs an embedded CLI in this process: `workctl azure ...`, `workctl atlassian ...`.
 func Command(cfg *config.Config, name string, args []string) error {
 	m := cliModules[name]
-	if m == nil {
+	if m == nil || m.run == nil {
 		return fmt.Errorf("unknown module %q", name)
 	}
 	if len(args) > 0 && (args[0] == "init" || args[0] == "set-token") {
@@ -188,7 +218,7 @@ func Command(cfg *config.Config, name string, args []string) error {
 // RunDirect runs a module CLI in-process without the policy check; the init wizard uses it for `config init`.
 func RunDirect(name string, args []string) error {
 	m := cliModules[name]
-	if m == nil {
+	if m == nil || m.run == nil {
 		return fmt.Errorf("unknown module %q", name)
 	}
 	return m.run(args)
@@ -209,6 +239,10 @@ func moduleTimeout(cfg *config.Config, name string) time.Duration {
 // A child keeps the command trees' global flag state away from the long-running MCP server, gives each call its own
 // timeout, and has no terminal to prompt on. It does not check the policy: callers do.
 func RunProcess(ctx context.Context, cfg *config.Config, name string, args []string) ([]byte, error) {
+	return runProcess(ctx, cfg, name, "", args)
+}
+
+func runProcess(ctx context.Context, cfg *config.Config, name, profile string, args []string) ([]byte, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -217,9 +251,14 @@ func RunProcess(ctx context.Context, cfg *config.Config, name string, args []str
 	if cfg.Path() != "" {
 		argv = append(argv, "--config", cfg.Path())
 	}
+	if profile != "" {
+		argv = append(argv, "--profile", profile)
+	}
 	argv = append(argv, name)
 	argv = append(argv, args...)
-	argv = append(argv, "--no-color")
+	if m := cliModules[name]; m == nil || !m.native {
+		argv = append(argv, "--no-color")
+	}
 	timeout := moduleTimeout(cfg, name)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -243,11 +282,40 @@ func RunProcess(ctx context.Context, cfg *config.Config, name string, args []str
 	return stdout.Bytes(), nil
 }
 
-// CallTool is the MCP entry for the embedded CLIs: strict policy first, then a child process.
+// CallTool is the MCP entry for one module: strict policy first, then a child process.
 func CallTool(ctx context.Context, cfg *config.Config, name string, args []string) ([]byte, error) {
+	return callModule(ctx, cfg, name, "", args)
+}
+
+// CallCLITool runs the cli tool: {module, args, profile?}. The old per-module tools (azure, atlassian) call
+// CallTool directly.
+func CallCLITool(ctx context.Context, cfg *config.Config, a map[string]any) ([]byte, error) {
+	args, err := mcp.ArgStrings(a, "args")
+	if err != nil {
+		return nil, err
+	}
+	name := mcp.ArgString(a, "module")
+	if alias := Aliases[name]; alias != "" {
+		name = alias
+	}
+	return callModule(ctx, cfg, name, mcp.ArgString(a, "profile"), args)
+}
+
+func callModule(ctx context.Context, cfg *config.Config, name, profile string, args []string) ([]byte, error) {
 	m := cliModules[name]
 	if m == nil {
-		return nil, fmt.Errorf("unknown module %q", name)
+		return nil, fmt.Errorf("unknown module %q; available: %s", name, strings.Join(toolModules(cfg), ", "))
+	}
+	if m.native && !cfg.Has(name) {
+		return nil, fmt.Errorf("module %q is not available: no %s profile is configured", name, name)
+	}
+	if profile != "" {
+		if !m.native {
+			return nil, fmt.Errorf("%s keeps its own profiles: pass its own flag in args instead of profile", name)
+		}
+		if p, ok := cfg.Profiles[profile]; !ok || p.Kind != name {
+			return nil, fmt.Errorf("profile %q is not a configured %s profile", profile, name)
+		}
 	}
 	if len(args) == 0 {
 		return nil, fmt.Errorf("%s: args is empty, for example [\"--help\"]", name)
@@ -261,20 +329,30 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, args []strin
 			return nil, err
 		}
 	}
-	return RunProcess(ctx, cfg, name, args)
+	return runProcess(ctx, cfg, name, profile, args)
 }
 
-// Tools are the MCP tools of the embedded CLIs: one per module, taking the command line as an array.
+// Tools is the one MCP tool of the module CLIs: the command line as an array, the module as an argument.
 func Tools(cfg *config.Config) []mcp.Tool {
 	mode := "Commands that change something are refused until policy.allow_write=true."
 	if cfg.Policy.AllowWrite {
 		mode = "Commands that change something are allowed (policy.allow_write=true)."
 	}
-	argsSchema := func(what string) map[string]any {
-		return mcp.ObjSchema(map[string]any{"args": mcp.ArrProp("Arguments of the " + what + " command, one array element per argument")}, "args")
+	names := toolModules(cfg)
+	desc := "Run a provider CLI embedded in workctl; put the command first and flags after it. Modules: " +
+		strings.Join(names, ", ") + ". " +
+		"azure (Azure DevOps): [\"pr\",\"get\",\"123\",\"-p\",\"MyProject\",\"-e\"], no default project, pass -p. " +
+		"atlassian (Jira/Confluence Cloud): [\"issue\",\"get\",\"ABC-123\",\"-e\"] or [\"jql\",\"project = ABC\"]. "
+	if cfg.Has("jira") {
+		desc += "jira (Jira Server): [\"transitions\",\"KEY\"], [\"transition\",\"--id\",\"5\",\"KEY\"], " +
+			"[\"raw\",\"--body\",\"{...}\",\"PUT\",\"/rest/api/2/issue/KEY\"]. "
 	}
-	return []mcp.Tool{
-		{Name: "azure", Description: "Azure DevOps CLI (embedded in workctl). Put the command first and flags after it, for example [\"pr\",\"get\",\"123\",\"-p\",\"MyProject\",\"-e\"] or [\"pr\",\"threads\",\"123\",\"-p\",\"MyProject\",\"--json\"]. There is no default project: pass -p. Use [\"pr\",\"--help\"] to explore. " + mode, InputSchema: argsSchema("azure")},
-		{Name: "atlassian", Description: "Atlassian Cloud CLI for Jira and Confluence (embedded in workctl). Put the command first and flags after it, for example [\"issue\",\"get\",\"ABC-123\",\"-e\"] or [\"jql\",\"project = ABC AND assignee = currentUser()\"]. Use [\"issue\",\"--help\"] to explore. " + mode, InputSchema: argsSchema("atlassian")},
-	}
+	desc += "Use [\"--help\"] or [\"<command>\",\"--help\"] to explore. " + mode
+	module := mcp.StrProp("Module: " + strings.Join(names, ", "))
+	module["enum"] = names
+	return []mcp.Tool{{Name: "cli", Description: desc, InputSchema: mcp.ObjSchema(map[string]any{
+		"module":  module,
+		"args":    mcp.ArrProp("Arguments of the module command, one array element per argument"),
+		"profile": mcp.StrProp("workctl profile for native modules (jira); omit to use defaults.<module>"),
+	}, "module", "args")}}
 }

@@ -179,8 +179,8 @@ func TestOnlyConfiguredBackendsGetMCPTools(t *testing.T) {
 		}
 		return m
 	}
-	if got := names(); len(got) != 3 || !got["accounts"] || !got["azure"] || !got["atlassian"] {
-		t.Fatalf("no Jira/GitLab configured, expected only accounts, azure and atlassian tools, got %v", got)
+	if got := names(); len(got) != 2 || !got["accounts"] || !got["cli"] {
+		t.Fatalf("no Jira/GitLab configured, expected only the accounts and cli tools, got %v", got)
 	}
 	cfg.Profiles["jira"] = config.Profile{Kind: "jira", URL: "https://jira.example.test"}
 	got := names()

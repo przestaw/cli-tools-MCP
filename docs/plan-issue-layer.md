@@ -3,7 +3,7 @@
 Author: [przestaw](https://github.com/przestaw)
 
 Status: proposal (2026-11-09). Extends [plan-agent-accounts.md](plan-agent-accounts.md) (which consolidates `pr_*`, `ci`,
-`file`, `comment`, `request`, `download`). Nothing implemented except stage 1, which exists as an uncommitted change.
+`file`, `comment`, `request`, `download`). Stages 1 and 2 implemented; stage 3 open.
 
 Goal: the same rule for issues as for pull requests — **one operation, one tool, one output shape; the provider is a
 detail of the resolved profile**. Jira Server, Jira Cloud and later Asana or Azure Boards answer the same questions
@@ -42,13 +42,13 @@ Rules (same as for `pr_*`):
 CLI mirrors MCP: `workctl issue show|search|update ...` next to `workctl pr ...`; `workctl <module> ...` stays the escape
 hatch and is what `cli` runs.
 
-## Stage 1 — per-kind timeouts (done locally, uncommitted)
+## Stage 1 — per-kind timeouts (done)
 
 `timeouts.<kind>` between `profiles.<name>.timeout_seconds` and the global `timeout_seconds`; CLI commands use the
 selected profile's timeout instead of the global one; `doctor` the longest, `task` 3× the longer of jira/gitlab;
 modules: `timeouts.<module>` → `modules.timeout_seconds` → 120 s. Old configs unchanged.
 
-## Stage 2 — `cli` wrapper
+## Stage 2 — `cli` wrapper (done)
 
 1. `modules.Tools`: one tool `cli {module, args}`; module list from `cliModules`.
 2. Add `jira` to `cliModules` (no cobra tree: a small `resolve` over its subcommands). Read set: `issue`, `search`,
