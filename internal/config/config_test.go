@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zalando/go-keyring"
 	"workctl/internal/config"
@@ -241,5 +242,64 @@ func TestResourceMatchingInReposAndProjects(t *testing.T) {
 	// Wildcard entry in Repos does not act as a concrete default repository when repo argument is omitted.
 	if _, err := config.ProfileRepository(cfg.Profiles["przestaw"], ""); err == nil {
 		t.Fatal("wildcard entry must not be used as concrete default repository")
+	}
+}
+
+func TestTimeoutResolution(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	body := `{"version":2,"timeout_seconds":30,"timeouts":{"jira":90},
+	  "profiles":{"j":{"kind":"jira","url":"https://jira.test"},
+	              "slow":{"kind":"jira","url":"https://jira2.test","timeout_seconds":300},
+	              "g":{"kind":"gitlab","url":"https://gitlab.test"}},
+	  "defaults":{"jira":"j"}}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		got  time.Duration
+		want time.Duration
+	}{
+		{"profile override", cfg.ProfileTimeout(cfg.Profiles["slow"]), 300 * time.Second},
+		{"kind override", cfg.ProfileTimeout(cfg.Profiles["j"]), 90 * time.Second},
+		{"global fallback", cfg.ProfileTimeout(cfg.Profiles["g"]), 30 * time.Second},
+		{"command uses default profile", cfg.CommandTimeout("jira"), 90 * time.Second},
+		{"kind without profile", cfg.CommandTimeout("github"), 30 * time.Second},
+		{"max over profiles", cfg.MaxTimeout(), 300 * time.Second},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, c.got, c.want)
+		}
+	}
+	cfg.SetProfileName("slow")
+	if got := cfg.CommandTimeout("jira"); got != 300*time.Second {
+		t.Errorf("--profile: got %v, want 300s", got)
+	}
+}
+
+func TestOldConfigKeepsGlobalTimeout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	body := `{"version":2,"timeout_seconds":45,"profiles":{"j":{"kind":"jira","url":"https://jira.test"}}}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.CommandTimeout("jira"); got != 45*time.Second {
+		t.Errorf("got %v, want 45s", got)
+	}
+}
+
+func TestNegativeKindTimeoutIsRejected(t *testing.T) {
+	cfg := config.Default()
+	cfg.Timeouts = map[string]int{"jira": -1}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "timeouts.jira") {
+		t.Fatalf("got %v", err)
 	}
 }

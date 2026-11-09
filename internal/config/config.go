@@ -118,6 +118,7 @@ type ModulesConfig struct {
 type Config struct {
 	Version        int                `json:"version"`
 	TimeoutSeconds int                `json:"timeout_seconds"`
+	Timeouts       map[string]int     `json:"timeouts,omitempty"` // seconds per kind (jira, gitlab, api, azure, ...); overrides timeout_seconds
 	Defaults       map[string]string  `json:"defaults,omitempty"`
 	Profiles       map[string]Profile `json:"profiles,omitempty"`
 	Modules        ModulesConfig      `json:"modules"`
@@ -461,13 +462,44 @@ func (c *Config) Has(kind string) bool {
 	return false
 }
 
-// ProfileTimeout is the request timeout of a profile, falling back to the global timeout.
+// ProfileTimeout is the request timeout of a profile: profiles.<name>.timeout_seconds, else timeouts.<kind>,
+// else the global timeout_seconds.
 func (c *Config) ProfileTimeout(profile Profile) time.Duration {
-	seconds := profile.TimeoutSeconds
-	if seconds <= 0 {
-		seconds = c.TimeoutSeconds
+	if profile.TimeoutSeconds > 0 {
+		return time.Duration(profile.TimeoutSeconds) * time.Second
 	}
-	return time.Duration(seconds) * time.Second
+	return c.KindTimeout(profile.Kind)
+}
+
+// KindTimeout is timeouts.<kind>, else the global timeout_seconds.
+func (c *Config) KindTimeout(kind string) time.Duration {
+	if s := c.Timeouts[kind]; s > 0 {
+		return time.Duration(s) * time.Second
+	}
+	if c.TimeoutSeconds > 0 {
+		return time.Duration(c.TimeoutSeconds) * time.Second
+	}
+	return 30 * time.Second
+}
+
+// CommandTimeout bounds one CLI command of a kind: the timeout of the profile the command will use
+// (--profile, defaults.<kind> or the only one), else the kind's timeout when no single profile is selected.
+func (c *Config) CommandTimeout(kind string) time.Duration {
+	if _, profile, err := c.ProfileOf(kind); err == nil {
+		return c.ProfileTimeout(profile)
+	}
+	return c.KindTimeout(kind)
+}
+
+// MaxTimeout is the longest timeout any configured profile can use, for commands that check several profiles.
+func (c *Config) MaxTimeout() time.Duration {
+	longest := c.KindTimeout("")
+	for _, profile := range c.Profiles {
+		if t := c.ProfileTimeout(profile); t > longest {
+			longest = t
+		}
+	}
+	return longest
 }
 
 // RequireWrite refuses an operation that changes something unless policy.allow_write is on.
@@ -534,6 +566,11 @@ func (c *Config) ResolveFor(kind, resource string) (string, Profile, error) {
 
 // Validate checks every profile, and that each default points to an existing profile of the right kind.
 func (c *Config) Validate() error {
+	for kind, seconds := range c.Timeouts {
+		if seconds < 0 {
+			return fmt.Errorf("timeouts.%s cannot be negative", kind)
+		}
+	}
 	for name, profile := range c.Profiles {
 		if strings.TrimSpace(name) == "" {
 			return fmt.Errorf("profile name cannot be empty")

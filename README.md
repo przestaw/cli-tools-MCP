@@ -65,7 +65,11 @@ Then start it under **MCP: List Servers** and enable its tools in agent mode; re
 Tools: `azure` and `atlassian` (one each; the argument is the command line as an array, for example
 `["pr","get","123","-p","MyProject"]`), plus `jira_*`, `gitlab_*`, `github_*`, `api_request`/`api_download`/`api_exec` and `task_get_context` for the backends that are
 configured. Write tools of `jira`/`gitlab`/`github` appear only with `allow_write`; the `azure`/`atlassian` tools refuse writes until then.
-Each `azure`/`atlassian` call runs as a child process of workctl with its own timeout (`modules.timeout_seconds`).
+Each `azure`/`atlassian` call runs as a child process of workctl with its own timeout (`timeouts.azure`/`timeouts.atlassian`, else `modules.timeout_seconds`).
+
+Timeouts are resolved per request: `profiles.<name>.timeout_seconds`, else `timeouts.<kind>` (for example
+`"timeouts": {"jira": 60, "api": 120}`), else the global `timeout_seconds`. Both overrides are optional, so existing
+configuration files keep working unchanged.
 `examples/vscode-mcp-no-tokens.json` is a `.vscode/mcp.json` that needs no tokens in the file. `examples/vscode-mcp.json` and
 `examples/generic-mcp.json` pass tokens as `WORKCTL_JIRA_TOKEN`/`WORKCTL_GITLAB_TOKEN`; that works only for profiles whose
 `token_env` has that name (the default written by `workctl jira|gitlab init`).

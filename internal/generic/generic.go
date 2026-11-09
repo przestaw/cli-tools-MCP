@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"workctl/internal/api"
 	"workctl/internal/config"
@@ -31,7 +30,7 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 	if len(args) == 0 {
 		return usage
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.CommandTimeout("api"))
 	defer cancel()
 	switch args[0] {
 	case "raw", "download", "session-check":
