@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -70,12 +71,20 @@ func buildOverMCP(t *testing.T, cfg *config.Config, answer string) (text, asked 
 
 // callOverMCP runs one tools/call (params JSON) through the MCP loop and returns its text and the question asked.
 func callOverMCP(t *testing.T, cfg *config.Config, answer, call string) (text, asked string) {
+	texts, asked := callsOverMCP(t, cfg, answer, call)
+	return texts[0], asked
+}
+
+// callsOverMCP runs calls in one MCP connection so session approval can be tested through real RPC requests.
+func callsOverMCP(t *testing.T, cfg *config.Config, answer string, calls ...string) (texts []string, asked string) {
 	t.Helper()
-	var line bytes.Buffer // one message per line: the test calls are written over several lines
-	if err := json.Compact(&line, []byte(call)); err != nil {
-		t.Fatal(err)
+	for i, call := range calls {
+		var line bytes.Buffer // one message per line: the test calls are written over several lines
+		if err := json.Compact(&line, []byte(call)); err != nil {
+			t.Fatal(err)
+		}
+		calls[i] = line.String()
 	}
-	call = line.String()
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 	done := make(chan error, 1)
@@ -87,8 +96,9 @@ func callOverMCP(t *testing.T, cfg *config.Config, answer, call string) (text, a
 	write := func(line string) { _, _ = io.WriteString(inW, line+"\n") }
 	go func() {
 		write(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":` + caps + `}}`)
-		write(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":` + call + `}`)
+		write(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":` + calls[0] + `}`)
 	}()
+	next := 0
 	out := bufio.NewScanner(outR)
 	for out.Scan() {
 		var msg struct {
@@ -102,24 +112,31 @@ func callOverMCP(t *testing.T, cfg *config.Config, answer, call string) (text, a
 		}
 		switch {
 		case msg.Method == "elicitation/create":
-			asked = msg.Params.Message
+			asked += msg.Params.Message
 			if answer == "cancel" { // the client gives up on the tool call instead of answering
 				go write(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2}}`)
 				continue
 			}
 			go write(`{"jsonrpc":"2.0","id":` + string(msg.ID) + `,"result":` + answer + `}`)
-		case string(msg.ID) == "2":
+		case msg.Method == "" && string(msg.ID) == strconv.Itoa(next+2):
+			texts = append(texts, msg.Result.Content[0].Text)
+			next++
+			if next < len(calls) {
+				id := next + 2
+				go write(`{"jsonrpc":"2.0","id":` + strconv.Itoa(id) + `,"method":"tools/call","params":` + calls[next] + `}`)
+				continue
+			}
 			_ = inW.Close()
 			for out.Scan() {
 			}
 			if err := <-done; err != nil {
 				t.Fatal(err)
 			}
-			return msg.Result.Content[0].Text, asked
+			return texts, asked
 		}
 	}
 	t.Fatal("no answer to the tool call")
-	return "", ""
+	return nil, ""
 }
 
 func TestWritesWaitForTheUsersApproval(t *testing.T) {
@@ -128,6 +145,7 @@ func TestWritesWaitForTheUsersApproval(t *testing.T) {
 	if !strings.Contains(text, "declined") || len(*seen) != 0 || !strings.Contains(asked, "/job/x/build") {
 		t.Fatalf("declined: text=%q asked=%q requests=%v", text, asked, *seen)
 	}
+
 	if text, _ := buildOverMCP(t, cfg, ""); !strings.Contains(text, "cannot ask the user") || len(*seen) != 0 {
 		t.Fatalf("client without elicitation: text=%q requests=%v", text, *seen)
 	}
@@ -137,5 +155,29 @@ func TestWritesWaitForTheUsersApproval(t *testing.T) {
 	cfg.Policy.ConfirmWrites = false
 	if _, asked := buildOverMCP(t, cfg, `{"action":"decline"}`); asked != "" || len(*seen) != 2 {
 		t.Fatalf("confirm_writes off must not ask: asked=%q requests=%v", asked, *seen)
+	}
+}
+
+func TestSessionApprovalCoversRemainingWrites(t *testing.T) {
+	cfg, seen := jenkinsLike(t)
+	cfg.Policy.ConfirmWrites, cfg.Policy.ConfirmSessionWrites = false, true
+	call := `{"name":"request","arguments":{"profile":"jenkins","method":"POST","path":"/job/x/build"}}`
+	texts, asked := callsOverMCP(t, cfg, `{"action":"accept","content":{"approve":true}}`, call, call)
+	if len(texts) != 2 || len(*seen) != 2 || strings.Count(asked, "Approve this session?") != 1 {
+		t.Fatalf("texts=%q asked=%q requests=%v", texts, asked, *seen)
+	}
+	if text, asked := buildOverMCP(t, cfg, ""); asked != "" || !strings.Contains(text, "cannot ask the user") || len(*seen) != 2 {
+		t.Fatalf("no elicitation: text=%q asked=%q requests=%v", text, asked, *seen)
+	}
+}
+
+func TestSessionApprovalStillHonorsExplicitConfirmation(t *testing.T) {
+	cfg, seen := jenkinsLike(t)
+	cfg.Policy.ConfirmWrites, cfg.Policy.ConfirmSessionWrites = false, true
+	normal := `{"name":"request","arguments":{"profile":"jenkins","method":"POST","path":"/job/x/build"}}`
+	detailed := `{"name":"request","arguments":{"profile":"jenkins","method":"POST","path":"/job/x/build","confirm":true}}`
+	_, asked := callsOverMCP(t, cfg, `{"action":"accept","content":{"approve":true}}`, normal, detailed)
+	if len(*seen) != 2 || strings.Count(asked, "Approve") != 2 {
+		t.Fatalf("asked=%q requests=%v", asked, *seen)
 	}
 }

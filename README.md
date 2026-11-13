@@ -6,15 +6,15 @@
 **GitHub, GitLab, Jira, Confluence and Azure DevOps for your AI agent — one binary, read-only by default.**
 
 workctl is a CLI and an MCP server for local agents (VS Code Copilot, Claude Code, Codex, Cline, Cursor). The agent reads
-pull requests, tickets, CI runs and attachments in one compact shape; it writes only when you allow it, and with
-`confirm_writes` it asks you before every write.
+pull requests, tickets, CI runs and attachments in one compact shape; it writes only when you allow it, and can ask
+before every write or once per MCP session.
 
 ## Features
 
 - **One shape for every provider:** `pr_show` returns the same fields for GitHub and GitLab, with reviews, checks and
   comments on request; `issue_*` does the same for Jira Server and Cloud. Fewer tokens, no per-provider parsing.
-- **Safe by default:** read-only until `allow_write`; `confirm_writes` makes every agent write wait for your approval in
-  the MCP client; tokens live in the OS keyring, never in the config.
+- **Safe by default:** read-only until `allow_write`; confirmation can be per-write or once per MCP session; tokens live
+  in the OS keyring, never in the config.
 - **One account per repository:** profiles match repositories and projects by pattern, so work and personal accounts
   never mix.
 - **Agent package included:** a skill and a plugin for VS Code, Claude Code and Codex, installed with one command.
@@ -45,7 +45,7 @@ Manual registration: any MCP client that starts `workctl mcp` (the binary on `PA
 | `pr_list`, `pr_show` | pull/merge requests; `include: [files, reviews, reviewers, comments, discussion, checks]` |
 | `pr_create`, `pr_edit`, `comment` | create, edit and comment (write) |
 | `upload` | an image or video for a description or comment: GitHub attachment, GitLab upload, Jira attachment (write) |
-| `batch` | several writes (for example Jenkins builds) after one approval |
+| `batch` | several writes after one approval, with a short explanation for each operation |
 | `ci` | CI runs and pipelines, jobs, job logs |
 | `file` | a repository file at a ref |
 | `issue_show`, `issue_search`, `issue_update` | Jira issues; `issue_update` supports `dry_run` |
@@ -63,10 +63,11 @@ Tools are listed only for configured backends. `format: "raw"` returns the provi
 | --- | --- |
 | `policy.allow_write: false` (default) | every write is refused |
 | `policy.confirm_writes: true` (optional, default off) | every agent write waits for your approval; `batch` asks once for its list; a client that cannot ask refuses it |
+| `policy.confirm_session_writes: true` (optional, default off) | the first write in an MCP connection asks for approval; later writes in that connection proceed; `batch` includes its writes in that first prompt |
 | keyring | tokens never touch the config file, the command line or the agent |
 
 Use `confirm: true` for one high-risk write or batch without changing global policy. Refusal or cancellation is not
-permission to retry through CLI, another account, or changed settings.
+permission to retry through CLI, another account, or changed settings. The confirmation modes are mutually exclusive.
 
 Commands you type in a terminal are yours and are not asked about. Details: [docs/cli.md](docs/cli.md#policy-read-only-unless-allowed).
 

@@ -21,17 +21,22 @@ const maxBatch = 20
 
 var batchTool = mcp.Tool{
 	Name:        "batch",
-	Description: "Run several writes (for example Jenkins builds through request POST, comments, uploads) after one approval instead of one question per write. Every call is checked first; then they run in order. Reads are refused here: call them directly. Needs policy.allow_write=true.",
+	Description: "Run several writes (for example Jenkins builds through request POST, comments, uploads) after one approval instead of one question per write. Give each call a short description explaining its effect to the user. Every call is checked first; then they run in order. Reads are refused here: call them directly. Needs policy.allow_write=true.",
 	InputSchema: mcp.ObjSchema(map[string]any{
-		"calls": map[string]any{"type": "array", "description": fmt.Sprintf("1 to %d writes, each {\"tool\": name, \"args\": {...}} as for the tool itself", maxBatch),
-			"items": map[string]any{"type": "object", "properties": map[string]any{"tool": mcp.StrProp("Tool name"), "args": map[string]any{"type": "object"}}, "required": []string{"tool"}}},
+		"calls": map[string]any{"type": "array", "description": fmt.Sprintf("1 to %d writes, each {\"tool\": name, \"description\": \"effect of this operation\", \"args\": {...}}; description is optional", maxBatch),
+			"items": map[string]any{"type": "object", "properties": map[string]any{
+				"tool":        mcp.StrProp("Tool name"),
+				"description": mcp.StrProp("Short explanation for the approval prompt, e.g. 'Merge PR #4 into main using squash'. Display only; the actual request details remain visible."),
+				"args":        map[string]any{"type": "object"},
+			}, "required": []string{"tool"}}},
 		"stop_on_error": mcp.BoolProp("Skip the remaining calls after the first failure (default true)"),
 	}, "calls"),
 }
 
 type batchCall struct {
-	Tool string         `json:"tool"`
-	Args map[string]any `json:"args"`
+	Tool        string         `json:"tool"`
+	Description string         `json:"description,omitempty"`
+	Args        map[string]any `json:"args"`
 }
 
 type batchResult struct {
@@ -77,10 +82,19 @@ func callBatch(ctx context.Context, cfg *config.Config, a map[string]any) ([]byt
 		ask = ask || mcp.ArgBool(c.Args, "confirm")
 		args, _ := json.Marshal(shortArgs(c.Args, 120))
 		lines[i] = fmt.Sprintf("%d. %s %s", i+1, c.Tool, args)
+		// Descriptions explain intent, but never replace the actual tool arguments or reach the provider.
+		if description := strings.Join(strings.Fields(c.Description), " "); description != "" {
+			lines[i] = fmt.Sprintf("%d. %s\n   %s %s", i+1, shortText(description, 120), c.Tool, args)
+		}
+	}
+	summary := fmt.Sprintf("workctl: the agent wants to run %d writes, in this order; one that already ran is not undone if a later one fails.\n\n%s", len(calls), strings.Join(lines, "\n"))
+	if cfg.Policy.ConfirmSessionWrites {
+		if err := mcp.ConfirmSession(ctx, summary+"\n\n"+sessionApprovalQuestion); err != nil {
+			return nil, err
+		}
 	}
 	if ask {
-		msg := fmt.Sprintf("workctl: the agent wants to run %d writes, in this order; one that already ran is not undone if a later one fails.\n\n%s\n\nApprove all?", len(calls), strings.Join(lines, "\n"))
-		if err := mcp.Confirm(ctx, msg); err != nil {
+		if err := mcp.Confirm(ctx, summary+"\n\nApprove all?"); err != nil {
 			return nil, err
 		}
 	}
