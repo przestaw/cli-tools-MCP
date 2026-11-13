@@ -6,6 +6,9 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -284,5 +287,38 @@ func TestAccountsMCPToolListsResolvesAndBinds(t *testing.T) {
 	_ = json.Unmarshal(out, &report)
 	if report.ResolvedProfile != "jira-ir" {
 		t.Fatalf("jira resolved_profile = %q, want jira-ir", report.ResolvedProfile)
+	}
+}
+
+func TestSetTokenKeepsTheOldTokenWhenTheNewOneIsAnotherAccounts(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv("TEST_BIND_OVERRIDE", "personal-token")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer personal-token" {
+			_, _ = io.WriteString(w, `{"login":"przestaw"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"login":"cads-bot"}`)
+	}))
+	t.Cleanup(srv.Close)
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.Default()
+	cfg.Profiles = map[string]config.Profile{"gh": {Kind: "github", URL: srv.URL, VerifyTLS: true, Username: "przestaw", TokenEnv: "TEST_BIND_OVERRIDE"}}
+	cfg.SetPath(cfgPath)
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	account := secret.Account("github", "gh")
+	if err := config.TokenStore.Set(account, "old-token"); err != nil {
+		t.Fatal(err)
+	}
+	old := cliutil.Stdin
+	cliutil.Stdin = strings.NewReader("work-token\n")
+	defer func() { cliutil.Stdin = old }()
+	if err := Command(cfgPath, "", []string{"set-token", "--profile", "gh", "--stdin"}); err == nil || !strings.Contains(err.Error(), "another account") {
+		t.Fatalf("set-token with another account's token: %v", err)
+	}
+	if val, _ := config.TokenStore.Get(account); val != "old-token" {
+		t.Fatalf("token in keyring = %q, want the old one", val)
 	}
 }
