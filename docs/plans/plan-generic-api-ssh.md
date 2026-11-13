@@ -3,7 +3,7 @@
 Author: [przestaw](https://github.com/przestaw)
 
 Status: implemented in four commits (phases 1–4 below). Notes marked *As built* record where the code
-differs from the first draft and why. User manual: [services-auth.md](services-auth.md).
+differs from the first draft and why. User manual: [services-auth.md](../services-auth.md).
 
 ## Identity rule (the one invariant)
 
