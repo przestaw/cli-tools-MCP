@@ -195,6 +195,10 @@ func ConfirmSession(ctx context.Context, message string) error {
 	}
 	sess.approvalMu.Lock()
 	defer sess.approvalMu.Unlock()
+	// A call may have been cancelled while another call was waiting for session approval.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if sess.approved {
 		return nil
 	}

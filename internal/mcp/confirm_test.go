@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -94,5 +95,16 @@ func TestConfirmAsksTheUserThroughTheClient(t *testing.T) {
 func TestConfirmOutsideMCPIsTheUsersOwnCommand(t *testing.T) {
 	if err := Confirm(context.Background(), "x"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCancelledCallCannotReuseSessionApproval(t *testing.T) {
+	for _, approved := range []bool{false, true} {
+		sess := &session{approved: approved}
+		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), sessionKey{}, sess))
+		cancel()
+		if err := ConfirmSession(ctx, "Approve?"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("approved=%v: got %v, want cancellation", approved, err)
+		}
 	}
 }
