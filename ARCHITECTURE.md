@@ -58,7 +58,7 @@ CLI downloadCommand / MCP CallTool   arguments and profile        internal/gener
     -> api.Client.Stream             policy, auth, HTTP -> io.Writer   internal/api
 ```
 
-Planned changes (one account per owner, fewer MCP tools): [docs/plan-agent-accounts.md](docs/plan-agent-accounts.md).
+Account and tool-surface design (implemented): [docs/plans/plan-agent-accounts.md](docs/plans/plan-agent-accounts.md).
 
 ## Two kinds of provider
 

@@ -2,7 +2,7 @@
 
 Status: **implemented** next to variant B: a profile with `form_login.logout_path` logs out after every run (B); a
 profile without it keeps its session between runs (A). The expired-session check looks for a password input of
-`password_field` (a real login form), not just the user field. User manual: [services-auth.md](services-auth.md).
+`password_field` (a real login form), not just the user field. User manual: [services-auth.md](../services-auth.md).
 
 ## Problem
 
@@ -26,7 +26,7 @@ Variant B supports a logout challenge token and adds `api session-check`; it add
 ## Check before relying on B
 
 Configure `logout_path`, `logout_token_field: "ChallengeToken"` and a protected
-`logout_verify_path`, as described in [services-auth.md](services-auth.md). Then run
+`logout_verify_path`, as described in [services-auth.md](../services-auth.md). Then run
 `workctl --profile otrs api session-check`. It checks login and server-side invalidation in one
 operation without printing page contents or credentials. A successful response from `Action=Logout`
 alone is not evidence that the session was invalidated. Do not use a standalone raw logout request:
