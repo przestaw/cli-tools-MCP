@@ -41,7 +41,7 @@ func getMRChanges(ctx context.Context, c *api.Client, project string, iid int) (
 
 func getMRNotes(ctx context.Context, c *api.Client, project string, iid int) ([]byte, error) {
 	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/notes", projectID(project), iid)
-	return get(ctx, c, p, url.Values{"per_page": {"100"}})
+	return c.GetAllPages(ctx, p, nil, 30)
 }
 
 func addMRNote(ctx context.Context, c *api.Client, project string, iid int, text string) ([]byte, error) {
