@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
@@ -32,6 +33,9 @@ type Error struct {
 func (e *Error) Error() string {
 	return httpx.RawError(e.Method, e.URL, e.Status, e.Body)
 }
+
+// ErrNoHeaders is returned when response headers are asked of a gh or glab profile, which only gives the body.
+var ErrNoHeaders = errors.New("response headers need a native HTTP profile, not gh or glab")
 
 // Client sends JSON API requests of one profile. The zero value is not usable; use NewKindClient or NewProfileClient.
 type Client struct {
@@ -181,10 +185,21 @@ func basicAuth(username, secret string) string {
 }
 
 // WithAccept returns a copy of the client that sends another Accept header (for example a raw-contents media type).
-func (c *Client) WithAccept(accept string) *Client {
+func (c *Client) WithAccept(accept string) *Client { return c.WithHeader("Accept", accept) }
+
+// WithHeader returns a copy of the client that sends one more header (for example Jira's X-Atlassian-Token).
+func (c *Client) WithHeader(key, value string) *Client {
 	copied := *c
 	copied.headers = c.headers.Clone()
-	copied.headers.Set("Accept", accept)
+	copied.headers.Set(key, value)
+	return &copied
+}
+
+// WithBaseURL returns a copy of the client for another host of the same provider (GitHub uploads). Callers pass a
+// fixed host of that provider, never a URL from the agent, because the credential goes with it.
+func (c *Client) WithBaseURL(base string) *Client {
+	copied := *c
+	copied.baseURL = strings.TrimRight(base, "/")
 	return &copied
 }
 
@@ -220,26 +235,56 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 	if c.cli != nil {
 		return c.cli.do(ctx, method, target, c.headers.Get("Accept"), body, contentType)
 	}
+	out, hdr, err := c.doNative(ctx, method, target, body, contentType)
+	return out, hdr.Get("Content-Type"), err
+}
+
+// DoHeader is Do for native HTTP profiles with all response headers, e.g. the Location of a queued Jenkins build.
+func (c *Client) DoHeader(ctx context.Context, method, path string, q url.Values, body []byte, contentType string) ([]byte, http.Header, error) {
+	if c.cli != nil {
+		return nil, nil, ErrNoHeaders
+	}
+	target, err := c.target(method, path, q)
+	if err != nil {
+		return nil, nil, err
+	}
+	return c.doNative(ctx, method, target, body, contentType)
+}
+
+func (c *Client) doNative(ctx context.Context, method, target string, body []byte, contentType string) ([]byte, http.Header, error) {
 	headers, err := c.authorize(ctx, method)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-	out, respType, err := c.send(ctx, method, target, headers, body, contentType)
+	out, hdr, err := c.send(ctx, method, target, headers, body, contentType)
 	if f := c.form; err == nil && f != nil && f.cached {
 		// A saved session the server dropped answers with the login page: log in again and repeat the request once.
 		f.cached = false
 		if _, loginPage := formHTML(out, "", f.login.PasswordField); loginPage {
 			c.dropSession()
 			if headers, err = c.authorize(ctx, method); err != nil {
-				return nil, "", err
+				return nil, nil, err
 			}
 			return c.send(ctx, method, target, headers, body, contentType)
 		}
 	}
-	return out, respType, err
+	return out, hdr, err
 }
 
-// target turns path and query into the server-relative target of a request and refuses a write on a read-only profile.
+// ValidateRequest checks a request locally, without authenticating or sending it. needHeaders asks for DoHeader.
+func (c *Client) ValidateRequest(method, path string, q url.Values, needHeaders bool) error {
+	if needHeaders && c.cli != nil {
+		return ErrNoHeaders
+	}
+	target, err := c.target(method, path, q)
+	if err != nil {
+		return err
+	}
+	_, err = http.NewRequest(method, c.baseURL+target, nil)
+	return err
+}
+
+// target turns path and query into a server-relative target and enforces profile read-only policy.
 func (c *Client) target(method, path string, q url.Values) (string, error) {
 	target, err := c.relPath(path)
 	if err != nil {
@@ -308,15 +353,14 @@ func (c *Client) newRequest(ctx context.Context, method, target string, headers 
 }
 
 // send performs one HTTP request and reads the whole answer, with no policy of its own: Do and the form login use it.
-func (c *Client) send(ctx context.Context, method, target string, headers http.Header, body []byte, contentType string) ([]byte, string, error) {
+func (c *Client) send(ctx context.Context, method, target string, headers http.Header, body []byte, contentType string) ([]byte, http.Header, error) {
 	req, err := c.newRequest(ctx, method, target, headers, body, contentType)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-	data, hdr, err := httpx.Do(c.client, req, func(status int, url string, body []byte) error {
+	return httpx.Do(c.client, req, func(status int, url string, body []byte) error {
 		return &Error{Method: method, URL: url, Status: status, Body: string(body)}
 	})
-	return data, hdr.Get("Content-Type"), err
 }
 
 // BodyOnly adapts a Do result to callers that need only the body.
