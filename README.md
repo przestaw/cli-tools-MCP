@@ -63,10 +63,10 @@ Tools are listed only for configured backends. `format: "raw"` returns the provi
 | --- | --- |
 | `policy.allow_write: false` (default) | every write is refused |
 | `policy.confirm_writes: true` (optional, default off) | every agent write waits for your approval; `batch` asks once for its list; a client that cannot ask refuses it |
+| keyring | tokens never touch the config file, the command line or the agent |
 
 Use `confirm: true` for one high-risk write or batch without changing global policy. Refusal or cancellation is not
 permission to retry through CLI, another account, or changed settings.
-| keyring | tokens never touch the config file, the command line or the agent |
 
 Commands you type in a terminal are yours and are not asked about. Details: [docs/cli.md](docs/cli.md#policy-read-only-unless-allowed).
 
