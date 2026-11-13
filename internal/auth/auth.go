@@ -119,10 +119,25 @@ func setTokenCommand(cfg *config.Config, args []string) error {
 	}
 
 	account := secret.Account(profile.Kind, name)
-	if err := config.TokenStore.Set(account, tok); err != nil {
-		return err
+	bound, err := api.BindToken(cfg, name, profile, tok)
+	if errors.Is(err, api.ErrOtherAccount) {
+		return fmt.Errorf("token not stored: %w", err)
+	}
+	if storeErr := config.TokenStore.Set(account, tok); storeErr != nil {
+		return storeErr
 	}
 	fmt.Printf("token stored in keyring for profile %s (%s)\n", name, account)
+	if err != nil {
+		fmt.Printf("account not checked: %v\n", err)
+		return nil
+	}
+	if bound.Username != profile.Username {
+		cfg.Profiles[name] = bound
+		if err := cfg.Save(); err != nil {
+			return err
+		}
+		fmt.Printf("profile %s is bound to %s\n", name, bound.Username)
+	}
 	return nil
 }
 

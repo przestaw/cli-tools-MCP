@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/url"
@@ -216,6 +217,14 @@ func EndpointInit(path, module string, args []string, r *bufio.Reader) error {
 		return err
 	}
 
+	// Bind the profile to the token's account first: a token of another account is refused before it is stored.
+	// Any other failure is left to the connection test below.
+	if bound, err := api.BindToken(cfg, name, p, tok); errors.Is(err, api.ErrOtherAccount) {
+		return err
+	} else if err == nil {
+		p = bound
+		cfg.Profiles[name] = p
+	}
 	var tokErr error
 	if tok != "" {
 		if tokErr = config.TokenStore.Set(secret.Account(module, name), tok); tokErr != nil {
