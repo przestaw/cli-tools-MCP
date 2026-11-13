@@ -5,6 +5,7 @@ package generic
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,6 +48,30 @@ func TestAPIRequestReadsAndGuardsWrites(t *testing.T) {
 	cfg.Policy.AllowWrite = true
 	if _, err := CallTool(ctx, cfg, "request", map[string]any{"method": "POST", "path": "/build", "body": `{"a":1}`}); err != nil || method != "POST" || body != `{"a":1}` {
 		t.Fatalf("POST: %v %s %q", err, method, body)
+	}
+}
+
+func TestBuildRequestReturnsQueueLocation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.Header.Get("Content-Type"))
+		}
+		if err := r.ParseForm(); err != nil || r.Form.Get("BRANCH") != "feat/a b" {
+			t.Errorf("form: %v, %v", r.Form, err)
+		}
+		w.Header().Set("Location", "/queue/item/42/")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(server.Close)
+	cfg := testConfig(server.URL)
+	cfg.Policy.AllowWrite = true
+	out, err := CallTool(context.Background(), cfg, "request", map[string]any{
+		"method": "POST", "path": "/job/app/buildWithParameters", "body": "BRANCH=feat%2Fa+b",
+		"content_type": "application/x-www-form-urlencoded", "response_metadata": true,
+	})
+	var result map[string]any
+	if err != nil || json.Unmarshal(out, &result) != nil || result["location"] != "/queue/item/42/" || result["body"] != "" {
+		t.Fatalf("response: %s, %v", out, err)
 	}
 }
 

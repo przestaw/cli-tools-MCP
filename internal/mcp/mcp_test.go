@@ -142,3 +142,10 @@ func TestEmptyResourcesAndPrompts(t *testing.T) {
 		}
 	}
 }
+
+func TestMessageWithoutMethodIsInvalid(t *testing.T) {
+	got := serveLines(t, Server{Tools: func() []Tool { return nil }}, `{"jsonrpc":"2.0","id":7}`)
+	if e, ok := got[0]["error"].(map[string]any); !ok || e["code"] != float64(-32600) {
+		t.Fatalf("answer: %v", got)
+	}
+}

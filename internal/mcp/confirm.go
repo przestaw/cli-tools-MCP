@@ -23,6 +23,7 @@ type session struct {
 	out         *bufio.Writer
 	pmu         sync.Mutex // guards the fields below
 	pending     map[string]chan rpcRequest
+	running     map[string]context.CancelFunc // tool calls in flight, by the raw JSON of their id
 	next        int
 	elicitation bool
 	closed      chan struct{} // closed when the client's input ends
@@ -57,6 +58,36 @@ func (s *session) setElicitation(on bool) {
 	s.pmu.Lock()
 	s.elicitation = on
 	s.pmu.Unlock()
+}
+
+// track gives one tool call a context that notifications/cancelled can end; done forgets it.
+func (s *session) track(ctx context.Context, id json.RawMessage) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	s.pmu.Lock()
+	s.running[string(id)] = cancel
+	s.pmu.Unlock()
+	return ctx, func() {
+		s.pmu.Lock()
+		delete(s.running, string(id))
+		s.pmu.Unlock()
+		cancel()
+	}
+}
+
+// cancel ends the tool call named by a notifications/cancelled, including a question it is waiting on.
+func (s *session) cancel(params json.RawMessage) {
+	var p struct {
+		RequestID json.RawMessage `json:"requestId"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+	s.pmu.Lock()
+	cancel := s.running[string(p.RequestID)]
+	s.pmu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // answer hands a client's response to the request waiting for it; unknown ids are dropped.
@@ -123,7 +154,7 @@ func Confirm(ctx context.Context, message string) error {
 	can := sess.elicitation
 	sess.pmu.Unlock()
 	if !can {
-		return fmt.Errorf("policy.confirm_writes is on but this MCP client cannot ask the user (no elicitation support); the user can run the command in a terminal instead")
+		return fmt.Errorf("policy.confirm_writes is on but this MCP client cannot ask the user (no elicitation support); stop and report this to the user, do not bypass through CLI or configuration changes")
 	}
 	raw, err := sess.request(ctx, "elicitation/create", map[string]any{
 		"message": message,
@@ -147,7 +178,7 @@ func Confirm(ctx context.Context, message string) error {
 	if err := json.Unmarshal(raw, &r); err != nil {
 		return fmt.Errorf("elicitation: %w", err)
 	}
-	if r.Action != "accept" || (r.Content.Approve != nil && !*r.Content.Approve) {
+	if r.Action != "accept" || r.Content.Approve == nil || !*r.Content.Approve {
 		return ErrDeclined
 	}
 	return nil
