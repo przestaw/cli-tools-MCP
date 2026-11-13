@@ -6,11 +6,15 @@
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/license-BSD--4--Clause-blue)](https://github.com/przestaw/cli-tools-MCP/blob/main/LICENSE)
 
-**Your development services, one CLI and MCP server. Read-only by default.**
+**Connect your services to coding agents through APIs — one CLI and MCP server.**
 
-workctl connects local coding assistants to GitHub, GitLab, Jira, Confluence and Azure DevOps.
-Inspect pull requests, tickets, CI runs and attachments without switching provider tools.
-Approve changes individually or as a batch, and keep personal and work accounts in named profiles.
+workctl gives local coding assistants controlled access to services through configurable HTTP APIs and
+allow-listed SSH commands. Use it wherever your workflow needs service data or actions: development,
+monitoring, CI/CD, packages, deployment, administration, or your own internal tools.
+
+Named integrations provide convenient commands, not a closed list of compatible services.
+Writes are disabled by default; profiles keep destinations and credentials explicit, and optional approvals
+let you review changes individually or as a batch.
 
 [Quick start](#quick-start) · [MCP configuration](#connect-an-mcp-client) · [Write approvals](#write-approvals) · [Documentation](#documentation)
 
@@ -22,18 +26,48 @@ Approve changes individually or as a batch, and keep personal and work accounts 
 - **Account routing:** profiles selected by repository/project, explicit name or default. Native GitHub/GitLab account binding checks tokens before writes.
 - **Credentials outside source control:** OS keyring storage; explicit environment-variable and provider-CLI backends for other setups.
 - **Agent integrations:** an installer and reusable skill for VS Code, Claude Code and Codex.
+- **Operations beyond source control:** query monitoring APIs, inspect deployment status, and call management endpoints through configured service profiles.
 
-## Supported services
+## Two ways to connect a service
 
-| Service | Main entry points |
+| Route | When to use it |
 |---|---|
-| GitHub / GitLab | PR/MR reads and writes, reviews, CI, repository files, comments and attachment uploads |
-| Jira Server / Data Center / Cloud | Issue reads, searches and updates; comments and attachments |
-| Azure DevOps | Unified PR list/show; embedded CLI for repositories, builds, pipelines, releases and PR operations |
-| Confluence Cloud | Embedded Atlassian CLI for pages, spaces, search and attachments |
-| Other services | Profile-bound HTTP requests/downloads and allow-listed commands over SSH |
+| Configured HTTP API or allow-listed SSH commands | Connect an existing service without adding a product-specific connector. Supply its address, supported authentication and the operations your workflow needs. |
+| Built-in provider commands | Use convenient commands and common response formats where available, including GitHub, GitLab, Jira, Confluence and Azure DevOps. |
 
-Capabilities differ by provider. Tools are advertised according to configured backends; Bitbucket and Asana are not implemented.
+Compatibility depends on the service's protocol, authentication and endpoint semantics — not its brand being
+listed here. Generic access does not imply a turnkey integration or a local client for every product.
+Tools are advertised according to configured backends.
+
+**Examples, not a support ceiling:** Jenkins and Conan services have been used successfully by the maintainer
+through configured API profiles. The same approach applies to compatible monitoring, deployment, management
+and custom service APIs; each requires its own configuration.
+Conan server access is not a replacement for the Conan CLI's local package resolution or build workflow.
+
+### Arbitrary APIs, monitoring and operations
+
+The `request` tool is not limited to built-in integrations. Configure a `kind: "api"` profile with the service URL
+and authentication, then supply the endpoint, HTTP method, query parameters and body required by that service.
+Absolute request URLs are refused: the profile fixes the destination and its credential.
+
+For example, after configuring a `monitoring` profile for a Prometheus-compatible API, call `request` with:
+
+```json
+{
+  "profile": "monitoring",
+  "method": "GET",
+  "path": "/api/v1/query",
+  "query": {"query": "up"}
+}
+```
+
+The same mechanism can inspect deployment services, trigger a Jenkins build, query an artifact repository, or
+operate a management console. These are configurable API workflows, not claims of a dedicated connector for
+every product. You supply the endpoint semantics and permissions; non-read requests require `allow_write` and
+the configured approval mode. Use `read_only: true` for monitoring profiles that should never write.
+
+See [service profiles and authentication](https://github.com/przestaw/cli-tools-MCP/blob/main/docs/services-auth.md)
+for bearer/basic/custom-header authentication, form login and SSH-backed access.
 
 ## Quick start
 

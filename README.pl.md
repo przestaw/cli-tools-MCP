@@ -6,11 +6,15 @@
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8)](https://go.dev/dl/)
 [![Licencja](https://img.shields.io/badge/license-BSD--4--Clause-blue)](https://github.com/przestaw/cli-tools-MCP/blob/main/LICENSE)
 
-**Usługi programistyczne w jednym CLI i serwerze MCP. Domyślnie tylko odczyt.**
+**Połącz swoje usługi z agentami przez API — jeden CLI i serwer MCP.**
 
-workctl łączy lokalnych asystentów programistycznych z GitHubem, GitLabem, Jirą, Confluence i Azure DevOps.
-Pozwala przeglądać pull requesty, zgłoszenia, przebiegi CI i załączniki bez przełączania narzędzi dostawców.
-Zmiany można zatwierdzać pojedynczo lub partiami, a konta osobiste i służbowe rozdzielić nazwanymi profilami.
+workctl daje lokalnym asystentom programistycznym kontrolowany dostęp do usług przez konfigurowalne API HTTP
+i dozwolone polecenia SSH. Używaj go tam, gdzie potrzebujesz danych lub operacji usługi: w programowaniu,
+monitoringu, CI/CD, obsłudze pakietów, deploymentach, administracji czy własnych narzędziach wewnętrznych.
+
+Nazwane integracje dostarczają wygodnych poleceń, nie wyznaczają zamkniętej listy zgodnych usług.
+Zapis jest domyślnie wyłączony; profile jawnie określają adresy i poświadczenia, a opcjonalne zgody
+pozwalają przeglądać zmiany pojedynczo lub batchami.
 
 [Szybki start](#szybki-start) · [Konfiguracja MCP](#mcp-client) · [Zatwierdzanie zapisów](#write-approvals) · [Dokumentacja](#dokumentacja)
 
@@ -22,18 +26,48 @@ Zmiany można zatwierdzać pojedynczo lub partiami, a konta osobiste i służbow
 - **Dobór konta:** profil wybierany według repozytorium/projektu, jawnej nazwy lub wartości domyślnej. Powiązanie konta z natywnym profilem GitHub/GitLab pozwala sprawdzać token przed zapisem.
 - **Poświadczenia poza repozytorium:** systemowy pęk kluczy; dla innych środowisk jawne zmienne środowiskowe lub backend CLI dostawcy.
 - **Integracje agentów:** instalator i wspólny skill dla VS Code, Claude Code i Codex.
+- **Operacje poza repozytoriami kodu:** odpytywanie API monitoringu, sprawdzanie deploymentów i wywoływanie endpointów zarządzania przez profile usług.
 
-## Obsługiwane usługi
+## Dwie drogi podłączenia usługi
 
-| Usługa | Główne funkcje |
+| Sposób | Kiedy go użyć |
 |---|---|
-| GitHub / GitLab | Odczyt i zapis PR/MR, recenzje, CI, pliki repozytorium, komentarze i przesyłanie załączników |
-| Jira Server / Data Center / Cloud | Odczyt, wyszukiwanie i aktualizacja zgłoszeń; komentarze i załączniki |
-| Azure DevOps | Wspólne narzędzia list/show dla PR; wbudowany CLI repozytoriów, buildów, pipeline'ów, wydań i operacji PR |
-| Confluence Cloud | Wbudowany CLI Atlassian do stron, przestrzeni, wyszukiwania i załączników |
-| Inne usługi | Żądania HTTP i pobieranie plików w obrębie profilu oraz dozwolone polecenia przez SSH |
+| Skonfigurowane API HTTP lub dozwolone polecenia SSH | Podłącz istniejącą usługę bez tworzenia dedykowanego konektora. Podaj adres, obsługiwane uwierzytelnianie i operacje potrzebne w Twoim procesie pracy. |
+| Wbudowane polecenia dostawców | Korzystaj z wygodnych poleceń i wspólnych formatów odpowiedzi tam, gdzie są dostępne, m.in. dla GitHuba, GitLaba, Jiry, Confluence i Azure DevOps. |
 
-Zakres funkcji zależy od dostawcy. Serwer udostępnia narzędzia zgodnie z konfiguracją backendów; Bitbucket i Asana nie są zaimplementowane.
+O zgodności decydują protokół, uwierzytelnianie i semantyka endpointów, a nie obecność marki na liście.
+Ogólny dostęp nie oznacza gotowej integracji ani lokalnego klienta każdego produktu.
+Serwer udostępnia narzędzia zgodnie z konfiguracją backendów.
+
+**Przykłady, nie granica obsługi:** Jenkins i usługi Conan były z powodzeniem używane przez autora
+przez skonfigurowane profile API. Ten sam sposób łączenia dotyczy zgodnych API monitoringu, deploymentu,
+zarządzania i usług własnych; każde wymaga odpowiedniej konfiguracji.
+Dostęp do serwera Conan nie zastępuje lokalnego rozwiązywania zależności i budowania przez Conan CLI.
+
+### Dowolne API, monitoring i zarządzanie usługami
+
+Narzędzie `request` nie jest ograniczone do wbudowanych integracji. Skonfiguruj profil `kind: "api"` z adresem usługi
+i uwierzytelnianiem, a następnie podaj endpoint, metodę HTTP, parametry zapytania i body wymagane przez tę usługę.
+Pełne URL-e żądań są odrzucane: profil określa serwer docelowy i jego poświadczenie.
+
+Przykładowo, po skonfigurowaniu profilu `monitoring` dla API zgodnego z Prometheusem, wywołaj `request` z argumentami:
+
+```json
+{
+  "profile": "monitoring",
+  "method": "GET",
+  "path": "/api/v1/query",
+  "query": {"query": "up"}
+}
+```
+
+Tym samym mechanizmem można sprawdzić usługę deployment, uruchomić build Jenkinsa, odpytać repozytorium
+artefaktów lub obsłużyć konsolę zarządzania. To konfigurowalne operacje API, nie deklaracja gotowego konektora
+do każdego produktu. Użytkownik dobiera semantykę endpointów i uprawnienia; żądania inne niż odczyt wymagają
+`allow_write` i skonfigurowanego trybu zgody. Dla profili monitoringu bez prawa zapisu ustaw `read_only: true`.
+
+[Profile usług i uwierzytelnianie](https://github.com/przestaw/cli-tools-MCP/blob/main/docs/services-auth.md)
+opisują bearer/basic, własny nagłówek, logowanie formularzem oraz dostęp przez SSH.
 
 ## Szybki start
 
