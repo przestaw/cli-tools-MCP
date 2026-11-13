@@ -23,7 +23,7 @@ Tools (listed only for the backends that are configured):
 | `file` | repository file at a ref |
 | `comment` | comment on a pull/merge request (`repo` + `number`) or an issue (`issue`) (write) |
 | `upload` | one local image or video (png, jpg, gif, webp, mp4, mov, webm; up to 100 MB) for a pull request (`repo`, GitHub user attachment on github.com or GitLab upload) or an issue (`issue`, Jira attachment); returns `url` and `markdown` (write) |
-| `batch` | `calls: [{tool, args}, ...]`, 1 to 20 writes run in order; one approval if requested, never one per item; listed only with `allow_write` |
+| `batch` | `calls: [{tool, description?, args}, ...]`, 1 to 20 writes run in order; optional per-call explanations in the approval prompt; listed only with `allow_write` |
 | `issue_show`, `issue_search`, `issue_update` | Jira Server and Cloud issues in one shape (see below) |
 | `request`, `download` | any endpoint or file of any HTTP profile (github, gitlab, jira, atlassian, api) |
 | `api_exec` | allow-listed remote commands of ssh-exec profiles |
@@ -56,6 +56,33 @@ For example, discover the 14 component builds of a pipeline with reads, then pas
 `batch` with `stop_on_error: false`. If requested, one approval covers the list. Report each result and verify with reads;
 do not include new targets or automatically repeat uncertain writes. Input checks run before the first write; remote
 failures can still produce partial execution and there is no rollback.
+
+Give each batch item a short `description` explaining its effect, rather than expecting the user to decode an API
+body. For example:
+
+```json
+{
+  "calls": [
+    {
+      "tool": "request",
+      "description": "Start the application build",
+      "args": {"profile": "jenkins", "method": "POST", "path": "/job/app/build"}
+    },
+    {
+      "tool": "request",
+      "description": "Start the integration tests",
+      "args": {"profile": "jenkins", "method": "POST", "path": "/job/e2e/build"}
+    }
+  ],
+  "confirm": true
+}
+```
+
+The prompt puts each description above the actual tool and arguments. These agent-written explanations are display
+hints, not a substitute for checking the request or its approval scope; they are never sent to the provider.
+Descriptions are optional, collapsed to one line, and shortened after 120 characters with the full length shown.
+Both per-batch and first session-approval prompts use them. Session prompts explicitly explain that approval also
+covers later writes to any configured profile in that connection, not just the listed batch.
 
 For Jenkins `buildWithParameters`, `request` accepts `content_type: "application/x-www-form-urlencoded"` and an encoded
 form body. Set `response_metadata: true` to get `{body, location}` including the queue item's `Location` header (native

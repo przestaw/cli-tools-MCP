@@ -216,8 +216,8 @@ func Load(path string) (*Config, error) {
 	if cfg.Profiles == nil {
 		cfg.Profiles = map[string]Profile{}
 	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("validate config %s: %w", path, err)
+	if err := cfg.Policy.validate(); err != nil {
+		return nil, fmt.Errorf("validate policy in config %s: %w", path, err)
 	}
 	return cfg, nil
 }
@@ -574,8 +574,8 @@ func (c *Config) ResolveFor(kind, resource string) (string, Profile, error) {
 
 // Validate checks every profile, and that each default points to an existing profile of the right kind.
 func (c *Config) Validate() error {
-	if c.Policy.ConfirmWrites && c.Policy.ConfirmSessionWrites {
-		return fmt.Errorf("policy.confirm_writes and policy.confirm_session_writes cannot both be true")
+	if err := c.Policy.validate(); err != nil {
+		return err
 	}
 	for kind, seconds := range c.Timeouts {
 		if seconds < 0 {
@@ -598,6 +598,13 @@ func (c *Config) Validate() error {
 		if profile.Kind != kind {
 			return fmt.Errorf("defaults.%s references profile %q of kind %q", kind, name, profile.Kind)
 		}
+	}
+	return nil
+}
+
+func (p PolicyConfig) validate() error {
+	if p.ConfirmWrites && p.ConfirmSessionWrites {
+		return fmt.Errorf("policy.confirm_writes and policy.confirm_session_writes cannot both be true")
 	}
 	return nil
 }

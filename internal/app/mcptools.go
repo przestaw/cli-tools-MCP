@@ -113,9 +113,11 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 	return dispatch(ctx, cfg, name, a)
 }
 
+const sessionApprovalQuestion = "This also approves later writes to any configured profile in this MCP connection, unless a call explicitly requests confirmation. Reconnecting requires a new approval.\n\nApprove this session?"
+
 func describeSessionCall(name string, a map[string]any) string {
 	args, _ := json.MarshalIndent(shortArgs(a, 300), "", "  ")
-	return fmt.Sprintf("workctl: the agent wants to start a session that can run writes. The first write is %s:\n\n%s\n\nApprove this session?", name, args)
+	return fmt.Sprintf("workctl: the agent wants to start a session that can run writes. The first write is %s:\n\n%s\n\n%s", name, args, sessionApprovalQuestion)
 }
 
 func findTool(cfg *config.Config, name string) (mcp.Tool, bool) {
@@ -180,11 +182,16 @@ func shortArgs(a map[string]any, limit int) map[string]any {
 	short := map[string]any{}
 	for k, v := range a {
 		if s, ok := v.(string); ok {
-			if r := []rune(s); len(r) > limit {
-				v = fmt.Sprintf("%s... (%d characters in total)", string(r[:limit]), len(r))
-			}
+			v = shortText(s, limit)
 		}
 		short[k] = v
 	}
 	return short
+}
+
+func shortText(s string, limit int) string {
+	if r := []rune(s); len(r) > limit {
+		return fmt.Sprintf("%s... (%d characters in total)", string(r[:limit]), len(r))
+	}
+	return s
 }

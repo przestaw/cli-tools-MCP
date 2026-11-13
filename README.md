@@ -45,7 +45,7 @@ Manual registration: any MCP client that starts `workctl mcp` (the binary on `PA
 | `pr_list`, `pr_show` | pull/merge requests; `include: [files, reviews, reviewers, comments, discussion, checks]` |
 | `pr_create`, `pr_edit`, `comment` | create, edit and comment (write) |
 | `upload` | an image or video for a description or comment: GitHub attachment, GitLab upload, Jira attachment (write) |
-| `batch` | several writes (for example Jenkins builds) after one approval |
+| `batch` | several writes after one approval, with a short explanation for each operation |
 | `ci` | CI runs and pipelines, jobs, job logs |
 | `file` | a repository file at a ref |
 | `issue_show`, `issue_search`, `issue_update` | Jira issues; `issue_update` supports `dry_run` |

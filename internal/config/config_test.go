@@ -63,6 +63,22 @@ func TestConfirmationPoliciesAreMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestLoadKeepsUnusedMalformedProfiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.json")
+	body := `{"version":2,"defaults":{"github":"selected"},"profiles":{"selected":{"kind":"github","url":"https://api.github.com"},"unused":{"kind":"github","url":"not a URL"}}}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config with unused malformed profile: %v", err)
+	}
+	name, _, err := cfg.ProfileOf("github")
+	if err != nil || name != "selected" {
+		t.Fatalf("selected profile = %q, %v", name, err)
+	}
+}
+
 func TestConfigExampleValidates(t *testing.T) {
 	cfg, err := config.Load(filepath.Join(testutil.RepoRoot(t), "config.example.json"))
 	if err != nil {
