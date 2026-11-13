@@ -12,7 +12,7 @@ workctl łączy lokalnych asystentów programistycznych z GitHubem, GitLabem, Ji
 Pozwala przeglądać pull requesty, zgłoszenia, przebiegi CI i załączniki bez przełączania narzędzi dostawców.
 Zmiany można zatwierdzać pojedynczo lub partiami, a konta osobiste i służbowe rozdzielić nazwanymi profilami.
 
-[Szybki start](#szybki-start) · [Konfiguracja MCP](#podłączenie-klienta-mcp) · [Zatwierdzanie zapisów](#zatwierdzanie-zapisów) · [Dokumentacja](#dokumentacja)
+[Szybki start](#szybki-start) · [Konfiguracja MCP](#mcp-client) · [Zatwierdzanie zapisów](#write-approvals) · [Dokumentacja](#dokumentacja)
 
 ## Możliwości
 
@@ -62,6 +62,8 @@ workctl --profile personal github pr list --repo owner/repository
 workctl --profile personal github pr get 42 --repo owner/repository
 ```
 
+<a id="mcp-client"></a>
+
 ## Podłączenie klienta MCP
 
 Zgodny klient MCP obsługujący stdio może uruchomić `workctl mcp`. Typowa konfiguracja:
@@ -92,6 +94,8 @@ Agent może wywołać `pr_show` z poniższymi argumentami, aby sprawdzić PR bez
   "include": ["reviews", "checks"]
 }
 ```
+
+<a id="write-approvals"></a>
 
 ## Zatwierdzanie zapisów
 
