@@ -5,6 +5,7 @@ package app
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -37,6 +38,10 @@ func TestIsWriteClassifiesEveryWritingCall(t *testing.T) {
 		{"cli", map[string]any{"module": "ado", "args": []any{"pr", "create"}}, true},
 		{"accounts", map[string]any{}, false},
 		{"accounts", map[string]any{"bind_profile": "gh", "bind_repo": "o/*"}, true},
+		{"ci", map[string]any{"ref": "main"}, false},
+		{"task_get_context", map[string]any{"key": "A-1"}, false},
+		{"upload", map[string]any{"path": "/tmp/a.png"}, true},
+		{"a_tool_added_later", map[string]any{}, true},
 	}
 	for _, c := range cases {
 		if got := isWrite(cfg, c.name, c.args); got != c.write {
@@ -60,6 +65,17 @@ func jenkinsLike(t *testing.T) (*config.Config, *[]testutil.Request) {
 // with answer (empty: the client does not support elicitation).
 func buildOverMCP(t *testing.T, cfg *config.Config, answer string) (text, asked string) {
 	t.Helper()
+	return callOverMCP(t, cfg, answer, `{"name":"request","arguments":{"profile":"jenkins","method":"POST","path":"/job/x/build"}}`)
+}
+
+// callOverMCP runs one tools/call (params JSON) through the MCP loop and returns its text and the question asked.
+func callOverMCP(t *testing.T, cfg *config.Config, answer, call string) (text, asked string) {
+	t.Helper()
+	var line bytes.Buffer // one message per line: the test calls are written over several lines
+	if err := json.Compact(&line, []byte(call)); err != nil {
+		t.Fatal(err)
+	}
+	call = line.String()
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 	done := make(chan error, 1)
@@ -71,7 +87,7 @@ func buildOverMCP(t *testing.T, cfg *config.Config, answer string) (text, asked 
 	write := func(line string) { _, _ = io.WriteString(inW, line+"\n") }
 	go func() {
 		write(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":` + caps + `}}`)
-		write(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request","arguments":{"profile":"jenkins","method":"POST","path":"/job/x/build"}}}`)
+		write(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":` + call + `}`)
 	}()
 	out := bufio.NewScanner(outR)
 	for out.Scan() {
@@ -87,6 +103,10 @@ func buildOverMCP(t *testing.T, cfg *config.Config, answer string) (text, asked 
 		switch {
 		case msg.Method == "elicitation/create":
 			asked = msg.Params.Message
+			if answer == "cancel" { // the client gives up on the tool call instead of answering
+				go write(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2}}`)
+				continue
+			}
 			go write(`{"jsonrpc":"2.0","id":` + string(msg.ID) + `,"result":` + answer + `}`)
 		case string(msg.ID) == "2":
 			_ = inW.Close()

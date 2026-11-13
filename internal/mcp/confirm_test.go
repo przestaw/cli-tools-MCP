@@ -81,7 +81,7 @@ func TestConfirmAsksTheUserThroughTheClient(t *testing.T) {
 	if text, asked := converse(t, true, `{"action":"accept","content":{"approve":true}}`); text != "done" || asked != "write it?" {
 		t.Fatalf("accepted: text=%q asked=%q", text, asked)
 	}
-	for _, answer := range []string{`{"action":"decline"}`, `{"action":"cancel"}`, `{"action":"accept","content":{"approve":false}}`} {
+	for _, answer := range []string{`{"action":"decline"}`, `{"action":"cancel"}`, `{"action":"accept","content":{"approve":false}}`, `{"action":"accept"}`, `{"action":"accept","content":{}}`} {
 		if text, _ := converse(t, true, answer); !strings.Contains(text, "declined") {
 			t.Errorf("%s: text=%q", answer, text)
 		}

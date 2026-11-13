@@ -152,10 +152,34 @@ func neutralTools() []mcp.Tool {
 		{Name: "comment", Description: "Add a comment to a pull/merge request (repo + number) or to an issue (issue key, Jira Server or Cloud). Needs policy.allow_write=true.", InputSchema: mcp.ObjSchema(map[string]any{
 			"repo": repo, "number": num, "issue": mcp.StrProp("Issue key, e.g. ABC-123, instead of repo + number"), "body": mcp.StrProp("Comment text"), "format": format, "profile": profile,
 		}, "body")},
+		uploadTool(repo, profile),
 	}
 }
 
+// ValidateWrite checks local targets and media before a batch sends its first write.
+func ValidateWrite(cfg *config.Config, name string, a map[string]any) error {
+	if name == "upload" {
+		if err := checkMedia(mcp.ArgString(a, "path")); err != nil {
+			return err
+		}
+	}
+	if key := mcp.ArgString(a, "issue"); key != "" {
+		_, _, err := issue.ResolveProfile(cfg, mcp.ArgString(a, "profile"), key)
+		return err
+	}
+	if name == "pr_edit" || name == "comment" {
+		if number(a) <= 0 {
+			return fmt.Errorf("number must be a positive integer")
+		}
+	}
+	_, err := resolveRepo(cfg, a)
+	return err
+}
+
 func callNeutral(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
+	if name == "upload" {
+		return upload(ctx, cfg, a)
+	}
 	if name == "comment" && mcp.ArgString(a, "issue") != "" {
 		return issue.CallTool(ctx, cfg, "issue_update", map[string]any{"key": mcp.ArgString(a, "issue"), "comment": mcp.ArgString(a, "body"), "profile": mcp.ArgString(a, "profile")})
 	}
