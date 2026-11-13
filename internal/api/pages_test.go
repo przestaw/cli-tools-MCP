@@ -43,3 +43,29 @@ func TestGetAllPagesReadsUntilAShortPage(t *testing.T) {
 		t.Fatalf("maxPages=1 must report incomplete results: %s, %v", out, err)
 	}
 }
+
+func TestGetAllPagesAcceptsFullFinalPageWhenNextPageIsEmpty(t *testing.T) {
+	var pages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		pages = append(pages, page)
+		n := 100
+		if page == "3" {
+			n = 0
+		}
+		_, _ = fmt.Fprint(w, "["+strings.TrimSuffix(strings.Repeat(`{"x":1},`, n), ",")+"]")
+	}))
+	t.Cleanup(srv.Close)
+	c, err := NewProfileClient(config.Default(), "p", config.Profile{Kind: "api", URL: srv.URL, Auth: "none", VerifyTLS: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.GetAllPages(context.Background(), "/items", nil, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(out, &items); err != nil || len(items) != 200 || strings.Join(pages, ",") != "1,2,3" {
+		t.Fatalf("items=%d pages=%v err=%v", len(items), pages, err)
+	}
+}

@@ -17,8 +17,8 @@ const pageSize = 100
 
 // GetAllPages reads a JSON array page by page (per_page=100, page=1, 2, ...) until a page comes back short, and
 // returns the items as one array. An answer that is not an array is returned as it is.
-// shortcut: stops after maxPages pages and counts items instead of reading Link headers; raise maxPages if a list
-// ever needs more (GitHub itself returns at most 3000 files of a pull request).
+// shortcut: stops after maxPages pages and counts items instead of reading Link headers; it probes one extra page
+// when the limit ends on a full page, so an exact provider boundary is not reported as incomplete.
 func (c *Client) GetAllPages(ctx context.Context, path string, q url.Values, maxPages int) ([]byte, error) {
 	all := []json.RawMessage{}
 	for page := 1; page <= maxPages; page++ {
@@ -42,6 +42,22 @@ func (c *Client) GetAllPages(ctx context.Context, path string, q url.Values, max
 		all = append(all, items...)
 		if len(items) < pageSize {
 			return json.Marshal(all)
+		}
+		if page == maxPages {
+			// A full final page may be the provider's exact result limit (for example 3,000 GitHub PR files).
+			// Probe once so callers can distinguish that complete boundary from a locally truncated list.
+			pq.Set("page", strconv.Itoa(page+1))
+			body, err := BodyOnly(c.Do(ctx, http.MethodGet, path, pq, nil, ""))
+			if err != nil {
+				return nil, err
+			}
+			var extra []json.RawMessage
+			if err := json.Unmarshal(body, &extra); err != nil {
+				return nil, err
+			}
+			if len(extra) == 0 {
+				return json.Marshal(all)
+			}
 		}
 	}
 	return nil, fmt.Errorf("pagination limit reached (%d pages, %d items): result may be truncated", maxPages, len(all))
