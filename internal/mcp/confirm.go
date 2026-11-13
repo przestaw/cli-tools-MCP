@@ -26,6 +26,8 @@ type session struct {
 	running     map[string]context.CancelFunc // tool calls in flight, by the raw JSON of their id
 	next        int
 	elicitation bool
+	approvalMu  sync.Mutex
+	approved    bool
 	closed      chan struct{} // closed when the client's input ends
 }
 
@@ -150,11 +152,12 @@ func Confirm(ctx context.Context, message string) error {
 	if !ok {
 		return nil
 	}
+
 	sess.pmu.Lock()
 	can := sess.elicitation
 	sess.pmu.Unlock()
 	if !can {
-		return fmt.Errorf("policy.confirm_writes is on but this MCP client cannot ask the user (no elicitation support); stop and report this to the user, do not bypass through CLI or configuration changes")
+		return fmt.Errorf("write confirmation is on but this MCP client cannot ask the user (no elicitation support); stop and report this to the user, do not bypass through CLI or configuration changes")
 	}
 	raw, err := sess.request(ctx, "elicitation/create", map[string]any{
 		"message": message,
@@ -181,5 +184,23 @@ func Confirm(ctx context.Context, message string) error {
 	if r.Action != "accept" || r.Content.Approve == nil || !*r.Content.Approve {
 		return ErrDeclined
 	}
+	return nil
+}
+
+// ConfirmSession asks once per MCP connection. A later explicit Confirm remains a separate detailed approval.
+func ConfirmSession(ctx context.Context, message string) error {
+	sess, ok := ctx.Value(sessionKey{}).(*session)
+	if !ok {
+		return nil
+	}
+	sess.approvalMu.Lock()
+	defer sess.approvalMu.Unlock()
+	if sess.approved {
+		return nil
+	}
+	if err := Confirm(ctx, message); err != nil {
+		return err
+	}
+	sess.approved = true
 	return nil
 }

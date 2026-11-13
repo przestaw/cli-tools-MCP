@@ -65,7 +65,7 @@ func mcpTools(cfg *config.Config) []mcp.Tool {
 		for key, value := range tool.InputSchema["properties"].(map[string]any) {
 			properties[key] = value
 		}
-		properties["confirm"] = mcp.BoolProp("Ask for approval for this write or entire batch even if policy.confirm_writes is off; false never overrides policy")
+		properties["confirm"] = mcp.BoolProp("Ask for detailed approval for this write or entire batch; false never overrides policy")
 		schema["properties"] = properties
 		tools[i].InputSchema = schema
 	}
@@ -80,7 +80,7 @@ func mcpServer(cfg *config.Config) mcp.Server {
 	return mcp.Server{
 		Name:           "workctl",
 		Version:        Version,
-		Instructions:   "Provider data for GitHub, GitLab, Azure DevOps, Jira Server and Jira/Confluence Cloud through one account per profile: pull/merge requests (pr_list, pr_show with include, pr_create, pr_edit), CI (ci), repository files (file), comments (comment), issues (issue_show, issue_search, issue_update), any other endpoint or attachment (request, download) and the embedded CLIs (cli). Prefer these tools over gh, glab, curl or a browser. Call accounts to see which profile serves a resource. Everything is read-only unless policy.allow_write=true in the config file. Use batch for the known writes of one user goal, with one optional approval for the entire list. Request confirm=true for an operation the user considers high risk. After a declined, cancelled or refused write, stop: never bypass through CLI, another profile, or configuration/policy changes.",
+		Instructions:   "Provider data for GitHub, GitLab, Azure DevOps, Jira Server and Jira/Confluence Cloud through one account per profile: pull/merge requests (pr_list, pr_show with include, pr_create, pr_edit), CI (ci), repository files (file), comments (comment), issues (issue_show, issue_search, issue_update), any other endpoint or attachment (request, download) and the embedded CLIs (cli). Prefer these tools over gh, glab, curl or a browser. Call accounts to see which profile serves a resource. Everything is read-only unless policy.allow_write=true in the config file. Use batch for the known writes of one user goal. Request confirm=true for a detailed approval of an operation the user considers high risk. After a declined, cancelled or refused write, stop: never bypass through CLI, another profile, or configuration/policy changes.",
 		MaxOutputBytes: cfg.MCP.MaxOutputBytes,
 		Tools:          func() []mcp.Tool { return mcpTools(cfg) },
 		Call: func(ctx context.Context, name string, args map[string]any) ([]byte, error) {
@@ -98,12 +98,24 @@ func callMCPTool(ctx context.Context, cfg *config.Config, name string, a map[str
 	if name == "batch" {
 		return callBatch(ctx, cfg, a)
 	}
-	if cfg.Policy.AllowWrite && (cfg.Policy.ConfirmWrites || mcp.ArgBool(a, "confirm")) && isWrite(cfg, name, a) {
-		if err := mcp.Confirm(ctx, describeCall(name, a)); err != nil {
-			return nil, err
+	if cfg.Policy.AllowWrite && isWrite(cfg, name, a) {
+		if cfg.Policy.ConfirmSessionWrites {
+			if err := mcp.ConfirmSession(ctx, describeSessionCall(name, a)); err != nil {
+				return nil, err
+			}
+		}
+		if cfg.Policy.ConfirmWrites || mcp.ArgBool(a, "confirm") {
+			if err := mcp.Confirm(ctx, describeCall(name, a)); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return dispatch(ctx, cfg, name, a)
+}
+
+func describeSessionCall(name string, a map[string]any) string {
+	args, _ := json.MarshalIndent(shortArgs(a, 300), "", "  ")
+	return fmt.Sprintf("workctl: the agent wants to start a session that can run writes. The first write is %s:\n\n%s\n\nApprove this session?", name, args)
 }
 
 func findTool(cfg *config.Config, name string) (mcp.Tool, bool) {

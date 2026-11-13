@@ -48,8 +48,8 @@
     "timeout_seconds": 120
   },
   "policy": {
-    "allow_write": false,
-    "confirm_writes": true
+    "allow_write": true,
+    "confirm_session_writes": true
   },
   "mcp": {
     "max_output_bytes": 500000

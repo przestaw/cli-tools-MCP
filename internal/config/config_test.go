@@ -53,6 +53,16 @@ func TestWritePolicy(t *testing.T) {
 	}
 }
 
+func TestConfirmationPoliciesAreMutuallyExclusive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "conflicting-policy.json")
+	if err := os.WriteFile(path, []byte(`{"version":2,"policy":{"confirm_writes":true,"confirm_session_writes":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(path); err == nil || !strings.Contains(err.Error(), "cannot both") {
+		t.Fatalf("load error = %v", err)
+	}
+}
+
 func TestConfigExampleValidates(t *testing.T) {
 	cfg, err := config.Load(filepath.Join(testutil.RepoRoot(t), "config.example.json"))
 	if err != nil {

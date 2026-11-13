@@ -51,6 +51,10 @@ The MCP surface is stricter, because it is what an agent can reach. It also refu
 `completion`, every `open` (it starts a browser), the `--config` and `--insecure` flags, and `raw` with a full URL (so
 the credential cannot be sent to another host).
 
+MCP write confirmation is configured separately: `confirm_writes` asks for every write, while
+`confirm_session_writes` asks for the first write in each MCP connection and covers its remaining writes. These modes
+are mutually exclusive. `confirm: true` still requests detailed approval for that operation.
+
 ## GitHub
 
 ```powershell

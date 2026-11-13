@@ -78,8 +78,13 @@ func callBatch(ctx context.Context, cfg *config.Config, a map[string]any) ([]byt
 		args, _ := json.Marshal(shortArgs(c.Args, 120))
 		lines[i] = fmt.Sprintf("%d. %s %s", i+1, c.Tool, args)
 	}
+	msg := fmt.Sprintf("workctl: the agent wants to run %d writes, in this order; one that already ran is not undone if a later one fails.\n\n%s\n\nApprove all?", len(calls), strings.Join(lines, "\n"))
+	if cfg.Policy.ConfirmSessionWrites {
+		if err := mcp.ConfirmSession(ctx, strings.Replace(msg, "Approve all?", "Approve this session?", 1)); err != nil {
+			return nil, err
+		}
+	}
 	if ask {
-		msg := fmt.Sprintf("workctl: the agent wants to run %d writes, in this order; one that already ran is not undone if a later one fails.\n\n%s\n\nApprove all?", len(calls), strings.Join(lines, "\n"))
 		if err := mcp.Confirm(ctx, msg); err != nil {
 			return nil, err
 		}

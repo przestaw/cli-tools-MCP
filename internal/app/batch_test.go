@@ -27,6 +27,16 @@ func TestBatchAsksOnceForAllWrites(t *testing.T) {
 	}
 }
 
+func TestBatchSessionApprovalIncludesWriteSummary(t *testing.T) {
+	cfg, seen := jenkinsLike(t)
+	cfg.Policy.ConfirmWrites, cfg.Policy.ConfirmSessionWrites = false, true
+	text, asked := callOverMCP(t, cfg, `{"action":"accept","content":{"approve":true}}`, twoBuilds)
+	if len(*seen) != 2 || strings.Count(asked, "Approve this session?") != 1 ||
+		!strings.Contains(asked, "/job/app/build") || !strings.Contains(asked, "/job/e2e/build") || strings.Count(text, `"ok"`) != 2 {
+		t.Fatalf("text=%q asked=%q requests=%v", text, asked, *seen)
+	}
+}
+
 func TestBatchRefusesBeforeAskingWhenACallIsInvalid(t *testing.T) {
 	cfg, seen := jenkinsLike(t)
 	for _, call := range []string{

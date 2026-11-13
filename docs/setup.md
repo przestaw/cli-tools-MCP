@@ -28,6 +28,18 @@ wins over the keyring.
 `%APPDATA%\workctl\config.json` (Linux: `~/.config/workctl/config.json`), or `--config FILE`, or `WORKCTL_CONFIG`.
 Only `"version": 2` is accepted; see `config.example.json`.
 
+For an MCP agent that may write after one approval per connection:
+
+```json
+"policy": {
+  "allow_write": true,
+  "confirm_session_writes": true
+}
+```
+
+Use `confirm_writes: true` instead to approve every write; the two confirmation modes cannot both be true. An MCP
+client without elicitation support refuses writes that need either confirmation mode.
+
 Every connection is a named entry in `profiles` with `kind` (`jira`, `gitlab`, `github`, `azure`), `url`, `auth`,
 `username`, `token_env`, `verify_tls`, `ca_file` and, where it applies, `default_repo`/`repos` or
 `default_project`/`projects`. `defaults.<kind>` names the profile used when there is more than one of a kind. The token

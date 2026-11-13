@@ -31,10 +31,12 @@ Tools (listed only for the backends that are configured):
 | `cli` | `{"module": "azure", "args": ["pr","get","123","-p","MyProject"]}`: azure, atlassian and, with a jira profile, `jira` |
 
 Writes are refused until `allow_write`. With `"policy": {"confirm_writes": true}` every write of the agent (a build
-started through `request`, `pr_create`, `comment`, `issue_update`, a `cli` write, ...) also waits for the user's approval
-in the MCP client (MCP elicitation); a client that cannot ask refuses the write instead of doing it silently, and
-commands typed in a terminal are not asked about. Only calls known to read skip the question, so a tool is asked about
-until it is classified; the question shows long values shortened, with their full length. A call the client cancels
+started through `request`, `pr_create`, `comment`, `issue_update`, a `cli` write, ...) waits for detailed approval in
+the MCP client (MCP elicitation). Alternatively, `"policy": {"confirm_session_writes": true}` asks on the first write
+of each MCP connection; approval covers later writes in that connection. The modes are mutually exclusive. A batch's
+first session prompt includes its known writes. A client that cannot ask refuses the write instead of doing it silently,
+and commands typed in a terminal are not asked about. Only calls known to read skip the question, so a tool is asked
+about until it is classified; the question shows long values shortened, with their full length. A call the client cancels
 (`notifications/cancelled`) stops, also while it waits for the answer. Repository tools answer in a compact shape (the same fields for
 GitHub and GitLab, with the web URL); `format: "raw"` returns the provider JSON. Only the tools above exist: the provider-specific `github_*`, `gitlab_*`,
 `jira_*`, `api_request`, `api_download`, `azure` and `atlassian` tools were removed in 0.4.3.
@@ -43,8 +45,9 @@ attachments) and never sends the credential there; an HTML answer instead of the
 `atlassian attachment download` and `page attachment-download` are reads that save into the downloads directory.
 Each `cli` call runs as a child process of workctl with its own timeout (`timeouts.<module>`, else `modules.timeout_seconds`).
 
-Confirmation defaults to off. For a single high-risk operation pass `confirm: true` to a write or to `batch`;
-`confirm: false` cannot disable `policy.confirm_writes`. A batch item requesting confirmation also asks once for the whole list.
+Confirmation defaults to off. For a single high-risk operation pass `confirm: true` to a write or to `batch`; it asks
+for detailed approval even after session approval. `confirm: false` cannot disable policy confirmation. A batch item
+requesting confirmation also asks once for the whole list.
 Policy is chosen by the user, not changed by the agent to complete an action. After refusal or cancellation, an agent
 must not switch to CLI, another profile, or configuration changes to bypass it. This is agent guidance: workctl cannot
 prevent an independent program from using the same API.

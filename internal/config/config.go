@@ -104,6 +104,8 @@ type PolicyConfig struct {
 	// ConfirmWrites makes every write of the agent (MCP) wait for the user's approval in the MCP client.
 	// Commands typed in a terminal are the user's own and are not asked about.
 	ConfirmWrites bool `json:"confirm_writes,omitempty"`
+	// ConfirmSessionWrites makes the first MCP write wait for approval, then approves remaining writes in that connection.
+	ConfirmSessionWrites bool `json:"confirm_session_writes,omitempty"`
 }
 
 // MCPConfig tunes the MCP server.
@@ -213,6 +215,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Profiles == nil {
 		cfg.Profiles = map[string]Profile{}
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validate config %s: %w", path, err)
 	}
 	return cfg, nil
 }
@@ -569,6 +574,9 @@ func (c *Config) ResolveFor(kind, resource string) (string, Profile, error) {
 
 // Validate checks every profile, and that each default points to an existing profile of the right kind.
 func (c *Config) Validate() error {
+	if c.Policy.ConfirmWrites && c.Policy.ConfirmSessionWrites {
+		return fmt.Errorf("policy.confirm_writes and policy.confirm_session_writes cannot both be true")
+	}
 	for kind, seconds := range c.Timeouts {
 		if seconds < 0 {
 			return fmt.Errorf("timeouts.%s cannot be negative", kind)
