@@ -32,8 +32,8 @@ type Streamed struct {
 }
 
 // downloadRedirectHosts are the storage hosts a download may be redirected to (GitHub Actions logs and artifacts,
-// release assets, user attachments). The request that follows such a redirect carries no credential.
-var downloadRedirectHosts = []string{".githubusercontent.com", ".blob.core.windows.net"}
+// release assets, user attachments, Google Drive/Cloud media storage). The request that follows such a redirect carries no credential.
+var downloadRedirectHosts = []string{".githubusercontent.com", ".blob.core.windows.net", ".googleusercontent.com", ".googleapis.com"}
 
 // allowedRedirectHost is a variable so tests can allow their local storage server.
 var allowedRedirectHost = func(host string) bool {

@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"workctl/internal/api"
 	"workctl/internal/config"
 	"workctl/internal/mcp"
 	"workctl/internal/secret"
@@ -55,11 +56,21 @@ func CredentialStatus(cfg *config.Config, name string, prof config.Profile) stri
 		return err.Error()
 	}
 	if prof.TokenEnv != "" && os.Getenv(prof.TokenEnv) != "" {
+		if strings.EqualFold(prof.Auth, "oauth2") {
+			if api.ParseOAuth2Credential(os.Getenv(prof.TokenEnv)).RefreshToken == "" {
+				return fmt.Sprintf("client_secret in %s; run `workctl auth login --profile %s` for refresh token", prof.TokenEnv, name)
+			}
+		}
 		return fmt.Sprintf("set via environment variable %s", prof.TokenEnv)
 	}
 	account := secret.Account(prof.Kind, name)
 	val, err := config.TokenStore.Get(account)
 	if err == nil && val != "" {
+		if strings.EqualFold(prof.Auth, "oauth2") {
+			if api.ParseOAuth2Credential(val).RefreshToken == "" {
+				return fmt.Sprintf("client_secret stored; run `workctl auth login --profile %s`", name)
+			}
+		}
 		return "stored in keyring"
 	}
 	if err != nil && !errors.Is(err, secret.ErrNotFound) {

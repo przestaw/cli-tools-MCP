@@ -11,7 +11,8 @@ Each file states its status in its first lines.
 | [plan-form-session.md](plan-form-session.md) | implemented |
 | [plan-generic-api-ssh.md](plan-generic-api-ssh.md) | implemented |
 | [plan-compact-output.md](plan-compact-output.md) | part 1 implemented (0.4.4); part 3 for GitHub and GitLab; part 2 open |
-| [plan-oauth-sso.md](plan-oauth-sso.md) | idea, not implemented |
+| [plan-oauth-sso.md](plan-oauth-sso.md) | in progress: phase 0 on `feat/google-drive-colab`; `kind: "google"` (gdrive / gcloud / google), GitHub/GitLab OAuth planned (Polish) |
+| [raport-prostota-kodu.md](raport-prostota-kodu.md) | proposal for a separate simplification MR (Polish) |
 
 ## Not yet planned in detail
 

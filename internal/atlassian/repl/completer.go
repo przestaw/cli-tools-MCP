@@ -6,8 +6,6 @@ package repl
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 
 	"github.com/c-bata/go-prompt"
@@ -188,16 +186,4 @@ commands:
 // stop terminates the shell. go-prompt does not expose a clean stop, so exit.
 func stop() {
 	os.Exit(0)
-}
-
-// openBrowser opens a URL in the default browser cross-platform.
-func openBrowser(url string) error {
-	switch runtime.GOOS {
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-	case "darwin":
-		return exec.Command("open", url).Start()
-	default:
-		return exec.Command("xdg-open", url).Start()
-	}
 }

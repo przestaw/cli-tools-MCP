@@ -14,6 +14,7 @@ import (
 	"workctl/internal/azure/diff"
 	"workctl/internal/azure/output"
 	"workctl/internal/azure/service"
+	"workctl/internal/cliutil"
 )
 
 var prCmd = &cobra.Command{
@@ -888,7 +889,7 @@ var prOpenCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return openBrowser(svc.Client.PRWebURL(project, pr.Repository.Name, id))
+		return cliutil.OpenURL(svc.Client.PRWebURL(project, pr.Repository.Name, id))
 	},
 }
 

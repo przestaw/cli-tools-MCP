@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"workctl/internal/azure/service"
+	"workctl/internal/cliutil"
 )
 
 var repoCmd = &cobra.Command{
@@ -202,7 +203,7 @@ var repoOpenCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return openBrowser(svc.Client.RepoWebURL(project, args[0]))
+		return cliutil.OpenURL(svc.Client.RepoWebURL(project, args[0]))
 	},
 }
 

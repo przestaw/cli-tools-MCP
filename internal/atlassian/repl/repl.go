@@ -17,6 +17,7 @@ import (
 	"workctl/internal/atlassian/output"
 	"workctl/internal/atlassian/service"
 	"workctl/internal/atlassian/wizard"
+	"workctl/internal/cliutil"
 )
 
 // Session is one interactive shell session.
@@ -1052,19 +1053,19 @@ func (s *Session) open(args []string) error {
 			if err := json.Unmarshal(raw, &f); err != nil {
 				return err
 			}
-			return openBrowser(s.svc.Client.WikiURL(f.Links.WebUI))
+			return cliutil.OpenURL(s.svc.Client.WikiURL(f.Links.WebUI))
 		}
 		pg, err := s.svc.Client.Page(c, id, false)
 		if err != nil {
 			return err
 		}
-		return openBrowser(s.svc.Client.WikiURL(pg.Links.WebUI))
+		return cliutil.OpenURL(s.svc.Client.WikiURL(pg.Links.WebUI))
 	}
 	key, err := s.issueArg(args)
 	if err != nil {
 		return err
 	}
-	return openBrowser(s.svc.Client.IssueURL(key))
+	return cliutil.OpenURL(s.svc.Client.IssueURL(key))
 }
 
 func (s *Session) trace(args []string) error {

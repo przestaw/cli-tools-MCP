@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -43,15 +44,16 @@ type Client struct {
 	prefix   string
 	client   *http.Client
 	headers  http.Header
-	cli      *cliBackend  // set for profiles with backend "cli": requests go to gh or glab, not to client
-	csrf     *config.CSRF // set when writes need an anti-CSRF token (see csrf.go)
-	token    *csrfToken   // fetched on the first write; empty header when the server has CSRF protection off
-	form     *formSession // set for auth "form": logs in before the first request (see formlogin.go)
-	readOnly bool         // refuse everything but GET and HEAD
-	kind     string       // profile kind, for the account check
-	home     string       // the profile's own base URL, where the account check goes
-	want     string       // account the token must belong to before a write (github, gitlab); empty: no check
-	checked  bool         // the account was checked once
+	cli      *cliBackend    // set for profiles with backend "cli": requests go to gh or glab, not to client
+	csrf     *config.CSRF   // set when writes need an anti-CSRF token (see csrf.go)
+	token    *csrfToken     // fetched on the first write; empty header when the server has CSRF protection off
+	form     *formSession   // set for auth "form": logs in before the first request (see formlogin.go)
+	oauth2   *oauth2Session // set for auth "oauth2": exchanges refresh_token for short-lived bearer tokens (see oauth2.go)
+	readOnly bool           // refuse everything but GET and HEAD
+	kind     string         // profile kind, for the account check
+	home     string         // the profile's own base URL, where the account check goes
+	want     string         // account the token must belong to before a write (github, gitlab); empty: no check
+	checked  bool           // the account was checked once
 }
 
 func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Client, error) {
@@ -170,6 +172,12 @@ func newProfileClient(cfg *config.Config, name string, profile config.Profile, t
 			client.headers.Set(profile.AuthHeader, credential)
 		case "form":
 			client.form = &formSession{login: *profile.FormLogin, username: profile.Username, password: credential, cache: sessionFile(name, profile)}
+		case "oauth2":
+			sess, err := newOAuth2Session(name, profile, credential, client.client)
+			if err != nil {
+				return nil, err
+			}
+			client.oauth2 = sess
 		default:
 			client.headers.Set("Authorization", "Bearer "+credential)
 		}
@@ -257,6 +265,17 @@ func (c *Client) doNative(ctx context.Context, method, target string, body []byt
 		return nil, nil, err
 	}
 	out, hdr, err := c.send(ctx, method, target, headers, body, contentType)
+	if o := c.oauth2; o != nil {
+		var httpErr *Error
+		if errors.As(err, &httpErr) && httpErr.Status == http.StatusUnauthorized {
+			// The server rejected a token that looked valid (revoked or rotated): fetch a fresh one and repeat once.
+			o.invalidate()
+			if headers, err = c.authorize(ctx, method); err != nil {
+				return nil, nil, err
+			}
+			return c.send(ctx, method, target, headers, body, contentType)
+		}
+	}
 	if f := c.form; err == nil && f != nil && f.cached {
 		// A saved session the server dropped answers with the login page: log in again and repeat the request once.
 		f.cached = false
@@ -324,6 +343,13 @@ func (c *Client) authorize(ctx context.Context, method string) (http.Header, err
 		}
 	}
 	headers := c.headers.Clone()
+	if c.oauth2 != nil {
+		accessToken, err := c.oauth2.token(ctx)
+		if err != nil {
+			return nil, err
+		}
+		headers.Set("Authorization", "Bearer "+accessToken)
+	}
 	if c.csrf != nil && !IsReadMethod(method) {
 		tok, err := c.csrfHeader(ctx)
 		if err != nil {
@@ -360,6 +386,39 @@ func (c *Client) send(ctx context.Context, method, target string, headers http.H
 	}
 	return httpx.Do(c.client, req, func(status int, url string, body []byte) error {
 		return &Error{Method: method, URL: url, Status: status, Body: string(body)}
+	})
+}
+
+// StreamReader sends a streaming write (POST or PUT) from body with contentLength (-1 when unknown) and returns the
+// response body and headers. Large binary uploads (such as Google Drive resumable sessions) never buffer the whole file in memory.
+func (c *Client) StreamReader(ctx context.Context, method, path string, q url.Values, body io.Reader, contentLength int64, contentType string, extraHeaders map[string]string) ([]byte, http.Header, error) {
+	if c.cli != nil {
+		return nil, nil, ErrNoHeaders
+	}
+	target, err := c.target(method, path, q)
+	if err != nil {
+		return nil, nil, err
+	}
+	headers, err := c.authorize(ctx, method)
+	if err != nil {
+		return nil, nil, err
+	}
+	for k, v := range extraHeaders {
+		headers.Set(k, v)
+	}
+	if contentType != "" {
+		headers.Set("Content-Type", contentType)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+target, body)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header = headers
+	if contentLength >= 0 {
+		req.ContentLength = contentLength
+	}
+	return httpx.Do(c.client, req, func(status int, url string, respBody []byte) error {
+		return &Error{Method: method, URL: url, Status: status, Body: string(respBody)}
 	})
 }
 

@@ -13,11 +13,81 @@ import (
 	"workctl/internal/mcp"
 )
 
+// toolCall is one MCP operation; write marks tools that need allow_write.
+type toolCall struct {
+	write bool
+	run   func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error)
+}
+
+var toolCalls = map[string]toolCall{
+	"github_get_repo": {run: func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+		return getRepo(ctx, c, repo)
+	}},
+	"github_list_pull_requests": {run: func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+		return listPRs(ctx, c, repo, mcp.ArgString(a, "search"), mcp.ArgString(a, "state"))
+	}},
+	"github_list_workflow_runs": {run: func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+		return listRuns(ctx, c, repo, mcp.ArgString(a, "branch"), mcp.ArgInt(a, "per_page", 30))
+	}},
+	"github_get_workflow_run": {run: func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+		return getRun(ctx, c, repo, mcp.ArgInt(a, "id", 0))
+	}},
+	"github_get_workflow_run_jobs": {run: func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+		return runJobs(ctx, c, repo, mcp.ArgInt(a, "id", 0))
+	}},
+	"github_list_branches": {run: func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+		return listBranches(ctx, c, repo, mcp.ArgString(a, "search"))
+	}},
+	"github_get_file": {run: func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+		return getFile(ctx, c, repo, mcp.ArgString(a, "path"), mcp.ArgString(a, "ref"))
+	}},
+	"github_add_pull_request_comment": {write: true, run: func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+		return addComment(ctx, c, repo, mcp.ArgInt(a, "number", 0), mcp.ArgString(a, "body"))
+	}},
+	"github_create_pull_request": {write: true, run: func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+		return createPR(ctx, c, repo, mcp.ArgString(a, "head"), mcp.ArgString(a, "base"), mcp.ArgString(a, "title"), mcp.ArgString(a, "body"), mcp.ArgBool(a, "draft"), cliutil.SplitCommaList(mcp.ArgString(a, "reviewers")))
+	}},
+	"github_request_reviewers": {write: true, run: func(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+		return requestReviewers(ctx, c, repo, mcp.ArgInt(a, "number", 0), cliutil.SplitCommaList(mcp.ArgString(a, "reviewers")))
+	}},
+	"github_edit_pull_request": {write: true, run: editPRTool},
+}
+
+func editPRTool(ctx context.Context, c *api.Client, repo string, a map[string]any) ([]byte, error) {
+	fields := prEditFields(mcp.ArgString(a, "title"), mcp.ArgString(a, "body"), mcp.ArgString(a, "base"), mcp.ArgString(a, "state"))
+	last, err := applyPREdit(ctx, c, repo, mcp.ArgInt(a, "number", 0), fields, cliutil.SplitCommaList(mcp.ArgString(a, "add_reviewers")), cliutil.SplitCommaList(mcp.ArgString(a, "remove_reviewers")))
+	if err != nil {
+		return nil, err
+	}
+	if last == nil {
+		return nil, fmt.Errorf("at least one of title, body, base, state, add_reviewers or remove_reviewers must be provided")
+	}
+	return last, nil
+}
+
 // CallTool runs one GitHub operation by its former MCP tool name; the provider-neutral tools in package pr call it.
 func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
+	call, ok := toolCalls[name]
+	var read prRead
+	if !ok {
+		for _, entry := range prReads {
+			if entry.tool == name {
+				read, ok = entry, true
+				break
+			}
+		}
+	}
+	if !ok {
+		return nil, fmt.Errorf("unknown tool %q", name)
+	}
 	cfg, err := cfg.ScopedFor(mcp.ArgString(a, "profile"), "github", mcp.ArgString(a, "repo"))
 	if err != nil {
 		return nil, err
+	}
+	if call.write {
+		if err := cfg.RequireWrite(); err != nil {
+			return nil, err
+		}
 	}
 	c, err := api.NewKindClient(cfg, "github")
 	if err != nil {
@@ -27,55 +97,8 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 	if err != nil {
 		return nil, err
 	}
-	n, id := mcp.ArgInt(a, "number", 0), mcp.ArgInt(a, "id", 0)
-	for _, entry := range prReads {
-		if entry.tool == name {
-			return entry.read(ctx, c, repo, n)
-		}
+	if read.read != nil {
+		return read.read(ctx, c, repo, mcp.ArgInt(a, "number", 0))
 	}
-	switch name {
-	case "github_get_repo":
-		return getRepo(ctx, c, repo)
-	case "github_list_pull_requests":
-		return listPRs(ctx, c, repo, mcp.ArgString(a, "search"), mcp.ArgString(a, "state"))
-	case "github_list_workflow_runs":
-		return listRuns(ctx, c, repo, mcp.ArgString(a, "branch"), mcp.ArgInt(a, "per_page", 30))
-	case "github_get_workflow_run":
-		return getRun(ctx, c, repo, id)
-	case "github_get_workflow_run_jobs":
-		return runJobs(ctx, c, repo, id)
-	case "github_list_branches":
-		return listBranches(ctx, c, repo, mcp.ArgString(a, "search"))
-	case "github_get_file":
-		return getFile(ctx, c, repo, mcp.ArgString(a, "path"), mcp.ArgString(a, "ref"))
-	case "github_add_pull_request_comment":
-		if err := cfg.RequireWrite(); err != nil {
-			return nil, err
-		}
-		return addComment(ctx, c, repo, n, mcp.ArgString(a, "body"))
-	case "github_create_pull_request":
-		if err := cfg.RequireWrite(); err != nil {
-			return nil, err
-		}
-		return createPR(ctx, c, repo, mcp.ArgString(a, "head"), mcp.ArgString(a, "base"), mcp.ArgString(a, "title"), mcp.ArgString(a, "body"), mcp.ArgBool(a, "draft"), cliutil.SplitCommaList(mcp.ArgString(a, "reviewers")))
-	case "github_request_reviewers":
-		if err := cfg.RequireWrite(); err != nil {
-			return nil, err
-		}
-		return requestReviewers(ctx, c, repo, n, cliutil.SplitCommaList(mcp.ArgString(a, "reviewers")))
-	case "github_edit_pull_request":
-		if err := cfg.RequireWrite(); err != nil {
-			return nil, err
-		}
-		fields := prEditFields(mcp.ArgString(a, "title"), mcp.ArgString(a, "body"), mcp.ArgString(a, "base"), mcp.ArgString(a, "state"))
-		last, err := applyPREdit(ctx, c, repo, n, fields, cliutil.SplitCommaList(mcp.ArgString(a, "add_reviewers")), cliutil.SplitCommaList(mcp.ArgString(a, "remove_reviewers")))
-		if err != nil {
-			return nil, err
-		}
-		if last == nil {
-			return nil, fmt.Errorf("at least one of title, body, base, state, add_reviewers or remove_reviewers must be provided")
-		}
-		return last, nil
-	}
-	return nil, fmt.Errorf("unknown tool %q", name)
+	return call.run(ctx, c, repo, a)
 }

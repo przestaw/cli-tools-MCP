@@ -180,8 +180,9 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 		}
 	}
 	raw := isRaw(a)
+	formatName := cliutil.FirstNonEmpty(mcp.ArgString(a, "format"), "json")
 	if raw || len(include) > 0 {
-		a["format"] = "json"
+		formatName = "json"
 	}
 	pName, profile, err := cfg.PRProfileFor(mcp.ArgString(a, "profile"), "", cliutil.FirstNonEmpty(mcp.ArgString(a, "repo"), mcp.ArgString(a, "project")))
 	if err != nil {
@@ -191,7 +192,7 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 	if err != nil {
 		return nil, err
 	}
-	format, err := render.ParseFormat(cliutil.FirstNonEmpty(mcp.ArgString(a, "format"), "json"))
+	format, err := render.ParseFormat(formatName)
 	if err != nil {
 		return nil, err
 	}

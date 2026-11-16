@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -17,6 +15,7 @@ import (
 	"workctl/internal/atlassian/output"
 	"workctl/internal/atlassian/service"
 	"workctl/internal/atlassian/wizard"
+	"workctl/internal/cliutil"
 )
 
 var issueCmd = &cobra.Command{
@@ -415,7 +414,7 @@ var issueOpenCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return openBrowser(svc.Client.IssueURL(args[0]))
+		return cliutil.OpenURL(svc.Client.IssueURL(args[0]))
 	},
 }
 
@@ -481,16 +480,4 @@ func shortTime(s string) string {
 		return strings.Replace(s[:16], "T", " ", 1)
 	}
 	return s
-}
-
-// openBrowser opens a URL in the default browser cross-platform.
-func openBrowser(url string) error {
-	switch runtime.GOOS {
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-	case "darwin":
-		return exec.Command("open", url).Start()
-	default:
-		return exec.Command("xdg-open", url).Start()
-	}
 }

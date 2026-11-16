@@ -11,6 +11,7 @@ import (
 	"workctl/internal/azure/client"
 	"workctl/internal/azure/output"
 	"workctl/internal/azure/service"
+	"workctl/internal/cliutil"
 )
 
 var buildCmd = &cobra.Command{
@@ -231,7 +232,7 @@ var buildOpenCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return openBrowser(svc.Client.BuildWebURL(project, id))
+		return cliutil.OpenURL(svc.Client.BuildWebURL(project, id))
 	},
 }
 
