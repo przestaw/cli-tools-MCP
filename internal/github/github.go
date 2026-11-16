@@ -38,7 +38,7 @@ func repoOf(cfg *config.Config, repo string) (string, error) {
 }
 
 func get(ctx context.Context, c *api.Client, path string, q url.Values) ([]byte, error) {
-	return api.BodyOnly(c.Do(ctx, http.MethodGet, path, q, nil, ""))
+	return c.DoBody(ctx, http.MethodGet, path, q, nil, "")
 }
 
 func perPage100() url.Values { return url.Values{"per_page": {"100"}} }
@@ -148,22 +148,22 @@ func runJobs(ctx context.Context, c *api.Client, repo string, id int) ([]byte, e
 
 func addComment(ctx context.Context, c *api.Client, repo string, n int, text string) ([]byte, error) {
 	payload, _ := json.Marshal(map[string]string{"body": text})
-	return api.BodyOnly(c.Do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, n), nil, payload, "application/json"))
+	return c.DoBody(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/issues/%d/comments", repo, n), nil, payload, "application/json")
 }
 
 func requestReviewers(ctx context.Context, c *api.Client, repo string, n int, reviewers []string) ([]byte, error) {
 	payload, _ := json.Marshal(map[string]any{"reviewers": reviewers})
-	return api.BodyOnly(c.Do(ctx, http.MethodPost, prPath(repo, n, "/requested_reviewers"), nil, payload, "application/json"))
+	return c.DoBody(ctx, http.MethodPost, prPath(repo, n, "/requested_reviewers"), nil, payload, "application/json")
 }
 
 func removeReviewers(ctx context.Context, c *api.Client, repo string, n int, reviewers []string) ([]byte, error) {
 	payload, _ := json.Marshal(map[string]any{"reviewers": reviewers})
-	return api.BodyOnly(c.Do(ctx, http.MethodDelete, prPath(repo, n, "/requested_reviewers"), nil, payload, "application/json"))
+	return c.DoBody(ctx, http.MethodDelete, prPath(repo, n, "/requested_reviewers"), nil, payload, "application/json")
 }
 
 func editPR(ctx context.Context, c *api.Client, repo string, n int, fields map[string]any) ([]byte, error) {
 	payload, _ := json.Marshal(fields)
-	return api.BodyOnly(c.Do(ctx, http.MethodPatch, prPath(repo, n, ""), nil, payload, "application/json"))
+	return c.DoBody(ctx, http.MethodPatch, prPath(repo, n, ""), nil, payload, "application/json")
 }
 
 func prEditFields(title, body, base, state string) map[string]any {
@@ -201,7 +201,7 @@ func applyPREdit(ctx context.Context, c *api.Client, repo string, id int, fields
 
 func createPR(ctx context.Context, c *api.Client, repo, head, base, title, body string, draft bool, reviewers []string) ([]byte, error) {
 	payload, _ := json.Marshal(map[string]any{"head": head, "base": base, "title": title, "body": body, "draft": draft})
-	res, err := api.BodyOnly(c.Do(ctx, http.MethodPost, "/repos/"+repo+"/pulls", nil, payload, "application/json"))
+	res, err := c.DoBody(ctx, http.MethodPost, "/repos/"+repo+"/pulls", nil, payload, "application/json")
 	if err != nil || len(reviewers) == 0 {
 		return res, err
 	}

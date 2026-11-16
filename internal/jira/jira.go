@@ -26,7 +26,7 @@ func GetIssue(ctx context.Context, c *api.Client, key string, fields []string) (
 	if len(fields) > 0 {
 		q.Set("fields", strings.Join(fields, ","))
 	}
-	return api.BodyOnly(c.Do(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(key), q, nil, ""))
+	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(key), q, nil, "")
 }
 
 func search(ctx context.Context, c *api.Client, jql string, startAt, maxResults int) ([]byte, error) {
@@ -34,29 +34,29 @@ func search(ctx context.Context, c *api.Client, jql string, startAt, maxResults 
 	q.Set("jql", jql)
 	q.Set("startAt", strconv.Itoa(startAt))
 	q.Set("maxResults", strconv.Itoa(maxResults))
-	return api.BodyOnly(c.Do(ctx, http.MethodGet, "/rest/api/2/search", q, nil, ""))
+	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/search", q, nil, "")
 }
 
 func comments(ctx context.Context, c *api.Client, key string) ([]byte, error) {
-	return api.BodyOnly(c.Do(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", nil, nil, ""))
+	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", nil, nil, "")
 }
 
 func transitions(ctx context.Context, c *api.Client, key string) ([]byte, error) {
-	return api.BodyOnly(c.Do(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(key)+"/transitions?expand=transitions.fields", nil, nil, ""))
+	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(key)+"/transitions?expand=transitions.fields", nil, nil, "")
 }
 
 // Myself fetches the authenticated user; doctor and the setup wizard use it as the connectivity check.
 func Myself(ctx context.Context, c *api.Client) ([]byte, error) {
-	return api.BodyOnly(c.Do(ctx, http.MethodGet, "/rest/api/2/myself", nil, nil, ""))
+	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/myself", nil, nil, "")
 }
 
 func serverInfo(ctx context.Context, c *api.Client) ([]byte, error) {
-	return api.BodyOnly(c.Do(ctx, http.MethodGet, "/rest/api/2/serverInfo", nil, nil, ""))
+	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/serverInfo", nil, nil, "")
 }
 
 func addComment(ctx context.Context, c *api.Client, key, text string) ([]byte, error) {
 	payload, _ := json.Marshal(map[string]string{"body": text})
-	return api.BodyOnly(c.Do(ctx, http.MethodPost, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", nil, payload, "application/json"))
+	return c.DoBody(ctx, http.MethodPost, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", nil, payload, "application/json")
 }
 
 func doTransition(ctx context.Context, c *api.Client, key, id string) ([]byte, error) {

@@ -282,6 +282,12 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 	return out, hdr.Get("Content-Type"), err
 }
 
+// DoBody is Do for callers that need only the response body.
+func (c *Client) DoBody(ctx context.Context, method, path string, q url.Values, body []byte, contentType string) ([]byte, error) {
+	out, _, err := c.Do(ctx, method, path, q, body, contentType)
+	return out, err
+}
+
 // DoHeader is Do for native HTTP profiles with all response headers, e.g. the Location of a queued Jenkins build.
 func (c *Client) DoHeader(ctx context.Context, method, path string, q url.Values, body []byte, contentType string) ([]byte, http.Header, error) {
 	if c.cli != nil {
@@ -465,6 +471,3 @@ func (c *Client) StreamReader(ctx context.Context, method, path string, q url.Va
 		return c.responseError(method, url, status, respBody)
 	})
 }
-
-// BodyOnly adapts a Do result to callers that need only the body.
-func BodyOnly(b []byte, _ string, err error) ([]byte, error) { return b, err }

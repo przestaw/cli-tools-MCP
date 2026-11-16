@@ -16,7 +16,7 @@ import (
 
 func getMR(ctx context.Context, client *api.Client, project string, id int) ([]byte, error) {
 	path := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d", projectID(project), id)
-	return api.BodyOnly(client.Do(ctx, http.MethodGet, path, nil, nil, ""))
+	return client.DoBody(ctx, http.MethodGet, path, nil, nil, "")
 }
 
 // ListMRs lists or searches merge requests; the task context uses it to find merge requests that mention an issue key.
@@ -26,7 +26,7 @@ func ListMRs(ctx context.Context, client *api.Client, project, search, state str
 		query.Set("search", search)
 	}
 	path := fmt.Sprintf("/api/v4/projects/%s/merge_requests", projectID(project))
-	return api.BodyOnly(client.Do(ctx, http.MethodGet, path, query, nil, ""))
+	return client.DoBody(ctx, http.MethodGet, path, query, nil, "")
 }
 
 // PRReader adapts GitLab merge requests to the provider-neutral reader.

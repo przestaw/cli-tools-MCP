@@ -28,7 +28,7 @@ func (c *Client) GetAllPages(ctx context.Context, path string, q url.Values, max
 		}
 		pq.Set("per_page", strconv.Itoa(pageSize))
 		pq.Set("page", strconv.Itoa(page))
-		body, err := BodyOnly(c.Do(ctx, http.MethodGet, path, pq, nil, ""))
+		body, err := c.DoBody(ctx, http.MethodGet, path, pq, nil, "")
 		if err != nil {
 			return nil, err
 		}
@@ -47,7 +47,7 @@ func (c *Client) GetAllPages(ctx context.Context, path string, q url.Values, max
 			// A full final page may be the provider's exact result limit (for example 3,000 GitHub PR files).
 			// Probe once so callers can distinguish that complete boundary from a locally truncated list.
 			pq.Set("page", strconv.Itoa(page+1))
-			body, err := BodyOnly(c.Do(ctx, http.MethodGet, path, pq, nil, ""))
+			body, err := c.DoBody(ctx, http.MethodGet, path, pq, nil, "")
 			if err != nil {
 				return nil, err
 			}
