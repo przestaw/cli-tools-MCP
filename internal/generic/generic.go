@@ -108,14 +108,12 @@ func Tools() []mcp.Tool {
 // Available reports whether request/download have a profile to use.
 func Available(cfg *config.Config) bool {
 	for _, p := range cfg.Profiles {
-		if httpKinds[p.Kind] && !p.UsesSSHExec() {
+		if config.IsHTTPKind(p.Kind) && !p.UsesSSHExec() {
 			return true
 		}
 	}
 	return false
 }
-
-var httpKinds = map[string]bool{"github": true, "gitlab": true, "jira": true, "atlassian": true, Kind: true}
 
 // httpClient connects to the profile of a request or download: the named profile of any HTTP kind, else defaults.api.
 func httpClient(cfg *config.Config, name string) (*api.Client, error) {
@@ -132,7 +130,7 @@ func httpClient(cfg *config.Config, name string) (*api.Client, error) {
 	switch {
 	case !ok:
 		return nil, fmt.Errorf("profile %q is not configured", name)
-	case !httpKinds[p.Kind]:
+	case !config.IsHTTPKind(p.Kind):
 		return nil, fmt.Errorf("profile %q is of kind %s: use the cli tool for it", name, p.Kind)
 	case p.UsesSSHExec():
 		return nil, fmt.Errorf("profile %q runs remote commands over ssh: use api exec (the api_exec tool)", name)

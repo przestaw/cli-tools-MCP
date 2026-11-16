@@ -43,7 +43,7 @@ func GitCredential(cfg *config.Config, args []string, in io.Reader, out io.Write
 	var profile config.Profile
 	if name != "" {
 		var ok bool
-		if profile, ok = cfg.Profiles[name]; !ok || !config.PRKinds[profile.Kind] {
+		if profile, ok = cfg.Profiles[name]; !ok || !config.SupportsPR(profile.Kind) {
 			return fmt.Errorf("git-credential needs a github, gitlab or azure profile")
 		}
 		// api.github.com serves the API; git talks to github.com.
@@ -71,7 +71,7 @@ func GitCredential(cfg *config.Config, args []string, in io.Reader, out io.Write
 func gitProfileFor(cfg *config.Config, host, path string) (string, config.Profile, error) {
 	var onHost []string
 	for n, p := range cfg.Profiles {
-		if config.PRKinds[p.Kind] && !p.UsesSSHExec() && strings.EqualFold(profileHost(p), host) {
+		if config.SupportsPR(p.Kind) && !p.UsesSSHExec() && strings.EqualFold(profileHost(p), host) {
 			onHost = append(onHost, n)
 		}
 	}
@@ -146,7 +146,7 @@ func setupGitCommand(cfg *config.Config, args []string) error {
 	}
 	hosts := map[string]bool{}
 	for _, p := range cfg.Profiles {
-		if config.PRKinds[p.Kind] && !p.UsesSSHExec() {
+		if config.SupportsPR(p.Kind) && !p.UsesSSHExec() {
 			if h := profileHost(p); h != "" {
 				hosts[h] = true
 			}

@@ -331,12 +331,32 @@ func NormalizeBaseURL(s string) string {
 	return strings.TrimRight(strings.TrimSpace(os.ExpandEnv(s)), "/")
 }
 
-// PRKinds are the profile kinds that can serve pull or merge requests.
-var PRKinds = map[string]bool{"github": true, "gitlab": true, "azure": true}
+// kindInfo describes what a profile kind can do.
+type kindInfo struct {
+	HTTP bool // reachable through request and download
+	PR   bool // serves pull or merge requests
+	SSH  bool // may use the ssh backend
+}
+
+// kinds is the single table of supported profile kinds: a new kind is one entry.
+var kinds = map[string]kindInfo{
+	"github":    {HTTP: true, PR: true, SSH: true},
+	"gitlab":    {HTTP: true, PR: true, SSH: true},
+	"azure":     {PR: true},
+	"jira":      {HTTP: true, SSH: true},
+	"atlassian": {HTTP: true},
+	"api":       {HTTP: true, SSH: true},
+}
+
+// SupportsPR reports whether profiles of kind serve pull or merge requests.
+func SupportsPR(kind string) bool { return kinds[kind].PR }
+
+// IsHTTPKind reports whether profiles of kind are reachable through request and download.
+func IsHTTPKind(kind string) bool { return kinds[kind].HTTP }
 
 // ProfileOf picks defaults.<kind>, else the only profile of that kind; an empty kind means any pull request provider.
 func (c *Config) ProfileOf(kind string) (string, Profile, error) {
-	if p, ok := c.Profiles[c.profile]; ok && (p.Kind == kind || kind == "" && PRKinds[p.Kind]) {
+	if p, ok := c.Profiles[c.profile]; ok && (p.Kind == kind || kind == "" && SupportsPR(p.Kind)) {
 		return c.profile, p, nil
 	}
 	if name := c.Defaults[kind]; name != "" {
@@ -344,7 +364,7 @@ func (c *Config) ProfileOf(kind string) (string, Profile, error) {
 	}
 	var names []string
 	for name, p := range c.Profiles {
-		if p.Kind == kind || kind == "" && PRKinds[p.Kind] {
+		if p.Kind == kind || kind == "" && SupportsPR(p.Kind) {
 			names = append(names, name)
 		}
 	}
@@ -490,7 +510,7 @@ func (p Profile) MatchResource(resource string) int {
 // It returns ("", nil) when resource is empty or no profile's repos/projects match it.
 func (c *Config) matchProfile(kind, resource string) (string, error) {
 	return c.matchProfileWhere(resource, func(p Profile) bool {
-		return kind != "" && p.Kind == kind || kind == "" && PRKinds[p.Kind]
+		return kind != "" && p.Kind == kind || kind == "" && SupportsPR(p.Kind)
 	})
 }
 
@@ -603,7 +623,7 @@ func (c *Config) ScopedFor(profileName, kind, resource string) (*Config, error) 
 	if profileName != "" {
 		return c.Scoped(profileName, kind)
 	}
-	if p, ok := c.Profiles[c.profile]; ok && (p.Kind == kind || kind == "" && PRKinds[p.Kind]) {
+	if p, ok := c.Profiles[c.profile]; ok && (p.Kind == kind || kind == "" && SupportsPR(p.Kind)) {
 		return c, nil
 	}
 	matched, err := c.matchProfile(kind, resource)
@@ -678,9 +698,7 @@ func (p PolicyConfig) validate() error {
 // ValidateProfile checks one profile: kind, URL, TLS and CA settings, authentication scheme and backend.
 func ValidateProfile(name string, profile Profile) error {
 	kind := strings.ToLower(strings.TrimSpace(profile.Kind))
-	switch kind {
-	case "github", "gitlab", "azure", "jira", "atlassian", "api":
-	default:
+	if _, ok := kinds[kind]; !ok {
 		return fmt.Errorf("profiles.%s.kind %q is unsupported", name, profile.Kind)
 	}
 	if profile.UsesSSHExec() {
@@ -859,9 +877,7 @@ func validateSSHExec(name string, profile Profile) error {
 // validateSSHDestination checks the ssh target of an ssh backend. A leading "-" would be read by ssh as an option
 // (for example -oProxyCommand=...), so it is refused even though workctl also passes "--" before it.
 func validateSSHDestination(name string, profile Profile) error {
-	switch profile.Kind {
-	case "github", "gitlab", "jira", "api":
-	default:
+	if !kinds[profile.Kind].SSH {
 		return fmt.Errorf("profiles.%s.backend %s is only available for github, gitlab, jira and api", name, profile.Backend)
 	}
 	d := profile.SSHDestination
