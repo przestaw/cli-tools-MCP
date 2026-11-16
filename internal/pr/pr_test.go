@@ -54,7 +54,7 @@ func TestStateMappingForEveryProvider(t *testing.T) {
 				profile := config.Profile{Kind: provider, URL: srv.URL, TokenEnv: "TEST_PR_TOKEN", VerifyTLS: true, DefaultRepo: "o/r", DefaultProject: "Project"}
 				cfg := config.Default()
 				cfg.Profiles[provider] = profile
-				result, err := Fetch(context.Background(), cfg, provider, profile, "", "", "", state, 0)
+				result, err := Fetch(context.Background(), cfg, provider, profile, FetchRequest{State: state})
 				if err != nil || calls != 1 {
 					t.Fatalf("result=%v calls=%d err=%v", result, calls, err)
 				}
@@ -84,7 +84,7 @@ func TestGitHubSearchEnvelopeAndStateFilter(t *testing.T) {
 	cfg := config.Default()
 	profile := config.Profile{Kind: "github", URL: srv.URL, TokenEnv: "TEST_PR_TOKEN", VerifyTLS: true, DefaultRepo: "o/r"}
 	for state, id := range map[string]int{"merged": 1, "closed": 2} {
-		result, err := Fetch(context.Background(), cfg, "gh", profile, "", "", "fix", state, 0)
+		result, err := Fetch(context.Background(), cfg, "gh", profile, FetchRequest{Search: "fix", State: state})
 		if err != nil || len(result.Items) != 1 || result.Items[0].ID != id {
 			t.Fatalf("%s: %v %v", state, result, err)
 		}
@@ -101,10 +101,10 @@ func TestAzurePRRequiresProjectAndFiltersSearch(t *testing.T) {
 	defer srv.Close()
 	cfg := config.Default()
 	profile := config.Profile{Kind: "azure", URL: srv.URL, TokenEnv: "TEST_PR_TOKEN", VerifyTLS: true}
-	if _, err := Fetch(context.Background(), cfg, "az", profile, "", "", "", "all", 0); err == nil || calls != 0 {
+	if _, err := Fetch(context.Background(), cfg, "az", profile, FetchRequest{State: "all"}); err == nil || calls != 0 {
 		t.Fatalf("missing project: %v calls=%d", err, calls)
 	}
-	result, err := Fetch(context.Background(), cfg, "az", profile, "", "Explicit", "match", "all", 0)
+	result, err := Fetch(context.Background(), cfg, "az", profile, FetchRequest{Project: "Explicit", Search: "match", State: "all"})
 	if err != nil || len(result.Items) != 1 || result.Items[0].ID != 1 {
 		t.Fatalf("search: %v %v", result, err)
 	}
@@ -135,7 +135,7 @@ func TestPullRequestRequestsPerProvider(t *testing.T) {
 	}
 	fetch := func(name, project, state string, id int) []vcs.PullRequest {
 		t.Helper()
-		res, err := Fetch(context.Background(), cfg, name, cfg.Profiles[name], "", project, "", state, id)
+		res, err := Fetch(context.Background(), cfg, name, cfg.Profiles[name], FetchRequest{Project: project, State: state, ID: id})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -159,7 +159,7 @@ func TestPullRequestRequestsPerProvider(t *testing.T) {
 			t.Errorf("missing %q in requests:\n%s", w, all)
 		}
 	}
-	if _, err := Fetch(context.Background(), cfg, "gl", cfg.Profiles["gl"], "", "", "", "opened", 0); err == nil {
+	if _, err := Fetch(context.Background(), cfg, "gl", cfg.Profiles["gl"], FetchRequest{State: "opened"}); err == nil {
 		t.Fatal("provider-specific state must be rejected")
 	}
 }

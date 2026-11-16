@@ -66,7 +66,7 @@ func Command(cfg *config.Config, args []string) error {
 		if fs.NArg() != 0 {
 			return fmt.Errorf("usage: pr list [--profile PROFILE] [--repo REPOSITORY] [--project PROJECT] [--state STATE] [--search TEXT]")
 		}
-		res, err := Fetch(ctx, cfg, name, profile, *repository, *project, *search, *state, 0)
+		res, err := Fetch(ctx, cfg, name, profile, FetchRequest{Repository: *repository, Project: *project, Search: *search, State: *state})
 		if err != nil {
 			return err
 		}
@@ -91,7 +91,7 @@ func Command(cfg *config.Config, args []string) error {
 			}
 			return cliutil.PrintBody(out)
 		}
-		res, err := Fetch(ctx, cfg, name, profile, *repository, *project, "", "", id)
+		res, err := Fetch(ctx, cfg, name, profile, FetchRequest{Repository: *repository, Project: *project, ID: id})
 		if err != nil {
 			return err
 		}
@@ -112,18 +112,24 @@ func splitList(s string) []any {
 	return out
 }
 
-// Fetch lists (id 0) or gets one pull request; state is open, closed (not merged), merged or all.
-func Fetch(ctx context.Context, cfg *config.Config, name string, profile config.Profile, repository, project, search, state string, id int) (vcs.Result, error) {
-	switch state {
+// FetchRequest selects the pull requests Fetch returns; an ID above zero asks for that one pull request.
+type FetchRequest struct {
+	Repository, Project, Search, State string
+	ID                                 int
+}
+
+// Fetch lists (ID 0) or gets one pull request; state is open, closed (not merged), merged or all.
+func Fetch(ctx context.Context, cfg *config.Config, name string, profile config.Profile, req FetchRequest) (vcs.Result, error) {
+	switch req.State {
 	case "":
-		state = "all"
+		req.State = "all"
 	case "open", "closed", "merged", "all":
 	default:
-		return vcs.Result{}, fmt.Errorf("unsupported state %q (use open, closed, merged or all)", state)
+		return vcs.Result{}, fmt.Errorf("unsupported state %q (use open, closed, merged or all)", req.State)
 	}
 	if profile.Kind != "azure" {
 		var err error
-		if repository, err = config.ProfileRepository(profile, repository); err != nil {
+		if req.Repository, err = config.ProfileRepository(profile, req.Repository); err != nil {
 			return vcs.Result{}, err
 		}
 	}
@@ -131,9 +137,9 @@ func Fetch(ctx context.Context, cfg *config.Config, name string, profile config.
 	if err != nil {
 		return vcs.Result{}, err
 	}
-	opt := vcs.ListOptions{Repository: repository, Project: project, Search: search, State: state}
-	if id > 0 {
-		item, err := reader.GetPullRequest(ctx, opt, id)
+	opt := vcs.ListOptions{Repository: req.Repository, Project: req.Project, Search: req.Search, State: req.State}
+	if req.ID > 0 {
+		item, err := reader.GetPullRequest(ctx, opt, req.ID)
 		if err != nil {
 			return vcs.Result{}, err
 		}
@@ -217,7 +223,7 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 	if err != nil {
 		return nil, err
 	}
-	res, err := Fetch(ctx, cfg, pName, profile, mcp.ArgString(a, "repo"), mcp.ArgString(a, "project"), mcp.ArgString(a, "search"), mcp.ArgString(a, "state"), id)
+	res, err := Fetch(ctx, cfg, pName, profile, FetchRequest{Repository: mcp.ArgString(a, "repo"), Project: mcp.ArgString(a, "project"), Search: mcp.ArgString(a, "search"), State: mcp.ArgString(a, "state"), ID: id})
 	if err != nil {
 		return nil, err
 	}
