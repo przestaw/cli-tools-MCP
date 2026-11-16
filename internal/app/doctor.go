@@ -113,7 +113,7 @@ func doctorCheckProfile(ctx context.Context, cfg *config.Config, name string, pr
 	case "api":
 		checkPath := "/"
 		var query url.Values
-		if strings.HasSuffix(strings.ToLower(config.NormalizeBaseURL(profile.URL)), "/drive/v3") {
+		if profile.HasDrive() {
 			checkPath = "/about"
 			query = url.Values{"fields": {"user(emailAddress,displayName)"}}
 		}

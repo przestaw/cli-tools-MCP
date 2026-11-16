@@ -45,6 +45,7 @@ type Profile struct {
 	CSRF           *CSRF        `json:"csrf,omitempty"`        // kind api: writes carry an anti-CSRF token
 	FormLogin      *FormLogin   `json:"form_login,omitempty"`  // kind api with auth "form": the login form to post
 	ReadOnly       bool         `json:"read_only,omitempty"`   // only GET and HEAD, whatever policy.allow_write says
+	Service        string       `json:"service,omitempty"`     // kind google: drive, cloud or all (see google.go)
 	Username       string       `json:"username,omitempty"`
 	TokenEnv       string       `json:"token_env,omitempty"`
 	VerifyTLS      bool         `json:"verify_tls"`
@@ -227,6 +228,15 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Profiles == nil {
 		cfg.Profiles = map[string]Profile{}
+	}
+	for name, p := range cfg.Profiles {
+		if strings.EqualFold(p.Kind, GoogleKind) {
+			expanded, err := expandGoogle(name, p)
+			if err != nil {
+				return nil, err
+			}
+			cfg.Profiles[name] = expanded
+		}
 	}
 	if err := cfg.Policy.validate(); err != nil {
 		return nil, fmt.Errorf("validate policy in config %s: %w", path, err)
@@ -667,6 +677,9 @@ func ValidateProfile(name string, profile Profile) error {
 	}
 	if err := validateOAuth2(name, auth, profile); err != nil {
 		return err
+	}
+	if profile.Service != "" && (kind != "api" || auth != "oauth2" || googleServices[profile.Service].BaseURL == "") {
+		return fmt.Errorf("profiles.%s.service needs kind google with auth \"oauth2\" and one of %s", name, strings.Join(GoogleServiceNames(), ", "))
 	}
 	if (auth == "header") != (profile.AuthHeader != "") {
 		return fmt.Errorf("profiles.%s.auth_header is required with auth \"header\" and not allowed otherwise", name)

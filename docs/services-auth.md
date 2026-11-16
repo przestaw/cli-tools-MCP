@@ -176,6 +176,27 @@ other writes are never automatically replayed. The next explicit call obtains a 
 token). A 401 invalidates the cached access token and the request is retried once; `invalid_grant` means the
 refresh token is gone, so run `workctl auth login` again (Google apps in "Testing" status expire it after 7 days).
 
+### `kind: "google"` — presets `gdrive`, `gcloud`, `google`
+
+Shorthand for the OAuth profile above: `service` selects a preset, and only `oauth2.client_id` is required.
+Load fills in the endpoints, `auth_params`, base URL and default scopes (all overridable except the host rules).
+
+| `service` | Typical name | Base URL | Token may go to | Default scopes |
+|---|---|---|---|---|
+| `drive` | `gdrive` | `www.googleapis.com/drive/v3` | `www.googleapis.com` | `drive` |
+| `cloud` | `gcloud` | `cloudresourcemanager.googleapis.com/v1` | `*.googleapis.com` | `cloud-platform` |
+| `all` | `google` | `www.googleapis.com/drive/v3` | `*.googleapis.com` | `drive`, `cloud-platform`, `colaboratory` |
+
+```json
+"google": {"kind": "google", "service": "all", "oauth2": {"client_id": "<DESKTOP_CLIENT_ID>.apps.googleusercontent.com"}}
+```
+
+Relative paths use the base URL; other Google APIs are addressed with an absolute `https://` URL to an allowed host,
+for example `request GET https://colaboratory.googleapis.com/v1beta/runtimes` (read the state of Colab runtimes; use
+the narrower `colaboratory.readonly` scope in `oauth2.scopes` if you want reads only). Any other host is refused, so
+the token cannot leave Google. Writes (`POST`/`DELETE`, e.g. creating a paid Colab runtime) still need
+`policy.allow_write`. Browser Colab does not use workctl. Login: `workctl auth set-token` then `workctl auth login`.
+
 ### `read_only` — reads only
 
 Any HTTP profile may set `"read_only": true`: workctl then refuses every method but GET and HEAD

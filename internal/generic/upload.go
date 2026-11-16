@@ -94,8 +94,7 @@ func CheckUploadFile(path string) error {
 
 // IsGoogleDriveProfile reports whether profile points at a Google Drive v3 API endpoint.
 func IsGoogleDriveProfile(profile config.Profile) bool {
-	base := strings.ToLower(config.NormalizeBaseURL(profile.URL))
-	return strings.HasSuffix(base, "/drive/v3")
+	return profile.HasDrive()
 }
 
 // UploadFile streams a local file to a Google Drive v3 profile (resumable upload, creating or updating in folderID)
