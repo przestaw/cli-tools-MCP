@@ -354,9 +354,25 @@ func SupportsPR(kind string) bool { return kinds[kind].PR }
 // IsHTTPKind reports whether profiles of kind are reachable through request and download.
 func IsHTTPKind(kind string) bool { return kinds[kind].HTTP }
 
+// accepts reports whether p is of kind; an empty kind accepts any pull request provider.
+func accepts(kind string, p Profile) bool {
+	return p.Kind == kind || kind == "" && SupportsPR(p.Kind)
+}
+
+// explicitName is the profile named by the caller, --profile or WORKCTL_PROFILE, else "".
+func (c *Config) explicitName(requested string) string {
+	if requested != "" {
+		return requested
+	}
+	if c.profile != "" {
+		return c.profile
+	}
+	return strings.TrimSpace(os.Getenv("WORKCTL_PROFILE"))
+}
+
 // ProfileOf picks defaults.<kind>, else the only profile of that kind; an empty kind means any pull request provider.
 func (c *Config) ProfileOf(kind string) (string, Profile, error) {
-	if p, ok := c.Profiles[c.profile]; ok && (p.Kind == kind || kind == "" && SupportsPR(p.Kind)) {
+	if p, ok := c.Profiles[c.profile]; ok && accepts(kind, p) {
 		return c.profile, p, nil
 	}
 	if name := c.Defaults[kind]; name != "" {
@@ -364,7 +380,7 @@ func (c *Config) ProfileOf(kind string) (string, Profile, error) {
 	}
 	var names []string
 	for name, p := range c.Profiles {
-		if p.Kind == kind || kind == "" && SupportsPR(p.Kind) {
+		if accepts(kind, p) {
 			names = append(names, name)
 		}
 	}
@@ -384,12 +400,7 @@ func (c *Config) ProfileOf(kind string) (string, Profile, error) {
 // PRProfile resolves the profile of a pull request command: the requested name, then --profile or
 // WORKCTL_PROFILE, then the per-kind default. An empty requestedKind accepts any pull request provider.
 func (c *Config) PRProfile(requestedName, requestedKind string) (string, Profile, error) {
-	if requestedName == "" {
-		requestedName = c.profile
-		if requestedName == "" {
-			requestedName = strings.TrimSpace(os.Getenv("WORKCTL_PROFILE"))
-		}
-	}
+	requestedName = c.explicitName(requestedName)
 	if requestedName != "" {
 		profile, ok := c.Profiles[requestedName]
 		if !ok {
@@ -406,8 +417,14 @@ func (c *Config) PRProfile(requestedName, requestedKind string) (string, Profile
 // PRProfileFor resolves the profile of a pull request command: explicit profile (--profile or WORKCTL_PROFILE),
 // then an optional resource match on repos/projects, then defaults.<kind> or the single matching profile.
 func (c *Config) PRProfileFor(requestedName, requestedKind, resource string) (string, Profile, error) {
-	if requestedName == "" && c.profile == "" && strings.TrimSpace(os.Getenv("WORKCTL_PROFILE")) == "" {
-		matched, err := c.matchProfile(requestedKind, resource)
+	return c.resolveByResource(requestedName, requestedKind, resource, func(p Profile) bool { return accepts(requestedKind, p) })
+}
+
+// resolveByResource is PRProfile preceded by a resource match among the profiles allow accepts, which applies only
+// when no profile was named explicitly.
+func (c *Config) resolveByResource(requestedName, requestedKind, resource string, allow func(Profile) bool) (string, Profile, error) {
+	if c.explicitName(requestedName) == "" {
+		matched, err := c.matchProfile(resource, allow)
 		if err != nil {
 			return "", Profile{}, err
 		}
@@ -506,15 +523,9 @@ func (p Profile) MatchResource(resource string) int {
 	return best
 }
 
-// matchProfile returns the profile of kind (or any PRKinds when kind is empty) that best matches resource.
+// matchProfile returns the allowed profile that best matches resource.
 // It returns ("", nil) when resource is empty or no profile's repos/projects match it.
-func (c *Config) matchProfile(kind, resource string) (string, error) {
-	return c.matchProfileWhere(resource, func(p Profile) bool {
-		return kind != "" && p.Kind == kind || kind == "" && SupportsPR(p.Kind)
-	})
-}
-
-func (c *Config) matchProfileWhere(resource string, allow func(Profile) bool) (string, error) {
+func (c *Config) matchProfile(resource string, allow func(Profile) bool) (string, error) {
 	if strings.TrimSpace(resource) == "" {
 		return "", nil
 	}
@@ -623,10 +634,10 @@ func (c *Config) ScopedFor(profileName, kind, resource string) (*Config, error) 
 	if profileName != "" {
 		return c.Scoped(profileName, kind)
 	}
-	if p, ok := c.Profiles[c.profile]; ok && (p.Kind == kind || kind == "" && SupportsPR(p.Kind)) {
+	if p, ok := c.Profiles[c.profile]; ok && accepts(kind, p) {
 		return c, nil
 	}
-	matched, err := c.matchProfile(kind, resource)
+	matched, err := c.matchProfile(resource, func(p Profile) bool { return accepts(kind, p) })
 	if err != nil {
 		return nil, err
 	}
@@ -646,16 +657,7 @@ func (c *Config) ResolveFor(kind, resource string) (string, Profile, error) {
 		}
 		return scoped.ProfileOf(kind)
 	}
-	if c.profile == "" && strings.TrimSpace(os.Getenv("WORKCTL_PROFILE")) == "" && strings.TrimSpace(resource) != "" {
-		matched, err := c.matchProfileWhere(resource, func(Profile) bool { return true })
-		if err != nil {
-			return "", Profile{}, err
-		}
-		if matched != "" {
-			return matched, c.Profiles[matched], nil
-		}
-	}
-	return c.PRProfile("", "")
+	return c.resolveByResource("", "", resource, func(Profile) bool { return true })
 }
 
 // Validate checks every profile, and that each default points to an existing profile of the right kind.
