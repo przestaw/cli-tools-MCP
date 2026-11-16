@@ -477,50 +477,53 @@ func (p Profile) MatchResource(resource string) int {
 		return 0
 	}
 	if p.Kind == "jira" || p.Kind == "atlassian" {
-		projKey := res
-		if k, _, ok := strings.Cut(res, "-"); ok && k != "" {
-			projKey = k
-		}
-		for _, raw := range append([]string{p.DefaultProject}, p.Projects...) {
-			pat := strings.Trim(strings.TrimSpace(raw), "/")
-			pat = strings.TrimSuffix(strings.TrimSuffix(pat, "/*"), "-*")
-			if pat != "" && (strings.EqualFold(pat, res) || strings.EqualFold(pat, projKey)) {
-				return 1000 + len(pat)
-			}
-		}
-		return 0
+		return p.matchJiraProject(res)
 	}
 	best := 0
-	keep := func(score int) {
-		if score > best {
-			best = score
-		}
-	}
 	for _, raw := range append(append([]string{p.DefaultRepo}, p.Repos...), append([]string{p.DefaultProject}, p.Projects...)...) {
-		pat := strings.Trim(strings.TrimSpace(raw), "/")
-		if pat == "" {
-			continue
-		}
-		if strings.HasSuffix(pat, "/*") {
-			ownerPrefix := strings.TrimSuffix(pat, "/*")
-			prefix := ownerPrefix + "/"
-			if ownerPrefix != "" && (strings.EqualFold(res, ownerPrefix) || (len(res) > len(prefix) && strings.EqualFold(res[:len(prefix)], prefix))) {
-				keep(1 + len(prefix))
-			}
-			continue
-		}
-		if strings.EqualFold(pat, res) {
-			keep(1000 + len(pat))
-			continue
-		}
-		if (p.Kind == "gitlab" || p.Kind == "azure") && !strings.Contains(pat, "/") {
-			prefix := pat + "/"
-			if len(res) > len(prefix) && strings.EqualFold(res[:len(prefix)], prefix) {
-				keep(1 + len(prefix))
-			}
-		}
+		best = max(best, p.matchPath(strings.Trim(strings.TrimSpace(raw), "/"), res))
 	}
 	return best
+}
+
+// matchJiraProject scores res, an issue key or project key, against the profile's Jira projects.
+func (p Profile) matchJiraProject(res string) int {
+	projKey := res
+	if k, _, ok := strings.Cut(res, "-"); ok && k != "" {
+		projKey = k
+	}
+	for _, raw := range append([]string{p.DefaultProject}, p.Projects...) {
+		pat := strings.Trim(strings.TrimSpace(raw), "/")
+		pat = strings.TrimSuffix(strings.TrimSuffix(pat, "/*"), "-*")
+		if pat != "" && (strings.EqualFold(pat, res) || strings.EqualFold(pat, projKey)) {
+			return 1000 + len(pat)
+		}
+	}
+	return 0
+}
+
+// matchPath scores res against one trimmed repo or project pattern: exact beats an owner prefix (org/*, or a bare
+// owner on GitLab and Azure), which scores by prefix length.
+func (p Profile) matchPath(pat, res string) int {
+	switch {
+	case pat == "":
+		return 0
+	case strings.HasSuffix(pat, "/*"):
+		owner := strings.TrimSuffix(pat, "/*")
+		if owner != "" && (strings.EqualFold(res, owner) || hasPrefixFold(res, owner+"/")) {
+			return 1 + len(owner) + 1
+		}
+	case strings.EqualFold(pat, res):
+		return 1000 + len(pat)
+	case (p.Kind == "gitlab" || p.Kind == "azure") && !strings.Contains(pat, "/") && hasPrefixFold(res, pat+"/"):
+		return 1 + len(pat) + 1
+	}
+	return 0
+}
+
+// hasPrefixFold reports whether s starts with prefix and is longer than it, ignoring case.
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) > len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 // matchProfile returns the allowed profile that best matches resource.
