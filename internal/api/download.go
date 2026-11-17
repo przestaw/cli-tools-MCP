@@ -94,6 +94,14 @@ func htmlWarning(contentType string, wanted string) string {
 // nothing is written. The caller owns w: Stream does not close it or clean up after a failed copy.
 // For cli profiles gh or glab write the answer straight to w; they report no content type.
 func (c *Client) Stream(ctx context.Context, path string, q url.Values, w io.Writer) (Streamed, error) {
+	if _, err := c.relPath(path); err != nil {
+		if u, parseErr := url.Parse(path); parseErr == nil && u.Scheme == "https" && u.User == nil && allowedRedirectHost(u.Hostname()) {
+			if len(q) != 0 {
+				return Streamed{}, fmt.Errorf("a signed storage URL must contain its own query; extra query parameters are not allowed")
+			}
+			return c.StreamStorageURL(ctx, path, w)
+		}
+	}
 	target, err := c.target(http.MethodGet, path, q)
 	if err != nil {
 		return Streamed{}, err
@@ -148,7 +156,7 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 // GitHub puts into body_html) without any credential: the signature in the URL is the authorisation.
 func (c *Client) StreamStorageURL(ctx context.Context, rawURL string, w io.Writer) (Streamed, error) {
 	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" || !allowedRedirectHost(u.Hostname()) {
+	if err != nil || u.Scheme != "https" || u.User != nil || !allowedRedirectHost(u.Hostname()) {
 		return Streamed{}, fmt.Errorf("url must be https on a known storage host (GitHub user content, Actions or release storage)")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

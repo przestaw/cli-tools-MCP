@@ -233,16 +233,23 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []b
 	if s.accept != "" {
 		c = c.WithAccept(s.accept)
 	}
-	if !s.meta {
-		out, ctype, err := c.Do(ctx, s.method, s.path, s.query, s.body, s.ctype)
-		if err == nil && api.IsBinary(ctype, out) {
-			return nil, fmt.Errorf("the answer is binary (%s, %d bytes) and would be corrupted as text: fetch it with download", cliutil.FirstNonEmpty(ctype, "type unknown"), len(out))
-		}
-		return out, err
+	var data []byte
+	var hdr http.Header
+	var ctype string
+	if s.meta {
+		data, hdr, err = c.DoHeader(ctx, s.method, s.path, s.query, s.body, s.ctype)
+		ctype = hdr.Get("Content-Type")
+	} else {
+		data, ctype, err = c.Do(ctx, s.method, s.path, s.query, s.body, s.ctype)
 	}
-	data, hdr, err := c.DoHeader(ctx, s.method, s.path, s.query, s.body, s.ctype)
 	if err != nil {
 		return nil, err
+	}
+	if api.IsBinary(ctype, data) {
+		return nil, fmt.Errorf("the answer is binary (%s, %d bytes) and would be corrupted as text: fetch it with download", cliutil.FirstNonEmpty(ctype, "type unknown"), len(data))
+	}
+	if !s.meta {
+		return data, nil
 	}
 	var result any = string(data)
 	if json.Valid(data) {

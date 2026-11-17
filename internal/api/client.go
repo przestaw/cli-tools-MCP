@@ -213,7 +213,10 @@ func (c *Client) relPath(path string) (string, error) {
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 		if u, err := url.Parse(path); err == nil && u.User == nil {
 			if base, berr := url.Parse(c.baseURL); berr == nil && u.Scheme == base.Scheme && u.Host == base.Host {
-				return u.RequestURI(), nil // the profile's own server: same as the path on it
+				if c.cli != nil {
+					return u.RequestURI(), nil
+				}
+				return u.String(), nil
 			}
 		}
 		return "", fmt.Errorf("absolute URLs are not allowed; use a path on the configured server")
@@ -222,6 +225,13 @@ func (c *Client) relPath(path string) (string, error) {
 		path = strings.TrimRight(c.prefix, "/") + "/" + path
 	}
 	return path, nil
+}
+
+func (c *Client) urlOf(target string) string {
+	if strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "http://") {
+		return target
+	}
+	return c.baseURL + target
 }
 
 // IsReadMethod reports whether an HTTP method only reads (GET or HEAD); every other method counts as a write.
@@ -285,7 +295,7 @@ func (c *Client) ValidateRequest(method, path string, q url.Values, needHeaders 
 	if err != nil {
 		return err
 	}
-	_, err = http.NewRequest(method, c.baseURL+target, nil)
+	_, err = http.NewRequest(method, c.urlOf(target), nil)
 	return err
 }
 
@@ -343,7 +353,7 @@ func (c *Client) authorize(ctx context.Context, method string) (http.Header, err
 
 // newRequest builds one HTTP request to a server-relative target; a body without a content type is sent as JSON.
 func (c *Client) newRequest(ctx context.Context, method, target string, headers http.Header, body []byte, contentType string) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+target, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, c.urlOf(target), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

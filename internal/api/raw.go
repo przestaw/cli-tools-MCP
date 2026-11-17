@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"workctl/internal/cliutil"
@@ -40,7 +41,8 @@ func RawCommand(ctx context.Context, c *Client, cfg *config.Config, args []strin
 	if err != nil {
 		return err
 	}
-	return cliutil.PrintBody(b)
+	_, err = os.Stdout.Write(b)
+	return err
 }
 
 // QueryFlag adds the repeatable --query KEY=VALUE flag to fs and returns the values it collects; workctl encodes them.
