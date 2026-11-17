@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 )
 
 // maxErrorBody limits how much of a failed answer is read into the error.
@@ -71,6 +72,16 @@ func (c *Client) downloadClient() *http.Client {
 	return &dc
 }
 
+// IsBinary reports whether a response body cannot travel as text: a non-text content type or bytes that are not UTF-8.
+// Such a body must be fetched with a download, which keeps every byte.
+func IsBinary(contentType string, body []byte) bool {
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+	textual := mediaType == "" || strings.HasPrefix(mediaType, "text/") || strings.HasSuffix(mediaType, "json") ||
+		strings.HasSuffix(mediaType, "xml") || strings.HasSuffix(mediaType, "javascript") || strings.HasSuffix(mediaType, "yaml") ||
+		mediaType == "application/x-www-form-urlencoded"
+	return !textual || !utf8.Valid(body)
+}
+
 // htmlWarning flags an HTML answer to a download: usually a login, SSO or error page instead of the file.
 func htmlWarning(contentType string, wanted string) string {
 	if !strings.HasPrefix(strings.ToLower(contentType), "text/html") || strings.HasSuffix(strings.ToLower(wanted), ".html") {
@@ -83,6 +94,14 @@ func htmlWarning(contentType string, wanted string) string {
 // nothing is written. The caller owns w: Stream does not close it or clean up after a failed copy.
 // For cli profiles gh or glab write the answer straight to w; they report no content type.
 func (c *Client) Stream(ctx context.Context, path string, q url.Values, w io.Writer) (Streamed, error) {
+	if _, err := c.relPath(path); err != nil {
+		if u, parseErr := url.Parse(path); parseErr == nil && u.Scheme == "https" && u.User == nil && allowedRedirectHost(u.Hostname()) {
+			if len(q) != 0 {
+				return Streamed{}, fmt.Errorf("a signed storage URL must contain its own query; extra query parameters are not allowed")
+			}
+			return c.StreamStorageURL(ctx, path, w)
+		}
+	}
 	target, err := c.target(http.MethodGet, path, q)
 	if err != nil {
 		return Streamed{}, err
@@ -137,7 +156,7 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 // GitHub puts into body_html) without any credential: the signature in the URL is the authorisation.
 func (c *Client) StreamStorageURL(ctx context.Context, rawURL string, w io.Writer) (Streamed, error) {
 	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" || !allowedRedirectHost(u.Hostname()) {
+	if err != nil || u.Scheme != "https" || u.User != nil || !allowedRedirectHost(u.Hostname()) {
 		return Streamed{}, fmt.Errorf("url must be https on a known storage host (GitHub user content, Actions or release storage)")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

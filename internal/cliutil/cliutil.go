@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Stdin is where the wizards read answers and piped tokens from; tests replace it.
@@ -103,7 +104,7 @@ func PrintBody(b []byte) error {
 		if _, err := os.Stdout.Write(b); err != nil {
 			return err
 		}
-		if b[len(b)-1] != '\n' {
+		if utf8.Valid(b) && b[len(b)-1] != '\n' { // binary bytes stay unchanged
 			_, _ = os.Stdout.Write([]byte("\n"))
 		}
 	}

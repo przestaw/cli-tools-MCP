@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"workctl/internal/api"
+	"workctl/internal/cliutil"
 	"workctl/internal/config"
 	"workctl/internal/mcp"
 )
@@ -84,10 +85,10 @@ func Tools() []mcp.Tool {
 		"type":        "object",
 		"description": "Query parameters, encoded by workctl. A value may be a string, number, boolean or an array (one parameter per item, e.g. a multi-select).",
 	}
-	path := mcp.StrProp("Path on the profile's server: a relative path gets the API prefix (repos/o/r, projects/1, issue/ABC-1), one starting with / is taken from the site root. Full URLs are refused.")
+	path := mcp.StrProp("Path on the profile's server: a relative path gets the API prefix (repos/o/r, projects/1, issue/ABC-1), one starting with / is taken from the site root. A full URL is accepted only for the profile's own server.")
 	return []mcp.Tool{{
 		Name:        "request",
-		Description: "Send one HTTP request through a configured profile (any provider API or a generic service) for what the other tools do not cover. GET/HEAD always allowed, other methods need policy.allow_write=true.",
+		Description: "Send one HTTP request through a configured profile (any provider API or a generic service) for what the other tools do not cover. GET/HEAD always allowed, other methods need policy.allow_write=true. Returns text only: use download for images, archives and other binary files.",
 		InputSchema: mcp.ObjSchema(map[string]any{"method": mcp.StrProp("HTTP method, default GET"), "path": path, "query": query, "body": mcp.StrProp("Request body (JSON text)"),
 			"content_type":      mcp.StrProp("Body media type; default application/json; use application/x-www-form-urlencoded for form parameters"),
 			"response_metadata": mcp.BoolProp("Return body and Location (e.g. Jenkins queue item URL); native HTTP profiles only"),
@@ -235,12 +236,23 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []b
 	if s.accept != "" {
 		c = c.WithAccept(s.accept)
 	}
-	if !s.meta {
-		return api.BodyOnly(c.Do(ctx, s.method, s.path, s.query, s.body, s.ctype))
+	var data []byte
+	var hdr http.Header
+	var ctype string
+	if s.meta {
+		data, hdr, err = c.DoHeader(ctx, s.method, s.path, s.query, s.body, s.ctype)
+		ctype = hdr.Get("Content-Type")
+	} else {
+		data, ctype, err = c.Do(ctx, s.method, s.path, s.query, s.body, s.ctype)
 	}
-	data, hdr, err := c.DoHeader(ctx, s.method, s.path, s.query, s.body, s.ctype)
 	if err != nil {
 		return nil, err
+	}
+	if api.IsBinary(ctype, data) {
+		return nil, fmt.Errorf("the answer is binary (%s, %d bytes) and would be corrupted as text: fetch it with download", cliutil.FirstNonEmpty(ctype, "type unknown"), len(data))
+	}
+	if !s.meta {
+		return data, nil
 	}
 	var result any = string(data)
 	if json.Valid(data) {
