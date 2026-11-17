@@ -12,7 +12,7 @@ import (
 )
 
 func getPR(ctx context.Context, client *api.Client, repo string, id int) ([]byte, error) {
-	return get(ctx, client, prPath(repo, id, ""), nil)
+	return client.Get(ctx, prPath(repo, id, ""), nil)
 }
 
 func listPRs(ctx context.Context, client *api.Client, repo, search, state string) ([]byte, error) {
@@ -22,7 +22,7 @@ func listPRs(ctx context.Context, client *api.Client, repo, search, state string
 	query := perPage100()
 	if search == "" {
 		query.Set("state", state)
-		return get(ctx, client, "/repos/"+repo+"/pulls", query)
+		return client.Get(ctx, "/repos/"+repo+"/pulls", query)
 	}
 	text := "repo:" + repo + " is:pr " + search
 	switch state {
@@ -32,7 +32,7 @@ func listPRs(ctx context.Context, client *api.Client, repo, search, state string
 		text += " is:merged"
 	}
 	query.Set("q", text)
-	return get(ctx, client, "/search/issues", query)
+	return client.Get(ctx, "/search/issues", query)
 }
 
 // PRReader adapts GitHub pull requests to the provider-neutral reader.

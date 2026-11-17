@@ -51,6 +51,9 @@ func TestDoBodyMatchesDo(t *testing.T) {
 	}
 	for _, tc := range tests {
 		got, err := client.DoBody(context.Background(), "GET", tc.path, nil, nil, "")
+		if viaGet, getErr := client.Get(context.Background(), tc.path, nil); string(viaGet) != string(got) || (getErr == nil) != (err == nil) {
+			t.Errorf("%s: Get = %q, %v; DoBody = %q, %v", tc.path, viaGet, getErr, got, err)
+		}
 		if string(got) != tc.want && tc.status == 0 {
 			t.Errorf("%s: body %q, want %q", tc.path, got, tc.want)
 		}

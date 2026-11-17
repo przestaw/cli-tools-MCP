@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"workctl/internal/cliutil"
@@ -30,7 +29,7 @@ func (c *Client) Account(ctx context.Context) (string, error) {
 	// The account lives on the profile's API host, also for a copy pointed at another host (GitHub uploads).
 	home := *c
 	home.baseURL = cliutil.FirstNonEmpty(c.home, c.baseURL)
-	out, err := home.DoBody(ctx, http.MethodGet, path, nil, nil, "")
+	out, err := home.Get(ctx, path, nil)
 	if err != nil {
 		return "", err
 	}

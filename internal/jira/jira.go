@@ -26,7 +26,7 @@ func GetIssue(ctx context.Context, c *api.Client, key string, fields []string) (
 	if len(fields) > 0 {
 		q.Set("fields", strings.Join(fields, ","))
 	}
-	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(key), q, nil, "")
+	return c.Get(ctx, "/rest/api/2/issue/"+url.PathEscape(key), q)
 }
 
 func search(ctx context.Context, c *api.Client, jql string, startAt, maxResults int) ([]byte, error) {
@@ -34,24 +34,24 @@ func search(ctx context.Context, c *api.Client, jql string, startAt, maxResults 
 	q.Set("jql", jql)
 	q.Set("startAt", strconv.Itoa(startAt))
 	q.Set("maxResults", strconv.Itoa(maxResults))
-	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/search", q, nil, "")
+	return c.Get(ctx, "/rest/api/2/search", q)
 }
 
 func comments(ctx context.Context, c *api.Client, key string) ([]byte, error) {
-	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", nil, nil, "")
+	return c.Get(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", nil)
 }
 
 func transitions(ctx context.Context, c *api.Client, key string) ([]byte, error) {
-	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(key)+"/transitions?expand=transitions.fields", nil, nil, "")
+	return c.Get(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/transitions?expand=transitions.fields", nil)
 }
 
 // Myself fetches the authenticated user; doctor and the setup wizard use it as the connectivity check.
 func Myself(ctx context.Context, c *api.Client) ([]byte, error) {
-	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/myself", nil, nil, "")
+	return c.Get(ctx, "/rest/api/2/myself", nil)
 }
 
 func serverInfo(ctx context.Context, c *api.Client) ([]byte, error) {
-	return c.DoBody(ctx, http.MethodGet, "/rest/api/2/serverInfo", nil, nil, "")
+	return c.Get(ctx, "/rest/api/2/serverInfo", nil)
 }
 
 func addComment(ctx context.Context, c *api.Client, key, text string) ([]byte, error) {

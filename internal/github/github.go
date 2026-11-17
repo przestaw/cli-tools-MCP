@@ -37,10 +37,6 @@ func repoOf(cfg *config.Config, repo string) (string, error) {
 	return repo, nil
 }
 
-func get(ctx context.Context, c *api.Client, path string, q url.Values) ([]byte, error) {
-	return c.DoBody(ctx, http.MethodGet, path, q, nil, "")
-}
-
 func perPage100() url.Values { return url.Values{"per_page": {"100"}} }
 
 // maxPages bounds a pull request list: 30 pages of 100 cover GitHub's own limit of 3000 files.
@@ -48,11 +44,11 @@ const maxPages = 30
 
 // User fetches the authenticated user; doctor and the setup wizard use it as the connectivity check.
 func User(ctx context.Context, c *api.Client) ([]byte, error) {
-	return get(ctx, c, "/user", nil)
+	return c.Get(ctx, "/user", nil)
 }
 
 func getRepo(ctx context.Context, c *api.Client, repo string) ([]byte, error) {
-	return get(ctx, c, "/repos/"+repo, nil)
+	return c.Get(ctx, "/repos/"+repo, nil)
 }
 
 func prPath(repo string, n int, tail string) string {
@@ -69,7 +65,7 @@ func prReviews(ctx context.Context, c *api.Client, repo string, n int) ([]byte, 
 
 // prRequestedReviewers lists the requested reviewers and teams of a pull request.
 func prRequestedReviewers(ctx context.Context, c *api.Client, repo string, n int) ([]byte, error) {
-	return get(ctx, c, prPath(repo, n, "/requested_reviewers"), perPage100())
+	return c.Get(ctx, prPath(repo, n, "/requested_reviewers"), perPage100())
 }
 
 // prComments are the inline review comments (the threads on the diff).
@@ -96,11 +92,11 @@ func prChecks(ctx context.Context, c *api.Client, repo string, n int) ([]byte, e
 	if err := json.Unmarshal(b, &pr); err != nil || pr.Head.SHA == "" {
 		return nil, fmt.Errorf("pull request %d has no head commit", n)
 	}
-	return get(ctx, c, "/repos/"+repo+"/commits/"+url.PathEscape(pr.Head.SHA)+"/check-runs", perPage100())
+	return c.Get(ctx, "/repos/"+repo+"/commits/"+url.PathEscape(pr.Head.SHA)+"/check-runs", perPage100())
 }
 
 func listBranches(ctx context.Context, c *api.Client, repo, search string) ([]byte, error) {
-	b, err := get(ctx, c, "/repos/"+repo+"/branches", perPage100())
+	b, err := c.Get(ctx, "/repos/"+repo+"/branches", perPage100())
 	if err != nil || search == "" {
 		return b, err
 	}
@@ -127,7 +123,7 @@ func getFile(ctx context.Context, c *api.Client, repo, filePath, ref string) ([]
 		q.Set("ref", ref)
 	}
 	raw := c.WithAccept("application/vnd.github.raw+json")
-	return get(ctx, raw, "/repos/"+repo+"/contents/"+strings.Join(segs, "/"), q)
+	return raw.Get(ctx, "/repos/"+repo+"/contents/"+strings.Join(segs, "/"), q)
 }
 
 func listRuns(ctx context.Context, c *api.Client, repo, branch string, perPage int) ([]byte, error) {
@@ -135,15 +131,15 @@ func listRuns(ctx context.Context, c *api.Client, repo, branch string, perPage i
 	if branch != "" {
 		q.Set("branch", branch)
 	}
-	return get(ctx, c, "/repos/"+repo+"/actions/runs", q)
+	return c.Get(ctx, "/repos/"+repo+"/actions/runs", q)
 }
 
 func getRun(ctx context.Context, c *api.Client, repo string, id int) ([]byte, error) {
-	return get(ctx, c, fmt.Sprintf("/repos/%s/actions/runs/%d", repo, id), nil)
+	return c.Get(ctx, fmt.Sprintf("/repos/%s/actions/runs/%d", repo, id), nil)
 }
 
 func runJobs(ctx context.Context, c *api.Client, repo string, id int) ([]byte, error) {
-	return get(ctx, c, fmt.Sprintf("/repos/%s/actions/runs/%d/jobs", repo, id), perPage100())
+	return c.Get(ctx, fmt.Sprintf("/repos/%s/actions/runs/%d/jobs", repo, id), perPage100())
 }
 
 func addComment(ctx context.Context, c *api.Client, repo string, n int, text string) ([]byte, error) {

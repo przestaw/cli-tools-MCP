@@ -288,6 +288,11 @@ func (c *Client) DoBody(ctx context.Context, method, path string, q url.Values, 
 	return out, err
 }
 
+// Get is DoBody for a GET without a request body.
+func (c *Client) Get(ctx context.Context, path string, q url.Values) ([]byte, error) {
+	return c.DoBody(ctx, http.MethodGet, path, q, nil, "")
+}
+
 // DoHeader is Do for native HTTP profiles with all response headers, e.g. the Location of a queued Jenkins build.
 func (c *Client) DoHeader(ctx context.Context, method, path string, q url.Values, body []byte, contentType string) ([]byte, http.Header, error) {
 	if c.cli != nil {
