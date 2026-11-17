@@ -305,7 +305,7 @@ workctl --profile gdrive api download --export-mime text/plain DOCUMENT_ID
 ```
 
 The same MCP parameters are `accounts(check, profile)`, `file(path, folder, query, limit, page_token, profile)`
-and `download(path, export_mime, profile)`. A file ID returns metadata; a folder ID lists children.
+and `download(path, export_mime, profile)`. A file ID returns metadata; a folder ID lists children (`path` and `folder` are mutually exclusive).
 Search is by name within the selected folder, not an arbitrary Drive query. Use `request` for advanced queries.
 Listings preserve `nextPageToken` and `incompleteSearch`. IDs, not ambiguous names, select individual files.
 `accounts` only fetches Drive about/quota with `check`; an omitted quota limit stays absent.

@@ -210,20 +210,16 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 		} else {
 			report.ResolvedProfile = resolved
 		}
-
 	}
 	return json.MarshalIndent(report, "", "  ")
 }
 
-func checkDriveAccount(ctx context.Context, cfg *config.Config, name string, p config.Profile) (out api.DriveAbout, resultErr error) {
-	c, err := api.NewProfileClient(cfg, name, p)
-	if err != nil {
-		return out, err
-	}
-	defer func() { resultErr = errors.Join(resultErr, c.Close()) }()
-	ctx, cancel := context.WithTimeout(ctx, cfg.ProfileTimeout(p))
-	defer cancel()
-	return c.DriveAbout(ctx)
+func checkDriveAccount(ctx context.Context, cfg *config.Config, name string, p config.Profile) (out api.DriveAbout, err error) {
+	err = api.WithProfileClient(ctx, cfg, name, p, func(ctx context.Context, c *api.Client) (err error) {
+		out, err = c.DriveAbout(ctx)
+		return err
+	})
+	return out, err
 }
 
 func profileHost(p config.Profile) string {

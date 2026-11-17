@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"workctl/internal/config"
+	"workctl/internal/pr"
 )
 
 func TestGoogle2bThroughExistingTools(t *testing.T) {
@@ -116,5 +117,79 @@ func TestGoogle2bThroughExistingTools(t *testing.T) {
 		if _, err := callMCPTool(context.Background(), cfg, "download", args); err == nil {
 			t.Fatalf("invalid download accepted: %v", args)
 		}
+	}
+}
+
+func TestGoogle2bArgumentAndProfileHandling(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/drive/v3/about":
+			http.Error(w, `{"error":"denied"}`, http.StatusForbidden)
+		case "/drive/v3/files/doc":
+			fmt.Fprint(w, `{"id":"doc","name":"d","mimeType":"text/plain"}`)
+		case "/drive/v3/files/dir":
+			fmt.Fprint(w, `{"id":"dir","name":"d","mimeType":"application/vnd.google-apps.folder"}`)
+		default:
+			fmt.Fprint(w, `{"files":[]}`)
+		}
+	}))
+	defer srv.Close()
+	cfg := config.Default()
+	cfg.Profiles["drive"] = config.Profile{Kind: "api", URL: srv.URL + "/drive/v3", Auth: "none"}
+	cfg.Profiles["plain"] = config.Profile{Kind: "api", URL: srv.URL + "/api", Auth: "none"}
+	ctx := context.Background()
+
+	b, err := callMCPTool(ctx, cfg, "accounts", map[string]any{"check": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw struct {
+		Profiles []map[string]any `json:"profiles"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	status := map[string]any{}
+	for _, p := range raw.Profiles {
+		status[p["name"].(string)] = p["check_status"]
+		if p["name"] == "drive" && p["check_error"] == nil {
+			t.Fatalf("quota failure not reported: %v", p)
+		}
+	}
+	if status["drive"] != "error" || status["plain"] != "not_applicable" {
+		t.Fatalf("check statuses = %v", status)
+	}
+	if _, err := callMCPTool(ctx, cfg, "accounts", map[string]any{"profile": "missing"}); err == nil {
+		t.Fatal("unknown profile accepted")
+	}
+
+	for name, args := range map[string]map[string]any{
+		"folder and path":         {"profile": "drive", "path": "dir", "folder": "x"},
+		"listing flags on a file": {"profile": "drive", "path": "doc", "query": "x"},
+		"limit zero":              {"profile": "drive", "limit": 0},
+		"limit too large":         {"profile": "drive", "limit": 1001},
+		"repo on Drive":           {"profile": "drive", "repo": "o/r"},
+		"drive flags on plain":    {"profile": "plain", "path": "x", "limit": 5},
+		"no path on plain":        {"profile": "plain"},
+	} {
+		if _, err := callMCPTool(ctx, cfg, "file", args); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if _, err := callMCPTool(ctx, cfg, "file", map[string]any{"profile": "drive", "path": "dir", "limit": 1000}); err != nil {
+		t.Fatalf("folder id as path: %v", err)
+	}
+	if _, err := callMCPTool(ctx, cfg, "download", map[string]any{"profile": "plain", "path": "x", "export_mime": "text/plain"}); err == nil {
+		t.Fatal("export_mime accepted on a non-Drive profile")
+	}
+}
+
+func TestFileCommandArguments(t *testing.T) {
+	cfg := config.Default()
+	if err := pr.FileCommand(cfg, []string{"a", "b"}); err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Fatalf("two positional arguments: %v", err)
+	}
+	if err := pr.FileCommand(cfg, []string{"--nope"}); err == nil {
+		t.Fatal("unknown flag accepted")
 	}
 }

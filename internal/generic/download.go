@@ -58,48 +58,14 @@ func downloadCommand(ctx context.Context, c *api.Client, args []string) error {
 // overwritten: each gets a unique prefix and its final name only after the copy is complete. A failed download
 // leaves no file behind, not even the output file it replaced.
 func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, output, name, exportMIME string) ([]byte, error) {
-	var drive *api.DriveFile
-	if id, ok := c.DriveFileID(urlPath); ok {
-		parsed, err := url.Parse(urlPath)
-		if err != nil {
-			return nil, err
-		}
-		embedded, err := url.ParseQuery(parsed.RawQuery)
-		if err != nil {
-			return nil, fmt.Errorf("invalid Drive download query: %w", err)
-		}
-		for key, values := range q {
-			embedded[key] = append(embedded[key], values...)
-		}
-		q = embedded
-		if len(q) > 0 {
-			for key, values := range q {
-				if key != "alt" || len(values) != 1 || values[0] != "media" {
-					return nil, fmt.Errorf("file download manages its Drive query; use export_mime for native documents")
-				}
-			}
-		}
-		meta, target, query, err := c.DriveDownload(ctx, id, exportMIME)
-		if err != nil {
-			return nil, err
-		}
-		drive, urlPath, q = &meta, target, query
-		if name == "" {
-			name = meta.Name
-		}
-	} else if exportMIME != "" {
-		return nil, fmt.Errorf("export_mime requires a Drive file id")
+	drive, urlPath, q, err := resolveDrive(ctx, c, urlPath, q, exportMIME)
+	if err != nil {
+		return nil, err
 	}
-	var f *os.File
-	var err error
-	if output != "" {
-		f, err = os.OpenFile(output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	} else {
-		var dir string
-		if dir, err = DownloadsDir(); err == nil {
-			f, err = os.CreateTemp(dir, "download-*.part")
-		}
+	if drive != nil && name == "" {
+		name = drive.Name
 	}
+	f, err := createTarget(output)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +95,51 @@ func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, 
 		}
 	}
 	return json.Marshal(downloaded{Path: final, Streamed: meta, Drive: drive, MD5Verified: verified})
+}
+
+// resolveDrive turns a Drive file ID or file URL into the metadata and the media or export request to stream.
+// Any other path is returned unchanged, and export_mime is refused for it.
+func resolveDrive(ctx context.Context, c *api.Client, urlPath string, q url.Values, exportMIME string) (*api.DriveFile, string, url.Values, error) {
+	id, ok := c.DriveFileID(urlPath)
+	if !ok {
+		if exportMIME != "" {
+			return nil, "", nil, fmt.Errorf("export_mime requires a Drive file id")
+		}
+		return nil, urlPath, q, nil
+	}
+	parsed, err := url.Parse(urlPath)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	embedded, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("invalid Drive download query: %w", err)
+	}
+	for key, values := range q {
+		embedded[key] = append(embedded[key], values...)
+	}
+	for key, values := range embedded {
+		if key != "alt" || len(values) != 1 || values[0] != "media" {
+			return nil, "", nil, fmt.Errorf("file download manages its Drive query; use export_mime for native documents")
+		}
+	}
+	meta, target, query, err := c.DriveDownload(ctx, id, exportMIME)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return &meta, target, query, nil
+}
+
+// createTarget opens output (replacing it), or creates a temporary file in the downloads directory.
+func createTarget(output string) (*os.File, error) {
+	if output != "" {
+		return os.OpenFile(output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	}
+	dir, err := DownloadsDir()
+	if err != nil {
+		return nil, err
+	}
+	return os.CreateTemp(dir, "download-*.part")
 }
 
 // DownloadsDir is where downloads without --output land: <user cache dir>/workctl/downloads, private to the user.

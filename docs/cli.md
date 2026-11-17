@@ -7,7 +7,7 @@ The command line of workctl: modules, everyday commands and the write policy. MC
 ## Modules
 
 Drive uses the existing commands: `accounts --profile gdrive --check` for quota,
-`file --profile gdrive [--query TEXT] [--page-token TOKEN] [ID]` for listing/metadata,
+`file --profile gdrive [--query TEXT] [--folder ID] [--page-token TOKEN] [ID]` for listing/metadata,
 and `--profile gdrive api download [--export-mime MIME] ID` for bytes or explicit native exports.
 See `workctl help file`, `workctl help accounts`, and [Drive details](services-auth.md#drive-account-files-and-exports).
 

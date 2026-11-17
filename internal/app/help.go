@@ -50,7 +50,7 @@ errors per profile; without it no Drive network check is made. MCP: accounts.`,
 
 Repository: read PATH at REF. Drive profile: PATH is a file ID (metadata) or folder ID (listing).
 Omit PATH to list --folder ID, profile default folder or root.
-Drive flags: --query TEXT (name contains), --limit 1..1000 (default 30), --page-token TOKEN.
+Drive flags: --folder ID (not with PATH), --query TEXT (name contains), --limit 1..1000 (default 30), --page-token TOKEN.
 For bytes or native document exports use api download. MCP: file.`,
 	"pr": `workctl [--profile NAME] pr|mr list|show [flags]
 

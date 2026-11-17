@@ -3,7 +3,6 @@ package pr
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 
@@ -13,37 +12,39 @@ import (
 	"workctl/internal/mcp"
 )
 
-func driveFile(ctx context.Context, cfg *config.Config, name string, p config.Profile, a map[string]any) (out []byte, resultErr error) {
+func driveFile(ctx context.Context, cfg *config.Config, name string, p config.Profile, a map[string]any) ([]byte, error) {
 	if mcp.ArgString(a, "repo") != "" || mcp.ArgString(a, "ref") != "" {
 		return nil, fmt.Errorf("repo and ref do not apply to Drive")
 	}
-	c, err := api.NewProfileClient(cfg, name, p)
-	if err != nil {
-		return nil, err
+	id, folder := mcp.ArgString(a, "path"), mcp.ArgString(a, "folder")
+	if id != "" && folder != "" {
+		return nil, fmt.Errorf("path and folder are exclusive: a folder id as path is listed")
 	}
-	defer func() { resultErr = errors.Join(resultErr, c.Close()) }()
-	ctx, cancel := context.WithTimeout(ctx, cfg.ProfileTimeout(p))
-	defer cancel()
-	id := mcp.ArgString(a, "path")
-	folder := cliutil.FirstNonEmpty(mcp.ArgString(a, "folder"), p.DefaultProject, "root")
-	if id != "" {
-		meta, err := c.DriveMetadata(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		if meta.MIMEType != api.DriveFolderMIME {
-			if mcp.ArgString(a, "query") != "" || mcp.ArgString(a, "page_token") != "" || mcp.ArgString(a, "folder") != "" {
-				return nil, fmt.Errorf("query, folder and page_token apply to a Drive listing, not file metadata")
+	var out []byte
+	err := api.WithProfileClient(ctx, cfg, name, p, func(ctx context.Context, c *api.Client) (err error) {
+		if id != "" {
+			meta, err := c.DriveMetadata(ctx, id)
+			if err != nil {
+				return err
 			}
-			return json.Marshal(meta)
+			if meta.MIMEType != api.DriveFolderMIME {
+				if mcp.ArgString(a, "query") != "" || mcp.ArgString(a, "page_token") != "" {
+					return fmt.Errorf("query and page_token apply to a Drive listing, not file metadata")
+				}
+				out, err = json.Marshal(meta)
+				return err
+			}
+			folder = id
 		}
-		folder = id
-	}
-	listing, err := c.DriveList(ctx, folder, mcp.ArgString(a, "query"), mcp.ArgString(a, "page_token"), mcp.ArgInt(a, "limit", 30))
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(listing)
+		folder = cliutil.FirstNonEmpty(folder, p.DefaultProject, "root")
+		listing, err := c.DriveList(ctx, folder, mcp.ArgString(a, "query"), mcp.ArgString(a, "page_token"), mcp.ArgInt(a, "limit", 30))
+		if err != nil {
+			return err
+		}
+		out, err = json.Marshal(listing)
+		return err
+	})
+	return out, err
 }
 
 // FileCommand shares repository and Drive file operations with the MCP tool.

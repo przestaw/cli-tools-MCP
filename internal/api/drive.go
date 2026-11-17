@@ -31,6 +31,9 @@ type DriveSize int64
 
 // UnmarshalJSON accepts the string form of Drive and a plain number.
 func (d *DriveSize) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		return nil
+	}
 	n, err := strconv.ParseInt(strings.Trim(string(b), `"`), 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid Drive size %s", b)
@@ -151,11 +154,15 @@ func (c *Client) DriveList(ctx context.Context, folder, query, pageToken string,
 	if query != "" {
 		filter += " and name contains '" + driveQuote(query) + "'"
 	}
-	err := c.driveJSON(ctx, "/files", url.Values{
+	params := url.Values{
 		"q": {filter}, "fields": {"files(" + driveFileFields + "),nextPageToken,incompleteSearch"},
-		"pageSize": {strconv.Itoa(limit)}, "pageToken": {pageToken},
+		"pageSize":          {strconv.Itoa(limit)},
 		"supportsAllDrives": {"true"}, "includeItemsFromAllDrives": {"true"},
-	}, &out)
+	}
+	if pageToken != "" {
+		params.Set("pageToken", pageToken)
+	}
+	err := c.driveJSON(ctx, "/files", params, &out)
 	if err == nil && out.Files == nil {
 		err = fmt.Errorf("incomplete Drive listing: missing files array")
 	}
@@ -182,6 +189,9 @@ func (c *Client) DriveDownload(ctx context.Context, id, exportMIME string) (Driv
 			if exportMIME == supported {
 				return meta, "/files/" + id + "/export", url.Values{"mimeType": {exportMIME}}, nil
 			}
+		}
+		if len(about.Formats[meta.MIMEType]) == 0 {
+			return meta, "", nil, fmt.Errorf("%s cannot be exported or downloaded", meta.MIMEType)
 		}
 		return meta, "", nil, fmt.Errorf("choose export_mime for %s; supported: %s; CSV exports only the first sheet", meta.MIMEType, strings.Join(about.Formats[meta.MIMEType], ", "))
 	}
