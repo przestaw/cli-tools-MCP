@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"workctl/internal/api"
+	"workctl/internal/cliutil"
 	"workctl/internal/config"
 	"workctl/internal/mcp"
 )
@@ -235,7 +236,7 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []b
 	if !s.meta {
 		out, ctype, err := c.Do(ctx, s.method, s.path, s.query, s.body, s.ctype)
 		if err == nil && api.IsBinary(ctype, out) {
-			return nil, fmt.Errorf("the answer is binary (%s, %d bytes) and would be corrupted as text: fetch it with download", ctype, len(out))
+			return nil, fmt.Errorf("the answer is binary (%s, %d bytes) and would be corrupted as text: fetch it with download", cliutil.FirstNonEmpty(ctype, "type unknown"), len(out))
 		}
 		return out, err
 	}
