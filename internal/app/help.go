@@ -26,9 +26,10 @@ profile that exists and has a usable kind; it is never replaced by a default.
   raw [--body JSON|@file] [--query KEY=VALUE]... METHOD PATH
         one request. The response is written exactly as received: no indentation, no added newline.
         Anything but GET and HEAD needs policy.allow_write. MCP: request.
-  download [--query KEY=VALUE]... [--output FILE] [--name NAME] PATH
+  download [--query KEY=VALUE]... [--output FILE] [--name NAME] [--export-mime MIME] PATH
         stream a file to disk without changing a byte; prints path, size, SHA-256, content type and a warning when an
-        HTML page (login, error) came instead. MCP: download.
+        HTML page (login, error) came instead. Drive: ID or file URL, metadata and checksum verification;
+        native documents require --export-mime. MCP: download.
   upload [--folder ID] [--name NAME] [--target PATH] [--overwrite] FILE
         upload a file (Google Drive, or an issue attachment). Refuses to overwrite without --overwrite. MCP: upload.
   exec [--] CMD [ARG...]
@@ -39,11 +40,18 @@ profile that exists and has a usable kind; it is never replaced by a default.
 PATH is relative to the profile's API prefix, or starts with / for the site root. A full URL is accepted only for the
 profile's own server (and the Google hosts of a google profile). Put values that need encoding in --query.
 Per-command flags: workctl api raw -h`,
-	"accounts": `workctl accounts [--kind KIND] [--resource RESOURCE]
+	"accounts": `workctl accounts [--kind KIND] [--resource RESOURCE] [--profile NAME] [--check]
 
 List the configured profiles: kind, host, account, bound repos/projects, credential state (never a secret).
 With --resource (owner/name, group/project or a Jira key) it shows which profile resolves for it. Use it to pick
---profile when a command says that several profiles match. MCP: accounts.`,
+--profile when a command says that several profiles match. --check fetches Drive account/quota and reports
+errors per profile; without it no Drive network check is made. MCP: accounts.`,
+	"file": `workctl file [--profile NAME] [--repo REPO] [--ref REF] [PATH]
+
+Repository: read PATH at REF. Drive profile: PATH is a file ID (metadata) or folder ID (listing).
+Omit PATH to list --folder ID, profile default folder or root.
+Drive flags: --query TEXT (name contains), --limit 1..1000 (default 30), --page-token TOKEN.
+For bytes or native document exports use api download. MCP: file.`,
 	"pr": `workctl [--profile NAME] pr|mr list|show [flags]
 
   list  [--repo R] [--project P] [--state open|closed|merged|all] [--search TEXT]
@@ -70,6 +78,7 @@ refused, unauthorized, forbidden or other, next to the error text. Exit code 1 w
 
 // cliEquivalent is the CLI command that does what an MCP tool does; tools without one are for agents only.
 var cliEquivalent = map[string]string{
+	"file":     "file",
 	"accounts": "accounts", "request": "api raw", "download": "api download", "upload": "api upload", "api_exec": "api exec",
 	"pr_list": "pr list", "pr_show": "pr show", "task_get_context": "task KEY",
 	"issue_show": "issue show", "issue_update": "issue update|move|close|dup|link", "issue_search": "issue search",

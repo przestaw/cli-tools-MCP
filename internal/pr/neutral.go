@@ -146,9 +146,13 @@ func neutralTools() []mcp.Tool {
 			"repo": repo, "ref": mcp.StrProp("Branch or tag to list runs for"), "run": mcp.IntProp("Run / pipeline id"), "job": mcp.IntProp("Job id for its log"),
 			"include": mcp.ArrProp("With run: jobs"), "per_page": mcp.IntProp("Items per page when listing"), "format": format, "profile": profile,
 		})},
-		{Name: "file", Description: "Get raw repository file contents at a ref (GitHub or GitLab).", InputSchema: mcp.ObjSchema(map[string]any{
-			"repo": repo, "path": mcp.StrProp("Repository-relative file path"), "ref": mcp.StrProp("Branch, tag or commit; default branch if omitted"), "profile": profile,
-		}, "path")},
+		{Name: "file", Description: "Read a repository file, or list/search Drive and get file metadata using a Drive profile.", InputSchema: mcp.ObjSchema(map[string]any{
+			"repo": repo, "path": mcp.StrProp("Repository path or Drive file/folder ID; omit to list Drive"), "ref": mcp.StrProp("Repository branch, tag or commit"), "profile": profile,
+			"folder":     mcp.StrProp("Drive listing folder ID; default profile folder or root"),
+			"query":      mcp.StrProp("Drive file name contains this text"),
+			"limit":      mcp.IntProp("Drive page size: 1..1000, default 30"),
+			"page_token": mcp.StrProp("Drive nextPageToken from previous listing"),
+		})},
 		{Name: "comment", Description: "Add a comment to a pull/merge request (repo + number) or to an issue (issue key, Jira Server or Cloud). Needs policy.allow_write=true.", InputSchema: mcp.ObjSchema(map[string]any{
 			"repo": repo, "number": num, "issue": mcp.StrProp("Issue key, e.g. ABC-123, instead of repo + number"), "body": mcp.StrProp("Comment text"), "format": format, "profile": profile,
 		}, "body")},
@@ -186,6 +190,18 @@ func ValidateWrite(cfg *config.Config, name string, a map[string]any) error {
 }
 
 func callNeutral(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
+	if name == "file" {
+		profileName := cliutil.FirstNonEmpty(mcp.ArgString(a, "profile"), cfg.ProfileName())
+		if p, ok := cfg.Profiles[profileName]; ok && p.HasDrive() {
+			return driveFile(ctx, cfg, profileName, p, a)
+		}
+		if mcp.ArgString(a, "path") == "" {
+			return nil, fmt.Errorf("repository path is required; to list Drive, supply a Drive profile")
+		}
+		if mcp.ArgString(a, "folder") != "" || mcp.ArgString(a, "query") != "" || mcp.ArgString(a, "page_token") != "" || a["limit"] != nil {
+			return nil, fmt.Errorf("folder, query, limit and page_token require a Drive profile")
+		}
+	}
 	if name == "upload" {
 		return upload(ctx, cfg, a)
 	}

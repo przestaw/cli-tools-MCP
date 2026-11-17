@@ -133,7 +133,7 @@ func run(args []string) error {
 
 func commandHandlers() map[string]func(*config.Config, []string) error {
 	handlers := map[string]func(*config.Config, []string) error{
-		"accounts": auth.AccountsCommand, "tools": toolsCommand,
+		"accounts": auth.AccountsCommand, "tools": toolsCommand, "file": pr.FileCommand,
 		"doctor": func(cfg *config.Config, _ []string) error { return doctorCommand(cfg) },
 		"jira":   jira.Command, "gitlab": gitlab.Command, "github": github.Command, "api": generic.Command,
 		"pr": pr.Command, "mr": pr.Command, "task": taskCommand, "issue": issue.Command,

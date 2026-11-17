@@ -24,9 +24,20 @@ When unsure which account serves a resource, call `accounts` first: it lists the
 - CI: `ci` lists runs/pipelines for a `ref`, shows one `run` (with `include: [jobs]`) or the log of one `job` (GitHub logs arrive as a downloaded file). Files: `file` with `path` and optional `ref`.
 - Issues (Jira Server and Cloud): `issue_show` (with `include: [comments, transitions]`), `issue_search` (JQL). `task_get_context` joins an issue with its branches and merge requests.
 - `cli` runs a module command line (`module`: azure, atlassian, jira; `args` as an array) for anything the tools above do not cover. Consult its help and use only read operations for an inspection; the wrapper is not permission to change configuration or policy.
-- Anything else: `request` (one HTTP request) and `download` (one file to the downloads directory) work with every HTTP profile (github, gitlab, jira, atlassian, api). A relative path gets the API prefix (`repos/o/r/branches`, `projects/1/merge_requests/2/approvals`, `issue/ABC-1/remotelink`), a path starting with `/` is taken from the site root; full URLs are refused. `api_exec` runs allow-listed remote commands of ssh-exec profiles. Do not create a new profile or relax host restrictions as a workaround.
+- Anything else: `request` (one HTTP request) and `download` (one file to the downloads directory) work with every HTTP profile (github, gitlab, jira, atlassian, api). Relative paths use the API base; full URLs must name the configured server or an allowed Google host. `download` additionally accepts known signed storage URLs without sending profile credentials. `api_exec` runs allow-listed remote commands of ssh-exec profiles. Do not create a new profile or relax host restrictions as a workaround.
 
 Start with the exact resource the user named, then read the relevant discussion, reviews or checks. Report current provider state separately from older local notes. A passing check is evidence only for the commit and scenario it ran against.
+
+## Google Drive
+
+For an explicit Drive profile (`gdrive` or a Google preset with Drive access), use `accounts` with `check: true`
+for account/quota, `file` for metadata (file ID) or list/search (folder ID or omitted path, `query`, `limit`,
+`page_token`). Follow `nextPageToken`; do not infer completeness from one page.
+Use `download` for bytes; native documents require `export_mime`. CSV export contains only the first sheet.
+Drive metadata and available MD5 verification accompany downloads. Sheets/Docs reads and approved edits use
+`request`; comments use Drive API. APIs must be enabled and scopes granted; do not retry unchanged 403 errors.
+Full URLs are allowed only for the configured server or Google preset hosts; known signed storage URLs are
+downloaded without profile credentials. Use tool schemas rather than assuming all full URLs are refused.
 
 ## Inspect screenshots and attachments
 

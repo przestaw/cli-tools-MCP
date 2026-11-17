@@ -5,9 +5,12 @@ package generic
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path"
@@ -23,7 +26,9 @@ var unsafeNameRe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 // downloaded is what `api download` and api_download report: where the file is, plus the stream metadata.
 type downloaded struct {
-	Path string `json:"path"`
+	Path        string         `json:"path"`
+	Drive       *api.DriveFile `json:"drive,omitempty"`
+	MD5Verified *bool          `json:"md5_verified,omitempty"`
 	api.Streamed
 }
 
@@ -33,13 +38,14 @@ func downloadCommand(ctx context.Context, c *api.Client, args []string) error {
 	query := api.QueryFlag(fs)
 	output := fs.String("output", "", "file to write (default: a new file in the workctl downloads directory)")
 	name := fs.String("name", "", "file name in the downloads directory (default: the server's or the path's)")
+	exportMIME := fs.String("export-mime", "", "Drive native document export MIME type; required for native documents")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
 		return fmt.Errorf("usage: download [--query KEY=VALUE]... [--output FILE] [--name NAME] PATH")
 	}
-	out, err := download(ctx, c, fs.Arg(0), query, *output, *name)
+	out, err := download(ctx, c, fs.Arg(0), query, *output, *name, *exportMIME)
 	if err != nil {
 		return err
 	}
@@ -51,7 +57,39 @@ func downloadCommand(ctx context.Context, c *api.Client, args []string) error {
 // returns the result as JSON. An existing output file is replaced. Files in the downloads directory are never
 // overwritten: each gets a unique prefix and its final name only after the copy is complete. A failed download
 // leaves no file behind, not even the output file it replaced.
-func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, output, name string) ([]byte, error) {
+func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, output, name, exportMIME string) ([]byte, error) {
+	var drive *api.DriveFile
+	if id, ok := c.DriveFileID(urlPath); ok {
+		parsed, err := url.Parse(urlPath)
+		if err != nil {
+			return nil, err
+		}
+		embedded, err := url.ParseQuery(parsed.RawQuery)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Drive download query: %w", err)
+		}
+		for key, values := range q {
+			embedded[key] = append(embedded[key], values...)
+		}
+		q = embedded
+		if len(q) > 0 {
+			for key, values := range q {
+				if key != "alt" || len(values) != 1 || values[0] != "media" {
+					return nil, fmt.Errorf("file download manages its Drive query; use export_mime for native documents")
+				}
+			}
+		}
+		meta, target, query, err := c.DriveDownload(ctx, id, exportMIME)
+		if err != nil {
+			return nil, err
+		}
+		drive, urlPath, q = &meta, target, query
+		if name == "" {
+			name = meta.Name
+		}
+	} else if exportMIME != "" {
+		return nil, fmt.Errorf("export_mime requires a Drive file id")
+	}
 	var f *os.File
 	var err error
 	if output != "" {
@@ -65,7 +103,16 @@ func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, 
 	if err != nil {
 		return nil, err
 	}
-	meta, err := c.Stream(ctx, urlPath, q, f)
+	hash := md5.New()
+	meta, err := c.Stream(ctx, urlPath, q, io.MultiWriter(f, hash))
+	var verified *bool
+	if err == nil && drive != nil && drive.MD5 != "" && exportMIME == "" {
+		matches := strings.EqualFold(drive.MD5, hex.EncodeToString(hash.Sum(nil)))
+		verified = &matches
+		if !matches {
+			err = fmt.Errorf("checksum mismatch against Drive MD5; downloaded file removed")
+		}
+	}
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
@@ -81,7 +128,7 @@ func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, 
 			return nil, err
 		}
 	}
-	return json.Marshal(downloaded{Path: final, Streamed: meta})
+	return json.Marshal(downloaded{Path: final, Streamed: meta, Drive: drive, MD5Verified: verified})
 }
 
 // DownloadsDir is where downloads without --output land: <user cache dir>/workctl/downloads, private to the user.

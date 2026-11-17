@@ -291,6 +291,28 @@ query (`/index.pl?Action=Download;FileID=2`, `;` as well as `&` reaches the serv
 profile's own server; any other host is refused. Prefer `path` plus `query` for values that need encoding.
 A `warning` in the result means the server answered with an HTML page (login or error) instead of the file.
 
+### Drive account, files and exports
+
+For `service: drive` and `service: all` profiles whose base URL is Drive v3:
+
+```sh
+workctl accounts --profile gdrive --check
+workctl file --profile gdrive --query report --limit 30
+workctl file --profile gdrive --page-token TOKEN
+workctl file --profile gdrive FILE_ID
+workctl --profile gdrive api download FILE_ID
+workctl --profile gdrive api download --export-mime text/plain DOCUMENT_ID
+```
+
+The same MCP parameters are `accounts(check, profile)`, `file(path, folder, query, limit, page_token, profile)`
+and `download(path, export_mime, profile)`. A file ID returns metadata; a folder ID lists children.
+Search is by name within the selected folder, not an arbitrary Drive query. Use `request` for advanced queries.
+Listings preserve `nextPageToken` and `incompleteSearch`. IDs, not ambiguous names, select individual files.
+`accounts` only fetches Drive about/quota with `check`; an omitted quota limit stays absent.
+Downloads add a `drive` block, retain SHA-256, and verify Drive MD5 when available for original bytes.
+Native exports require an explicit MIME type supported by Drive; CSV exports only the first sheet.
+Use Sheets API ranges when selecting a specific sheet. Missing scopes and disabled APIs remain explicit errors.
+
 Binary checks also apply with `response_metadata: true`. CLI `api raw` writes every response exactly as received,
 including valid UTF-8 binary data and JSON, without indentation or an added newline. Full URLs on the configured
 server keep their exact path even when the profile has a base path; only known external storage URLs use the
