@@ -246,7 +246,7 @@ func uploadGoogleDrive(ctx context.Context, c *api.Client, profile config.Profil
 		return nil, fmt.Errorf("decode Drive upload response: %w", err)
 	}
 	if uploaded.ID == "" {
-		return nil, fmt.Errorf("Drive upload response has no file id; check the destination before retrying")
+		return nil, fmt.Errorf("missing file id in Drive upload response; check the destination before retrying")
 	}
 	res := UploadResult{
 		ID:          uploaded.ID,
@@ -293,7 +293,7 @@ func findDriveFileInFolder(ctx context.Context, c *api.Client, name, folderID st
 	}
 	if len(list.Files) > 0 {
 		if list.Files[0].ID == "" {
-			return "", fmt.Errorf("Drive file lookup returned a file without an id")
+			return "", fmt.Errorf("missing id in Drive file lookup")
 		}
 		return list.Files[0].ID, nil
 	}

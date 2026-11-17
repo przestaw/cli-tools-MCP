@@ -266,8 +266,8 @@ func (c *Client) doNative(ctx context.Context, method, target string, body []byt
 	}
 	out, hdr, err := c.send(ctx, method, target, headers, body, contentType)
 	if o := c.oauth2; o != nil {
-		var httpErr *Error
-		if errors.As(err, &httpErr) && httpErr.Status == http.StatusUnauthorized && IsReadMethod(method) {
+		httpErr, plainHTTPError := err.(*Error)
+		if plainHTTPError && httpErr.Status == http.StatusUnauthorized && IsReadMethod(method) {
 			// The server rejected a token that looked valid (revoked or rotated): fetch a fresh one and repeat once.
 			if headers, err = c.authorize(ctx, method); err != nil {
 				return nil, nil, err
@@ -391,7 +391,9 @@ func (c *Client) send(ctx context.Context, method, target string, headers http.H
 func (c *Client) responseError(method, url string, status int, body []byte) error {
 	err := error(&Error{Method: method, URL: url, Status: status, Body: string(body)})
 	if status == http.StatusUnauthorized && c.oauth2 != nil {
-		err = errors.Join(err, c.oauth2.invalidate())
+		if cacheErr := c.oauth2.invalidate(); cacheErr != nil {
+			return errors.Join(err, cacheErr)
+		}
 	}
 	return err
 }
