@@ -113,3 +113,34 @@ func TestInstallerCopiesTheSkillThatExists(t *testing.T) {
 		t.Error("scripts/install.py does not copy plugins/workctl/skills/workctl/SKILL.md")
 	}
 }
+
+func TestSkillFrontMatter(t *testing.T) {
+	root := testutil.RepoRoot(t)
+	files, err := filepath.Glob(filepath.Join(root, "plugins/workctl/skills/*/SKILL.md"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no skills found: %v", err)
+	}
+	front := regexp.MustCompile(`(?s)^---\nname: (\S+)\ndescription: '(.*?)'\n---\n`)
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := filepath.Base(filepath.Dir(f))
+		m := front.FindStringSubmatch(string(b))
+		if m == nil || m[1] != dir || m[2] == "" || len(m[2]) > 1024 {
+			t.Errorf("%s: name must equal the directory and the description be 1-1024 characters", f)
+		}
+	}
+}
+
+func TestVersionsAgree(t *testing.T) {
+	root := testutil.RepoRoot(t)
+	b, err := os.ReadFile(filepath.Join(root, "internal/api/client.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"User-Agent", "workctl/`+Version+`"`) {
+		t.Errorf("the User-Agent in internal/api/client.go must be workctl/%s", Version)
+	}
+}

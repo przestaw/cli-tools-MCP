@@ -3,8 +3,7 @@
 RTK filters local command output; workctl handles authenticated provider APIs. Neither depends on the other.
 The native workctl plugin includes an opt-in `compact-output` skill alongside its provider skill. RTK itself is
 not vendored, downloaded by the plugin, or registered as an MCP server. No hooks are installed.
-The existing standalone installer still installs only the workctl skill; installation of the companion in
-Codex/Copilot skill directories remains an explicit separate step, not a claimed universal plugin installer.
+`scripts/install.py` installs only the workctl skill; the companion is not installed by it.
 
 ## Evaluation
 
@@ -15,8 +14,7 @@ The release archive's SHA-256 was verified against the GitHub release asset dige
 a28407dc13038bdc9c2a1f5a047b0c636e0c1d495b15523576e2adb992a06a17
 ```
 
-The archive includes Apache-2.0 LICENSE. Choose the OSS asset rather than the combined edition with the
-BUSL engine. Any redistribution still needs the applicable license/notice files.
+The archive includes Apache-2.0 LICENSE. Redistribution would still need the applicable license/notice files.
 RTK was evaluated in isolated config/data/cache directories, with telemetry disabled and no hooks.
 
 | Synthetic case | Plain Go JSON bytes | RTK summary bytes | Plain / RTK exit | Observation |
@@ -38,21 +36,17 @@ The fallback/readback round trip must be included in future token benchmarks.
 ## Decision
 
 Suitable as an **optional, explicit companion**, not a transparent default for every command.
-Do not adopt an automatic hook until failure completeness and host permission behavior are validated.
-The companion skill requires recovery of omitted failure details.
+No automatic hook is used. The companion skill requires recovery of omitted failure details.
 
 Not evaluated: actual Codex/Claude Code/Copilot plugin loading, compiler/linker diagnostics, signal forwarding,
 interactive stdin/TTY, Windows/macOS, other RTK filters, or model-token counts.
 No global RTK installation, hook, proxy or telemetry setting was changed by this evaluation.
 
-## Bundling path
+## Scope
 
-1. Keep the two skills in the native plugin; RTK remains an optional external executable.
-2. Extend the standalone installer with an explicit RTK companion option only after installation/retention
-   policy is settled. Detect an existing RTK without replacing it.
-3. Verify the selected client's skill discovery location. Plugin manifests and hooks are client-specific.
-4. Before automatic use, test errors, timeout, signals and recall retention on that exact version and host.
-5. Do not route workctl MCP responses through RTK: API compaction stays in workctl.
+1. Both skills live in the native plugin (`plugins/workctl/skills/`); RTK remains an optional external executable.
+2. `scripts/install.py` is unchanged and copies only the `workctl` skill.
+3. Do not route workctl MCP responses through RTK: API compaction stays in workctl.
 
 Sources: [release](https://github.com/rtk-ai/rtk/releases/tag/v1.2.0),
 [editions](https://www.rtk-ai.app/docs/resources/editions/),
