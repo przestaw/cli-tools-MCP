@@ -93,6 +93,7 @@ func Tools() []mcp.Tool {
 		InputSchema: mcp.ObjSchema(map[string]any{"method": mcp.StrProp("HTTP method, default GET"), "path": path, "query": query, "body": mcp.StrProp("Request body (JSON text)"),
 			"content_type":      mcp.StrProp("Body media type; default application/json; use application/x-www-form-urlencoded for form parameters"),
 			"compact":           mcp.BoolProp("Turn an HTML page into its visible text (no markup, scripts or styles) to save tokens; other answers are unchanged"),
+			"output":            mcp.StrProp("Optional original or compact: minify JSON without changing numbers, simplify HTML; XML and other formats unchanged"),
 			"response_metadata": mcp.BoolProp("Return body and Location (e.g. Jenkins queue item URL); native HTTP profiles only"),
 			"accept":            mcp.StrProp("Accept header, e.g. application/vnd.github.full+json for body_html with signed attachment links"), "profile": profile}, "path"),
 	}, {
@@ -183,6 +184,7 @@ type requestSpec struct {
 	body                        []byte
 	meta                        bool // response_metadata: answer {body, location}
 	compact                     bool // compact: an HTML answer becomes its visible text
+	output                      string
 }
 
 func parseRequest(a map[string]any) (requestSpec, error) {
@@ -198,6 +200,13 @@ func parseRequest(a map[string]any) (requestSpec, error) {
 		query:   query,
 		meta:    mcp.ArgBool(a, "response_metadata"),
 		compact: mcp.ArgBool(a, "compact"),
+		output:  mcp.ArgString(a, "output"),
+	}
+	if err := httpx.ValidateOutput(s.output); err != nil {
+		return requestSpec{}, err
+	}
+	if s.compact && s.output != "" && s.output != "compact" {
+		return requestSpec{}, fmt.Errorf("compact and output options conflict")
 	}
 	if s.method == "" {
 		s.method = http.MethodGet
@@ -254,7 +263,12 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []b
 	if api.IsBinary(ctype, data) {
 		return nil, fmt.Errorf("the answer is binary (%s, %d bytes) and would be corrupted as text: fetch it with download", cliutil.FirstNonEmpty(ctype, "type unknown"), len(data))
 	}
-	if s.compact && (strings.HasPrefix(ctype, "text/html") || httpx.LooksLikeHTML(data)) {
+	if s.output == "compact" {
+		data, err = httpx.CompactResponse(data, ctype)
+		if err != nil {
+			return nil, err
+		}
+	} else if s.compact && (strings.HasPrefix(ctype, "text/html") || httpx.LooksLikeHTML(data)) {
 		data = []byte(httpx.HTMLToText(data))
 	}
 	if !s.meta {

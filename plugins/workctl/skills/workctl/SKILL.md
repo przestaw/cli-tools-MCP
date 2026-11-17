@@ -28,6 +28,11 @@ When unsure which account serves a resource, call `accounts` first: it lists the
 
 Start with the exact resource the user named, then read the relevant discussion, reviews or checks. Report current provider state separately from older local notes. A passing check is evidence only for the commit and scenario it ran against.
 
+## Large API responses
+
+For large API responses, `request` can use `output: compact` to minify JSON or simplify HTML locally.
+XML stays unchanged. Use the original response for markup-dependent inspection; do not replay writes to reformat them.
+
 ## Inspect screenshots and attachments
 
 1. Read the description and relevant comments through MCP. Collect attachment references, captions, before/after roles and the associated revision when available. Captions describe intended evidence; they do not prove the image shows it.

@@ -70,7 +70,9 @@ func Command(cfg *config.Config, args []string) error {
 		if err != nil {
 			return err
 		}
-		compactItems(&res)
+		if !rawFormat {
+			compactItems(&res)
+		}
 		return render.PullRequests(os.Stdout, os.Stderr, res, format, false)
 	case "show", "get":
 		if fs.NArg() != 1 {
