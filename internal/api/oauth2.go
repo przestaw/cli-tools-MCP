@@ -132,13 +132,16 @@ func (s *oauth2Session) token(ctx context.Context) (string, error) {
 }
 
 // invalidate forgets the current access token, in memory and on disk, so the next call refreshes it.
-func (s *oauth2Session) invalidate() {
+func (s *oauth2Session) invalidate() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.accessToken, s.expiresAt = "", time.Time{}
 	if s.cacheFile != "" {
-		_ = os.Remove(s.cacheFile)
+		if err := os.Remove(s.cacheFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove rejected OAuth token cache: %w", err)
+		}
 	}
+	return nil
 }
 
 func (s *oauth2Session) loadCached(now time.Time) bool {
@@ -185,11 +188,7 @@ func (s *oauth2Session) refresh(ctx context.Context, now time.Time) (string, err
 		return "", fmt.Errorf("oauth2 token refresh for profile %q: %w", s.profileName, err)
 	}
 	s.accessToken = tok.AccessToken
-	lifetime := time.Duration(tok.ExpiresIn) * time.Second
-	if lifetime <= 0 {
-		lifetime = 55 * time.Minute
-	}
-	s.expiresAt = now.Add(lifetime)
+	s.expiresAt = tok.expiry(now)
 	s.saveCached()
 	return s.accessToken, nil
 }
@@ -199,6 +198,10 @@ type tokenResponse struct {
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int    `json:"expires_in"`
 	TokenType    string `json:"token_type"`
+}
+
+func (t tokenResponse) expiry(now time.Time) time.Time {
+	return now.Add(time.Duration(max(t.ExpiresIn, 0)) * time.Second)
 }
 
 func exchangeOAuth2Token(ctx context.Context, hc *http.Client, tokenURL string, form url.Values) (tokenResponse, error) {
@@ -213,7 +216,10 @@ func exchangeOAuth2Token(ctx context.Context, hc *http.Client, tokenURL string, 
 		return tokenResponse{}, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+	if err != nil {
+		return tokenResponse{}, fmt.Errorf("read token response: %w", err)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var oauthErr struct {
 			Error       string `json:"error"`
@@ -358,7 +364,7 @@ func LoginOAuth2(ctx context.Context, cfg *config.Config, name string, profile c
 		cred:        out,
 		cacheFile:   oauth2CacheFile(name, profile),
 		accessToken: tok.AccessToken,
-		expiresAt:   time.Now().Add(time.Duration(max(tok.ExpiresIn, 300)) * time.Second),
+		expiresAt:   tok.expiry(time.Now()),
 	}
 	sess.saveCached()
 	return out, nil

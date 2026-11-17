@@ -267,9 +267,8 @@ func (c *Client) doNative(ctx context.Context, method, target string, body []byt
 	out, hdr, err := c.send(ctx, method, target, headers, body, contentType)
 	if o := c.oauth2; o != nil {
 		var httpErr *Error
-		if errors.As(err, &httpErr) && httpErr.Status == http.StatusUnauthorized {
+		if errors.As(err, &httpErr) && httpErr.Status == http.StatusUnauthorized && IsReadMethod(method) {
 			// The server rejected a token that looked valid (revoked or rotated): fetch a fresh one and repeat once.
-			o.invalidate()
 			if headers, err = c.authorize(ctx, method); err != nil {
 				return nil, nil, err
 			}
@@ -385,8 +384,16 @@ func (c *Client) send(ctx context.Context, method, target string, headers http.H
 		return nil, nil, err
 	}
 	return httpx.Do(c.client, req, func(status int, url string, body []byte) error {
-		return &Error{Method: method, URL: url, Status: status, Body: string(body)}
+		return c.responseError(method, url, status, body)
 	})
+}
+
+func (c *Client) responseError(method, url string, status int, body []byte) error {
+	err := error(&Error{Method: method, URL: url, Status: status, Body: string(body)})
+	if status == http.StatusUnauthorized && c.oauth2 != nil {
+		err = errors.Join(err, c.oauth2.invalidate())
+	}
+	return err
 }
 
 // StreamReader sends a streaming write (POST or PUT) from body with contentLength (-1 when unknown) and returns the
@@ -418,7 +425,7 @@ func (c *Client) StreamReader(ctx context.Context, method, path string, q url.Va
 		req.ContentLength = contentLength
 	}
 	return httpx.Do(c.client, req, func(status int, url string, respBody []byte) error {
-		return &Error{Method: method, URL: url, Status: status, Body: string(respBody)}
+		return c.responseError(method, url, status, respBody)
 	})
 }
 

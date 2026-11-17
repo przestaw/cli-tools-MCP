@@ -110,7 +110,7 @@ func (c *Client) Stream(ctx context.Context, path string, q url.Values, w io.Wri
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-		return Streamed{}, &Error{Method: http.MethodGet, URL: req.URL.String(), Status: resp.StatusCode, Body: string(body)}
+		return Streamed{}, c.responseError(http.MethodGet, req.URL.String(), resp.StatusCode, body)
 	}
 	hash := sha256.New()
 	n, err := io.Copy(io.MultiWriter(w, hash), resp.Body)

@@ -168,6 +168,9 @@ With a Google Drive v3 profile (`.../drive/v3`), `request` queries metadata (`/f
 files (`/files/<id>?alt=media`), and `upload` (or `workctl --profile gdrive api upload FILE`) streams checkpoints,
 wheels or `.ipynb` Colab notebooks using resumable uploads into `folder_id` (or `default_project`).
 An existing file with the same name is never replaced unless `--overwrite` (MCP: `overwrite: true`) is given.
+This check also covers the Drive root. Ambiguous names and malformed lookup/completion responses are errors,
+not successful uploads. A 401 clears the cached OAuth access token for requests and transfers; uploads and
+other writes are never automatically replayed. The next explicit call obtains a fresh token.
 
 `auth_params` adds extra query parameters to the consent URL (Google needs `access_type=offline` for a refresh
 token). A 401 invalidates the cached access token and the request is retried once; `invalid_grant` means the

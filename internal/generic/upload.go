@@ -227,7 +227,7 @@ func uploadGoogleDrive(ctx context.Context, c *api.Client, profile config.Profil
 		return nil, fmt.Errorf("google drive resumable upload returned no Location header")
 	}
 	locURL, err := url.Parse(loc)
-	if err != nil || !strings.EqualFold(locURL.Host, u.Host) {
+	if err != nil || locURL.User != nil || locURL.Scheme != u.Scheme || !strings.EqualFold(locURL.Host, u.Host) {
 		return nil, fmt.Errorf("google drive resumable upload returned unexpected session host")
 	}
 
@@ -242,7 +242,12 @@ func uploadGoogleDrive(ctx context.Context, c *api.Client, profile config.Profil
 		MimeType    string `json:"mimeType"`
 		WebViewLink string `json:"webViewLink"`
 	}
-	_ = json.Unmarshal(respBody, &uploaded)
+	if err := json.Unmarshal(respBody, &uploaded); err != nil {
+		return nil, fmt.Errorf("decode Drive upload response: %w", err)
+	}
+	if uploaded.ID == "" {
+		return nil, fmt.Errorf("Drive upload response has no file id; check the destination before retrying")
+	}
 	res := UploadResult{
 		ID:          uploaded.ID,
 		Name:        cliutil.FirstNonEmpty(uploaded.Name, name),
@@ -259,14 +264,14 @@ func uploadGoogleDrive(ctx context.Context, c *api.Client, profile config.Profil
 
 func findDriveFileInFolder(ctx context.Context, c *api.Client, name, folderID string) (string, error) {
 	if folderID == "" {
-		return "", nil
+		folderID = "root"
 	}
 	escapedName := strings.ReplaceAll(strings.ReplaceAll(name, `\`, `\\`), `'`, `\'`)
 	escapedFolder := strings.ReplaceAll(strings.ReplaceAll(folderID, `\`, `\\`), `'`, `\'`)
 	q := url.Values{
 		"q":                         {fmt.Sprintf("name = '%s' and '%s' in parents and trashed = false", escapedName, escapedFolder)},
-		"fields":                    {"files(id,name)"},
-		"pageSize":                  {"1"},
+		"fields":                    {"files(id,name),nextPageToken"},
+		"pageSize":                  {"2"},
 		"includeItemsFromAllDrives": {"true"},
 		"supportsAllDrives":         {"true"},
 	}
@@ -275,11 +280,21 @@ func findDriveFileInFolder(ctx context.Context, c *api.Client, name, folderID st
 		return "", err
 	}
 	var list struct {
-		Files []struct {
+		NextPageToken string `json:"nextPageToken"`
+		Files         []struct {
 			ID string `json:"id"`
 		} `json:"files"`
 	}
-	if json.Unmarshal(b, &list) == nil && len(list.Files) > 0 {
+	if err := json.Unmarshal(b, &list); err != nil {
+		return "", fmt.Errorf("decode Drive file lookup: %w", err)
+	}
+	if len(list.Files) > 1 || list.NextPageToken != "" {
+		return "", fmt.Errorf("multiple Drive files named %q in folder %s; refusing ambiguous overwrite", name, folderID)
+	}
+	if len(list.Files) > 0 {
+		if list.Files[0].ID == "" {
+			return "", fmt.Errorf("Drive file lookup returned a file without an id")
+		}
 		return list.Files[0].ID, nil
 	}
 	return "", nil
