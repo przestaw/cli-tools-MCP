@@ -34,6 +34,7 @@ For an explicit Drive profile (`gdrive` or a Google preset with Drive access), u
 for account/quota, `file` for metadata (file ID) or list/search (folder ID or omitted path, `query`, `limit`,
 `page_token`). Follow `nextPageToken`; do not infer completeness from one page.
 Use `download` for bytes; native documents require `export_mime`. CSV export contains only the first sheet.
+To read a Google Doc as text, export it with `export_mime: text/plain`: the Docs API answer for the same document is about 25 times larger, so keep the API for structure and edits.
 Drive metadata and available MD5 verification accompany downloads. Sheets/Docs reads and approved edits use
 `request`; comments use Drive API. APIs must be enabled and scopes granted; do not retry unchanged 403 errors.
 Full URLs are allowed only for the configured server or Google preset hosts; known signed storage URLs are
