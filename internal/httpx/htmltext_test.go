@@ -9,6 +9,10 @@ func TestHTMLToText(t *testing.T) {
 	for _, tc := range []struct{ name, in, want string }{
 		{"paragraphs and headings", `<h1>Title</h1><p>One</p><p>Two</p>`, "Title\nOne\nTwo"},
 		{"inline stays on one line", "<p>A <b>B</b>\n   C</p>", "A B C"},
+		{"adjacent links stay apart", `<div><a href="/u">Name</a><a href="/out">log out</a></div>`, "Name log out"},
+		{"adjacent buttons stay apart", `<p><button>Save</button><button>Cancel</button></p>`, "Save Cancel"},
+		{"a link inside a word is not split", `<p>pre<a href="/x">fix</a>.</p>`, "prefix."},
+		{"bold inside a word is not split", `<p>un<b>believ</b>able</p>`, "unbelievable"},
 		{"br", `a<br>b<br/>c`, "a\nb\nc"},
 		{"list", `<ul><li>one</li><li>two</li></ul>`, "one\ntwo"},
 		{"entities", `<p>a &amp; b &lt;c&gt; &#65; &nbsp;d</p>`, "a & b <c> A d"},

@@ -19,6 +19,9 @@ var skipTags = map[string]bool{"script": true, "style": true, "head": true, "nos
 var breakTags = map[string]bool{"p": true, "div": true, "br": true, "li": true, "tr": true, "h1": true, "h2": true, "h3": true, "h4": true,
 	"h5": true, "h6": true, "pre": true, "table": true, "ul": true, "ol": true, "section": true, "article": true, "blockquote": true}
 
+// separateTags are controls and links that browsers lay out apart even when no whitespace sits between them.
+var separateTags = map[string]bool{"a": true, "button": true, "label": true, "option": true, "summary": true}
+
 // LooksLikeHTML reports whether body starts like an HTML document or fragment.
 func LooksLikeHTML(body []byte) bool {
 	head := strings.ToLower(string(bytes.TrimSpace(body[:min(len(body), 256)])))
@@ -86,6 +89,9 @@ func HTMLToText(body []byte) (string, error) {
 			pre = pre || n.Data == "pre"
 			if breakTags[n.Data] {
 				w.breakLine()
+			}
+			if prev := n.PrevSibling; separateTags[n.Data] && prev != nil && prev.Type == html.ElementNode && separateTags[prev.Data] {
+				w.space = true // adjacent links or buttons stay separate words
 			}
 			if (n.Data == "td" || n.Data == "th") && !w.atLineStart() {
 				w.b.WriteString(" | ") // keeps the cells of a row apart

@@ -3,6 +3,17 @@
 Compaction saves LLM tokens. It is always opt-in for raw requests; for `pr_list` and `pr_show` the short `details`
 projection is the default and `raw` opts out. Compaction happens locally, after the HTTP call.
 
+## When to use it
+
+| Situation | Use |
+|---|---|
+| Reading pages of older, server-rendered web applications: dashboards, ticket or build overviews, login pages (HTML of 10-150 KB) | `output: compact`. Typical result is 5% of the original size. |
+| JSON that a server pretty-prints (indented output) | `output: compact` saves about 20%. |
+| JSON that is already minified (most provider APIs) | Nothing to gain; use a normalized tool (`pr_list`, `pr_show`, `ci`) or a `fields` parameter instead. |
+| Markup matters (forms, link targets, tokens, exact layout) | The original response. |
+
+Navigation menus of a page stay in the text; the result is a reading aid, not a main-content extractor.
+
 ## Raw requests: `request` and `api raw`
 
 ```sh
@@ -32,7 +43,8 @@ just to get another presentation.
 
 Kept: text, with a line break at block elements (`p`, `div`, `br`, `li`, `tr`, headings, `table`, `ul`, `ol`, `section`,
 `article`, `blockquote`), `|` between the cells of a row, and the layout (indentation, line breaks) inside `<pre>`.
-Whitespace elsewhere collapses to one space and blank lines disappear. Entities are decoded.
+Whitespace elsewhere collapses to one space and blank lines disappear. Adjacent links, buttons, labels and options
+keep a space between them, so `<a>Name</a><a>log out</a>` reads `Name log out`. Entities are decoded.
 
 Dropped: every attribute, so link targets, image `alt`, `value`, `placeholder`, hidden inputs and CSRF tokens are not in the
 output; comments; `script`, `style`, `head` (title included), `noscript`, `svg`, `template`. Text the page shows only in
