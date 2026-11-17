@@ -4,10 +4,15 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
+
+	"workctl/internal/config"
 )
 
 func TestStatusHelpersSeeThroughWrapping(t *testing.T) {
@@ -20,5 +25,40 @@ func TestStatusHelpersSeeThroughWrapping(t *testing.T) {
 	}
 	if _, ok := StatusOf(errors.New("plain")); ok || IsStatus(nil, http.StatusOK) {
 		t.Fatal("a non-HTTP error has no status")
+	}
+}
+
+func TestDoBodyMatchesDo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/missing" {
+			http.Error(w, "nope", http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte("body"))
+	}))
+	defer srv.Close()
+	client, err := newClient(config.Profile{URL: srv.URL, VerifyTLS: true}, "", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		path   string
+		want   string
+		status int
+	}{
+		{"/ok", "body", 0},
+		{"/missing", "", http.StatusNotFound},
+	}
+	for _, tc := range tests {
+		got, err := client.DoBody(context.Background(), "GET", tc.path, nil, nil, "")
+		if string(got) != tc.want && tc.status == 0 {
+			t.Errorf("%s: body %q, want %q", tc.path, got, tc.want)
+		}
+		if tc.status != 0 && !IsStatus(err, tc.status) {
+			t.Errorf("%s: err = %v, want status %d", tc.path, err, tc.status)
+		}
+		if tc.status == 0 && err != nil {
+			t.Errorf("%s: unexpected error %v", tc.path, err)
+		}
 	}
 }
