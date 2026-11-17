@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestJSON(t *testing.T) {
@@ -133,23 +134,31 @@ func TestErrorFormats(t *testing.T) {
 	}
 }
 
-func TestHTMLToTextKeepsVisibleTextOnly(t *testing.T) {
-	page := `<!DOCTYPE html><html><head><title>x</title><style>a{}</style></head><body><script>var a=1;</script><h1>Ticket 5</h1><p>Hello   <b>world</b></p><ul><li>one</li><li>two</li></ul></body></html>`
-	got := HTMLToText([]byte(page))
-	if want := "Ticket 5\nHello world\none\ntwo"; got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-	if !LooksLikeHTML([]byte(" <!doctype HTML><p>x")) || LooksLikeHTML([]byte(`{"a":"<html>"}`)) {
-		t.Fatal("LooksLikeHTML misjudged the input")
-	}
-	if msg := RawError("GET", "u", 404, page); strings.Contains(msg, "<") || !strings.Contains(msg, "Ticket 5") {
-		t.Fatalf("an HTML error body must be shown as text: %q", msg)
-	}
-}
-
-func TestHTMLToTextKeepsTableCellsApart(t *testing.T) {
-	got := HTMLToText([]byte(`<table><tr><th>Name</th><th>Qty</th></tr><tr><td>nut</td><td>5</td></tr></table>`))
-	if want := "Name | Qty\nnut | 5"; got != want {
-		t.Fatalf("got %q, want %q", got, want)
+func TestRawErrorBodies(t *testing.T) {
+	page := `<!DOCTYPE html><html><head><title>x</title><style>a{}</style></head><body><script>var k="TOKEN"</script><h1>Ticket 5</h1><form><input type="hidden" value="SECRET"></form></body></html>`
+	deep := "<html>" + strings.Repeat("<div>", 600) + "boom"
+	for _, tc := range []struct {
+		name, body string
+		check      func(msg string) bool
+	}{
+		{"html shown as text", page, func(m string) bool {
+			return strings.HasSuffix(m, "HTTP 404: Ticket 5") && !strings.ContainsAny(m, "<>") && !strings.Contains(m, "TOKEN") && !strings.Contains(m, "SECRET")
+		}},
+		{"html that cannot be parsed is not shown", deep, func(m string) bool {
+			return strings.HasSuffix(m, "(HTML error page not shown)")
+		}},
+		{"html text is capped", "<html><body>" + strings.Repeat("a ", 2000) + "</body></html>", func(m string) bool {
+			return strings.HasSuffix(m, "...") && len(m) < 1300
+		}},
+		{"cut keeps multi-byte characters whole", strings.Repeat("x", 1199) + "żż", func(m string) bool {
+			return utf8.ValidString(m) && strings.HasSuffix(m, strings.Repeat("x", 1199)+"...")
+		}},
+		{"json stays as sent", `{"message":"<html>"}`, func(m string) bool { return strings.HasSuffix(m, `{"message":"<html>"}`) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if msg := RawError("GET", "u", 404, tc.body); !tc.check(msg) {
+				t.Fatalf("unexpected message: %q", msg)
+			}
+		})
 	}
 }

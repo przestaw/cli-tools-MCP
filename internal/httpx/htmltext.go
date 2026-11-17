@@ -5,8 +5,9 @@ package httpx
 
 import (
 	"bytes"
-	"regexp"
+	"fmt"
 	"strings"
+	"unicode"
 
 	"golang.org/x/net/html"
 )
@@ -18,46 +19,86 @@ var skipTags = map[string]bool{"script": true, "style": true, "head": true, "nos
 var breakTags = map[string]bool{"p": true, "div": true, "br": true, "li": true, "tr": true, "h1": true, "h2": true, "h3": true, "h4": true,
 	"h5": true, "h6": true, "pre": true, "table": true, "ul": true, "ol": true, "section": true, "article": true, "blockquote": true}
 
-var (
-	spaces     = regexp.MustCompile(`[ \t\f\r]+`)
-	blankLines = regexp.MustCompile(`\n[ \n]*\n`)
-)
-
 // LooksLikeHTML reports whether body starts like an HTML document or fragment.
 func LooksLikeHTML(body []byte) bool {
 	head := strings.ToLower(string(bytes.TrimSpace(body[:min(len(body), 256)])))
 	return strings.HasPrefix(head, "<!doctype html") || strings.HasPrefix(head, "<html") || strings.HasPrefix(head, "<head") || strings.HasPrefix(head, "<body")
 }
 
+// textWriter collects page text: runs of whitespace collapse to one space, except inside <pre>.
+type textWriter struct {
+	b     strings.Builder
+	space bool // whitespace is pending between two words
+}
+
+func (w *textWriter) atLineStart() bool {
+	text := w.b.String()
+	return text == "" || strings.HasSuffix(text, "\n")
+}
+
+func (w *textWriter) breakLine() {
+	if !w.atLineStart() {
+		w.b.WriteByte('\n')
+	}
+	w.space = false
+}
+
+func (w *textWriter) text(s string, pre bool) {
+	if pre {
+		w.b.WriteString(strings.ReplaceAll(s, "\r\n", "\n"))
+		return
+	}
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		w.space = w.space || s != ""
+		return
+	}
+	w.space = w.space || strings.TrimLeftFunc(s, unicode.IsSpace) != s
+	for _, word := range words {
+		if w.space && !w.atLineStart() {
+			w.b.WriteByte(' ')
+		}
+		w.b.WriteString(word)
+		w.space = true
+	}
+	w.space = strings.TrimRightFunc(s, unicode.IsSpace) != s
+}
+
 // HTMLToText keeps what a reader of the page sees: the visible text with line breaks at block elements, without
-// scripts, styles, markup and navigation attributes. Input that does not parse is returned unchanged.
-func HTMLToText(body []byte) string {
+// scripts, styles, markup and attributes (so no hidden inputs, passwords or link targets). <pre> keeps its layout.
+// It fails when the page cannot be parsed (the parser limits nesting depth); the markup is then never passed on.
+func HTMLToText(body []byte) (string, error) {
 	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
-		return string(body)
+		return "", fmt.Errorf("HTML page not converted to text: %w", err)
 	}
-	var b strings.Builder
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		switch {
-		case n.Type == html.TextNode:
-			b.WriteString(n.Data)
-		case n.Type == html.ElementNode && skipTags[n.Data]:
+	var w textWriter
+	var walk func(n *html.Node, pre bool)
+	walk = func(n *html.Node, pre bool) {
+		if n.Type == html.TextNode {
+			w.text(n.Data, pre)
 			return
-		case n.Type == html.ElementNode && (n.Data == "td" || n.Data == "th"):
-			if text := b.String(); text != "" && !strings.HasSuffix(text, "\n") {
-				b.WriteString(" | ") // keeps the cells of a row apart
+		}
+		if n.Type == html.ElementNode {
+			if skipTags[n.Data] {
+				return
+			}
+			pre = pre || n.Data == "pre"
+			if breakTags[n.Data] {
+				w.breakLine()
+			}
+			if (n.Data == "td" || n.Data == "th") && !w.atLineStart() {
+				w.b.WriteString(" | ") // keeps the cells of a row apart
+				w.space = false
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
+			walk(c, pre)
 		}
 		if n.Type == html.ElementNode && breakTags[n.Data] {
-			b.WriteString("\n")
+			w.breakLine()
 		}
 	}
-	walk(doc)
-	text := spaces.ReplaceAllString(b.String(), " ")
-	text = strings.NewReplacer(" \n", "\n", "\n ", "\n").Replace(text)
-	return strings.TrimSpace(blankLines.ReplaceAllString(text, "\n\n"))
+	walk(doc, false)
+	return strings.TrimRight(strings.TrimLeft(w.b.String(), "\n"), " \t\n"), nil
 }

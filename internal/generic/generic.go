@@ -182,9 +182,8 @@ type requestSpec struct {
 	method, path, accept, ctype string
 	query                       url.Values
 	body                        []byte
-	meta                        bool // response_metadata: answer {body, location}
-	compact                     bool // compact: an HTML answer becomes its visible text
-	output                      string
+	meta                        bool       // response_metadata: answer {body, location}
+	mode                        httpx.Mode // output, with the legacy compact flag folded in
 }
 
 func parseRequest(a map[string]any) (requestSpec, error) {
@@ -193,20 +192,15 @@ func parseRequest(a map[string]any) (requestSpec, error) {
 		return requestSpec{}, err
 	}
 	s := requestSpec{
-		method:  strings.ToUpper(mcp.ArgString(a, "method")),
-		path:    mcp.ArgString(a, "path"),
-		accept:  mcp.ArgString(a, "accept"),
-		ctype:   mcp.ArgString(a, "content_type"),
-		query:   query,
-		meta:    mcp.ArgBool(a, "response_metadata"),
-		compact: mcp.ArgBool(a, "compact"),
-		output:  mcp.ArgString(a, "output"),
+		method: strings.ToUpper(mcp.ArgString(a, "method")),
+		path:   mcp.ArgString(a, "path"),
+		accept: mcp.ArgString(a, "accept"),
+		ctype:  mcp.ArgString(a, "content_type"),
+		query:  query,
+		meta:   mcp.ArgBool(a, "response_metadata"),
 	}
-	if err := httpx.ValidateOutput(s.output); err != nil {
+	if s.mode, err = httpx.ParseMode(mcp.ArgString(a, "output"), mcp.ArgBool(a, "compact")); err != nil {
 		return requestSpec{}, err
-	}
-	if s.compact && s.output != "" && s.output != "compact" {
-		return requestSpec{}, fmt.Errorf("compact and output options conflict")
 	}
 	if s.method == "" {
 		s.method = http.MethodGet
@@ -263,13 +257,8 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []b
 	if api.IsBinary(ctype, data) {
 		return nil, fmt.Errorf("the answer is binary (%s, %d bytes) and would be corrupted as text: fetch it with download", cliutil.FirstNonEmpty(ctype, "type unknown"), len(data))
 	}
-	if s.output == "compact" {
-		data, err = httpx.CompactResponse(data, ctype)
-		if err != nil {
-			return nil, err
-		}
-	} else if s.compact && (strings.HasPrefix(ctype, "text/html") || httpx.LooksLikeHTML(data)) {
-		data = []byte(httpx.HTMLToText(data))
+	if data, err = s.mode.Apply(data, ctype); err != nil {
+		return nil, err
 	}
 	if !s.meta {
 		return data, nil

@@ -29,7 +29,8 @@ func RawCommand(ctx context.Context, c *Client, cfg *config.Config, args []strin
 	if fs.NArg() != 2 {
 		return fmt.Errorf("usage: raw [--body JSON|@file] [--query KEY=VALUE]... METHOD PATH")
 	}
-	if err := httpx.ValidateOutput(*output); err != nil {
+	mode, err := httpx.ParseMode(*output, false)
+	if err != nil {
 		return err
 	}
 	method := strings.ToUpper(fs.Arg(0))
@@ -46,9 +47,8 @@ func RawCommand(ctx context.Context, c *Client, cfg *config.Config, args []strin
 	if err != nil {
 		return err
 	}
-	if *output == "compact" && !IsBinary(ctype, b) {
-		b, err = httpx.CompactResponse(b, ctype)
-		if err != nil {
+	if !IsBinary(ctype, b) {
+		if b, err = mode.Apply(b, ctype); err != nil {
 			return err
 		}
 	}
