@@ -2,8 +2,9 @@
 
 Autor: [przestaw](https://github.com/przestaw)
 
-Status (2026-11-17): punkty 1–9 wdrożone w `draft/simplify-core` (pkt 8 i 9 także w PR #8), plus pomoc CLI (`help`, `tools`). Źródło: raport agenta, który pracował z workctl z linii
-komend i musiał improwizować. Wszystkie punkty sprawdzone w kodzie na `dev`.
+Status (2026-11-17): punkty 1–9 wdrożone. Punkty 8 i 9 weszły do `main` w PR #8, reszta oraz pomoc CLI (`help`, `tools`)
+jest w PR #11. Źródło: raport agenta, który pracował z workctl z linii komend i musiał improwizować. Wszystkie punkty
+sprawdzone ręcznie na profilach GitHub i GitLab (CLI i MCP) oraz testami jednostkowymi.
 
 Zasady: CLI i MCP korzystają z tych samych funkcji (bez drugiej implementacji), kod prosty i bez nowych
 frameworków, każda zmiana to osobny commit z testem. Wersja: wszystko poniżej nie zmienia układu keyringa,
