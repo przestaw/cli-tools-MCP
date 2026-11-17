@@ -81,7 +81,7 @@ func Command(cfg *config.Config, args []string) error {
 		}
 		if *include != "" || rawFormat {
 			// The same code as the pr_show tool, so that CLI and MCP return the same parts.
-			a := map[string]any{"number": id, "repo": *repository, "project": *project, "profile": *profileName, "include": splitList(*include)}
+			a := map[string]any{"number": id, "repo": *repository, "project": *project, "profile": name, "include": splitList(*include)}
 			if rawFormat {
 				a["format"] = "raw"
 			}

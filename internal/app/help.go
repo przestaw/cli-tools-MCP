@@ -24,7 +24,7 @@ Any HTTP profile (kinds api, github, gitlab, jira, atlassian, google) or an ssh-
 profile that exists and has a usable kind; it is never replaced by a default.
 
   raw [--body JSON|@file] [--query KEY=VALUE]... METHOD PATH
-        one request. JSON is indented, text is printed as is, binary bytes are written unchanged.
+        one request. The response is written exactly as received: no indentation, no added newline.
         Anything but GET and HEAD needs policy.allow_write. MCP: request.
   download [--query KEY=VALUE]... [--output FILE] [--name NAME] PATH
         stream a file to disk without changing a byte; prints path, size, SHA-256, content type and a warning when an
