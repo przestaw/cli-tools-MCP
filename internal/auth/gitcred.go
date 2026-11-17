@@ -9,6 +9,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -155,11 +157,7 @@ func setupGitCommand(cfg *config.Config, args []string) error {
 	if len(hosts) == 0 {
 		return fmt.Errorf("no github, gitlab or azure profile is configured")
 	}
-	names := make([]string, 0, len(hosts))
-	for h := range hosts {
-		names = append(names, h)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(hosts))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -8,7 +8,6 @@ import (
 	"maps"
 	"net/url"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -44,12 +43,7 @@ var googleServices = map[string]GoogleService{
 
 // GoogleServiceNames lists the valid `service` values.
 func GoogleServiceNames() []string {
-	names := make([]string, 0, len(googleServices))
-	for name := range googleServices {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(googleServices))
 }
 
 // HasDrive reports whether the profile talks to Google Drive (base URL is the Drive v3 API).
