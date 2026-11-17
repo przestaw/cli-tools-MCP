@@ -44,6 +44,10 @@ func HTMLToText(body []byte) string {
 			b.WriteString(n.Data)
 		case n.Type == html.ElementNode && skipTags[n.Data]:
 			return
+		case n.Type == html.ElementNode && (n.Data == "td" || n.Data == "th"):
+			if text := b.String(); text != "" && !strings.HasSuffix(text, "\n") {
+				b.WriteString(" | ") // keeps the cells of a row apart
+			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			walk(c)

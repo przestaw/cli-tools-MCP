@@ -13,7 +13,7 @@ The new option also works with `response_metadata: true` without losing Location
 | Data | Current compact behavior |
 |---|---|
 | JSON | Remove insignificant whitespace without decoding numbers or selecting fields |
-| HTML | Existing DOM-to-text conversion; fragment detection also uses Content-Type |
+| HTML | DOM-to-text conversion; table cells of a row are separated with ` | `; link addresses and form controls are not kept; fragment detection also uses Content-Type |
 | XML | Unchanged bytes, including mixed content and namespaces |
 | Other text | Unchanged |
 | Binary | MCP request refuses it; use download. CLI raw preserves bytes. |

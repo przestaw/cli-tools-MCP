@@ -146,3 +146,10 @@ func TestHTMLToTextKeepsVisibleTextOnly(t *testing.T) {
 		t.Fatalf("an HTML error body must be shown as text: %q", msg)
 	}
 }
+
+func TestHTMLToTextKeepsTableCellsApart(t *testing.T) {
+	got := HTMLToText([]byte(`<table><tr><th>Name</th><th>Qty</th></tr><tr><td>nut</td><td>5</td></tr></table>`))
+	if want := "Name | Qty\nnut | 5"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
