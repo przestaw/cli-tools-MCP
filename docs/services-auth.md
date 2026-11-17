@@ -188,6 +188,17 @@ optional `filename`; it never takes a target directory, so an agent cannot write
 downloads directory. Downloads are GETs and work on `read_only` profiles. The profile's
 `timeout_seconds` limits the whole transfer.
 
+`request` (MCP) refuses a binary answer (an image, an archive, bytes that are not UTF-8) with an error that names
+`download`, because text would corrupt it; `api raw` writes such bytes to stdout unchanged. The path may carry the
+query (`/index.pl?Action=Download;FileID=2`, `;` as well as `&` reaches the server as written) or a full URL of the
+profile's own server; any other host is refused. Prefer `path` plus `query` for values that need encoding.
+A `warning` in the result means the server answered with an HTML page (login or error) instead of the file.
+
+Binary checks also apply with `response_metadata: true`. CLI `api raw` writes every response exactly as received,
+including valid UTF-8 binary data and JSON, without indentation or an added newline. Full URLs on the configured
+server keep their exact path even when the profile has a base path; only known external storage URLs use the
+credential-free download transport.
+
 ### Anti-CSRF tokens
 
 Some servers refuse a write signed with a password unless it carries a token that a GET handed out

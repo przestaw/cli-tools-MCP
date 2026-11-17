@@ -65,13 +65,7 @@ func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, 
 	if err != nil {
 		return nil, err
 	}
-	var meta api.Streamed
-	if strings.HasPrefix(urlPath, "https://") {
-		meta, err = c.StreamStorageURL(ctx, urlPath, f)
-		urlPath = strings.SplitN(urlPath, "?", 2)[0]
-	} else {
-		meta, err = c.Stream(ctx, urlPath, q, f)
-	}
+	meta, err := c.Stream(ctx, urlPath, q, f)
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}

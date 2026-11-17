@@ -4,12 +4,14 @@
 package generic
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -186,5 +188,42 @@ func TestAPIExecRunsOnlyAllowedQuotedCommands(t *testing.T) {
 	}
 	if len(*calls) != 1 {
 		t.Fatalf("refused commands reached ssh: %q", *calls)
+	}
+}
+
+func TestRequestRefusesBinaryAndDownloadKeepsBytes(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe}
+	var rawQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(png)
+	}))
+	defer srv.Close()
+	cfg := testConfig(srv.URL)
+	ctx := context.Background()
+	if _, err := CallTool(ctx, cfg, "request", map[string]any{"path": "/img"}); err == nil || !strings.Contains(err.Error(), "download") {
+		t.Fatalf("a binary answer must point to download, got %v", err)
+	}
+	out, err := CallTool(ctx, cfg, "download", map[string]any{"path": "/index.pl?Action=A;Subaction=Download;FileID=2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rawQuery != "Action=A;Subaction=Download;FileID=2" {
+		t.Fatalf("semicolon-separated query changed on the way: %q", rawQuery)
+	}
+	var res struct{ Path string }
+	if err := json.Unmarshal(out, &res); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(res.Path)
+	if got, _ := os.ReadFile(res.Path); !bytes.Equal(got, png) {
+		t.Fatalf("download changed the bytes: %x", got)
+	}
+	if _, err := CallTool(ctx, cfg, "download", map[string]any{"path": srv.URL + "/index.pl?Action=A;FileID=2"}); err != nil || rawQuery != "Action=A;FileID=2" {
+		t.Fatalf("a full URL of the profile's own server must work: %v %q", err, rawQuery)
+	}
+	if _, err := CallTool(ctx, cfg, "download", map[string]any{"path": "https://elsewhere.test/x"}); err == nil {
+		t.Fatal("another host must stay refused")
 	}
 }
