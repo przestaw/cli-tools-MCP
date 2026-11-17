@@ -159,6 +159,15 @@ func neutralTools() []mcp.Tool {
 // ValidateWrite checks local targets and media before a batch sends its first write.
 func ValidateWrite(cfg *config.Config, name string, a map[string]any) error {
 	if name == "upload" {
+		if pName, profile, ok := isAPIProfileUpload(cfg, a); ok {
+			if profile.UsesSSHExec() {
+				return fmt.Errorf("profile %q runs remote commands over ssh: upload needs an HTTP api profile", pName)
+			}
+			if !generic.IsGoogleDriveProfile(profile) && strings.TrimSpace(mcp.ArgString(a, "target")) == "" {
+				return fmt.Errorf("target upload path is required for non-Google-Drive api profiles")
+			}
+			return generic.CheckUploadFile(mcp.ArgString(a, "path"))
+		}
 		if err := checkMedia(mcp.ArgString(a, "path")); err != nil {
 			return err
 		}

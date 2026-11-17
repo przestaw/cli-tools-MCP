@@ -133,6 +133,49 @@ a cleanup error rather than repeatedly opening sessions. `workctl auth logout` r
 credential; it is not the server-session logout command. Restart existing MCP servers after
 installing a new binary; already-running processes still use the old code.
 
+### `auth: "oauth2"` — OAuth 2.0 refresh-token grant (Google Drive / Colab)
+
+For OAuth 2.0 desktop clients whose short-lived bearer tokens expire every hour (such as Google Drive API v3):
+`oauth2` holds the public `client_id`, `auth_url`, `token_url` and `scopes` in `config.json`, while the
+`client_secret` and `refresh_token` live in the OS keyring (`api:<profile>`). Short-lived access tokens are
+cached in the user cache directory (`workctl/oauth2-*.json`, mode 0600) and refreshed automatically.
+
+```json
+{
+  "kind": "api",
+  "url": "https://www.googleapis.com/drive/v3",
+  "auth": "oauth2",
+  "verify_tls": true,
+  "default_project": "<GOOGLE_DRIVE_ROOT_FOLDER_ID>",
+  "oauth2": {
+    "client_id": "<DESKTOP_CLIENT_ID>.apps.googleusercontent.com",
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/drive"],
+    "auth_params": {"access_type": "offline", "prompt": "consent"}
+  }
+}
+```
+
+Authorize once on the machine:
+
+```sh
+workctl auth set-token --profile gdrive    # stores OAuth2 client_secret in keyring
+workctl auth login --profile gdrive        # loopback PKCE consent -> stores refresh_token in keyring
+```
+
+With a Google Drive v3 profile (`.../drive/v3`), `request` queries metadata (`/files`), `download` streams binary
+files (`/files/<id>?alt=media`), and `upload` (or `workctl --profile gdrive api upload FILE`) streams checkpoints,
+wheels or `.ipynb` Colab notebooks using resumable uploads into `folder_id` (or `default_project`).
+An existing file with the same name is never replaced unless `--overwrite` (MCP: `overwrite: true`) is given.
+This check also covers the Drive root. Ambiguous names and malformed lookup/completion responses are errors,
+not successful uploads. A 401 clears the cached OAuth access token for requests and transfers; uploads and
+other writes are never automatically replayed. The next explicit call obtains a fresh token.
+
+`auth_params` adds extra query parameters to the consent URL (Google needs `access_type=offline` for a refresh
+token). A 401 invalidates the cached access token and the request is retried once; `invalid_grant` means the
+refresh token is gone, so run `workctl auth login` again (Google apps in "Testing" status expire it after 7 days).
+
 ### `read_only` — reads only
 
 Any HTTP profile may set `"read_only": true`: workctl then refuses every method but GET and HEAD

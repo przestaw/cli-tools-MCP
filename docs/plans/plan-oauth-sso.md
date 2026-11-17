@@ -1,71 +1,203 @@
-# Plan: browser OAuth / SSO login for native profiles
+# Plan: OAuth, profile Google (gdrive / gcloud / google) i opcjonalny OAuth dla GitHub / GitLab
 
-Author: [przestaw](https://github.com/przestaw)
+Autor: [przestaw](https://github.com/przestaw)
 
-Status: future idea (2026-11-03). Nothing implemented.
+Status (2026-11-16): w toku na gałęzi `feat/google-drive-colab`, nic nie zacommitowane. Kod OAuth i uploadu
+do Drive jest napisany, ale niesprawdzony (na tej maszynie nie ma Go).
 
-Goal: let `workctl auth login --profile NAME` authenticate a native token profile (`backend: "native"`, the default)
-through a browser OAuth / SSO flow and store the resulting token directly in the OS keyring (`secret.Account(kind, name)`),
-without requiring the user to mint a Personal Access Token by hand or switch the active account of `gh`/`glab`.
+## Cel
 
-## Why this fits the identity rule
+1. `workctl auth login` przez przeglądarkę. Token trafia do keyringa i sam się odświeża.
+2. Trzy profile Google na **jednym** backendzie:
+   - `gdrive`: tylko Drive,
+   - `gcloud`: API chmurowe,
+   - `google`: wszystkie API Google, w tym Colab API (stan runtime'ów).
+3. OAuth dla GitHuba i GitLaba jako **dodatkowa opcja**. PAT i `gh`/`glab` zostają domyślne.
 
-In [plan-generic-api-ssh.md](plan-generic-api-ssh.md) and [plan-agent-accounts.md](plan-agent-accounts.md):
+Poza zakresem:
 
-- A `cli` profile delegates both login and request signing to `gh` or `glab` (which have a single active account per
-  host at a time unless switched).
-- A `native` profile owns its own credential in the workctl keyring, pinned to one profile name and one `username`,
-  independent of what `gh`/`glab` is currently logged in as.
+- **Colab w przeglądarce** (`tools/colab_ui.py`, CDP, utrzymywanie sesji): niezależny od workctl.
+- **Azure DevOps przez Entra ID.** Azure zostaje na PAT.
+- Jira/Confluence OAuth, konta serwisowe Google, OTRS.
 
-Adding browser OAuth to `workctl auth login` changes only **how the token enters the keyring** for a `native` profile:
-workctl remains the sole owner of the request credential, and each profile (`przestaw`, `work`, etc.) keeps its own
-isolated token in the keyring.
+## Zasada projektowa: mało kodu, jeden backend
 
-## Candidate flows
+workctl ma być czytelnym przykładem zaawansowanego Go, a nie zbiorem wyjątków. Dlatego:
 
-### 1. OAuth 2.0 Device Authorization Flow (RFC 8628) — primary for GitHub / GitLab
+- **Jeden mechanizm OAuth** (`internal/api/oauth2.go`) dla wszystkich dostawców. Różnice między dostawcami to
+  **dane** (tabela presetów), nie osobne gałęzie kodu.
+- **Jeden kind `google`**, a w nim **tabela usług**. Trzy profile różnią się jednym polem `service`, nie kodem.
+- **Bez nowych narzędzi MCP.** Wystarczą istniejące `request`, `download` i `upload`.
+- **Bez heurystyk po URL-u** (dziś Drive jest rozpoznawany po końcówce `/drive/v3` w trzech miejscach).
+- Kod specyficzny dla Drive (upload resumable, `/about`) przenosimy z `generic` do `internal/google`.
+  `generic` znów jest generyczny.
 
-Same mechanism as `gh auth login` (`https://github.com/login/device`), implemented with stdlib `net/http` only:
+Szkic tabeli (jedyne miejsce, które wie, czym różnią się profile Google):
 
-1. `POST /login/device/code` with a public `client_id` and requested `scope` (e.g. `repo read:org gist workflow`).
-2. Print `user_code` on the terminal and open `verification_uri` in the system browser (`rundll32` on Windows, `open` on
-   macOS, `xdg-open` on Linux; `--no-browser` prints the URL only).
-3. Poll `POST /login/oauth/access_token` at the server's `interval` until the user approves (including 2FA and
-   organization SAML SSO in the browser) or the code expires.
-4. Call `GET /user` (or `/api/v4/user`) with the new token to verify the account and bind `profile.Username` (refusing
-   if `profile.Username` is already bound to a different login).
-5. Save the token in the keyring under `<kind>:<profile-name>`.
+```go
+type service struct {
+    BaseURL string   // domyślny url profilu
+    Hosts   []string // hosty, na które może iść token
+    Scopes  []string // domyślne scope'y przy logowaniu
+    WhoAmI  string   // ścieżka do sprawdzenia konta
+}
 
-### 2. OAuth 2.0 Authorization Code + PKCE (`127.0.0.1` loopback) — fallback for OIDC / self-hosted IdPs
+var services = map[string]service{
+    "drive": {"https://www.googleapis.com/drive/v3", []string{"www.googleapis.com"}, []string{scopeDrive}, "/about?fields=user"},
+    "cloud": {"https://cloudresourcemanager.googleapis.com", []string{"*.googleapis.com"}, []string{scopeCloud}, ""},
+    "all":   {"https://www.googleapis.com", []string{"*.googleapis.com"}, nil /* z configu */, ""},
+}
+```
 
-For providers or enterprise IdPs that do not enable the device flow:
+## Profile Google
 
-1. Start a temporary listener on `127.0.0.1:0` (random local port).
-2. Generate PKCE `code_verifier` / `code_challenge` (`S256`) and a random `state`.
-3. Open the provider's `/authorize` URL in the browser.
-4. Receive `code` on the loopback callback, exchange it at `/token`, verify identity, and store the token in the
-   keyring.
+| Profil | `service` | Gdzie może iść token | Scope'y | Do czego |
+| --- | --- | --- | --- | --- |
+| `gdrive` | `drive` | tylko `www.googleapis.com` (Drive) | `drive` | checkpointy, wheele, notebooki, wyniki |
+| `gcloud` | `cloud` | `*.googleapis.com` | `cloud-platform` | GCE, Vertex/Colab Enterprise, storage |
+| `google` | `all` | `*.googleapis.com` | z configu, czyli tyle, ile nada klucz | Colab API, Drive, cokolwiek innego |
 
-## Design considerations and constraints
+Dwie niezależne granice:
 
-1. **`client_id` source:**
-   - Default public `client_id` compiled in for `github.com` / `gitlab.com` (not a secret under RFC 8628 / PKCE).
-   - Optional `oauth_client_id` field on `config.Profile` so self-hosted GitHub Enterprise, GitLab, or custom `api`
-     profiles can supply their own registered OAuth application ID.
-2. **GitHub organization SAML SSO:**
-   - During the browser step, GitHub prompts the user to click **Authorize** next to any SAML-enforced organization.
-   - If an organization enforces strict *OAuth App access restrictions*, an org admin must approve the OAuth app once
-     (or the profile can override `oauth_client_id`, or fall back to `workctl auth set-token` with an SSO-authorized
-     PAT).
-3. **Token refresh (`refresh_token`):**
-   - Classic GitHub OAuth app tokens (`gho_...`) do not expire while used.
-   - GitLab OAuth tokens, GitHub App user-to-server tokens (`ghu_...`), and corporate OIDC tokens expire (typically
-     1–2 hours) and return a `refresh_token`.
-   - Supporting expiring tokens requires storing `{access_token, refresh_token, expires_at}` in the keyring (or
-     refreshing transparently in `api.Client` on expiry / `401` with a mutex + keyring writeback).
-4. **Current workaround (no code changes):**
-   - Authenticate via `gh` in the browser and pipe the resulting token into workctl's keyring:
-     ```powershell
-     gh auth login --hostname github.com --git-protocol https --web
-     gh auth token --user <login> | workctl auth set-token --profile <profile> --stdin
-     ```
+- **Hosty** to granica po stronie workctl. `gdrive` nie wyśle tokenu nigdzie poza Drive, nawet jeśli
+  token ma szersze uprawnienia (stąd „nieważne, jakie uprawnienia nadane”).
+- **Scope'y** to granica po stronie Google. `doctor` pokazuje, jakie scope'y faktycznie nadano.
+
+Config (sekrety nie trafiają do pliku):
+
+```json
+"gdrive": { "kind": "google", "service": "drive",  "username": "przestaw@gmail.com", "oauth2": { "client_id": "…" } },
+"gcloud": { "kind": "google", "service": "cloud",  "username": "przestaw@gmail.com", "oauth2": { "client_id": "…" } },
+"google": { "kind": "google", "service": "all",    "username": "przestaw@gmail.com",
+            "oauth2": { "client_id": "…", "scopes": ["https://www.googleapis.com/auth/colaboratory.readonly",
+                                                     "https://www.googleapis.com/auth/drive.readonly"] } }
+```
+
+Endpointy OAuth Google (`auth_url`, `token_url`) i parametry `access_type=offline`, `prompt=consent` pochodzą
+z presetu `google`. Nie wpisuje się ich do profilu.
+
+Każdy profil loguje się osobno (`auth login --profile X`) i ma własny refresh token, bo ma inne scope'y.
+Profile mogą korzystać z tego samego klienta OAuth (`client_id`), ale `client_secret` trzeba zapisać dla każdego
+profilu (albo podać przy pierwszym logowaniu).
+
+### Colab API (w profilu `google`)
+
+Usługa `colaboratory.googleapis.com`, scope `colaboratory.readonly` (do odczytu) lub `colaboratory`:
+
+| Wywołanie | Co daje | Zapis? |
+| --- | --- | --- |
+| `GET /v1beta/runtimes` | runtime'y przydzielone użytkownikowi | nie |
+| `GET /v1beta/runtimes/{id}` | jeden runtime | nie |
+| `GET /v1beta/runtimespecs` | dostępne maszyny i czy przysługują | nie |
+| `GET /v1beta/subscription` | plan (Pro / Pay-as-you-go) | nie |
+| `GET /v1/operations/…` | stan długich operacji | nie |
+| `POST /v1beta/runtimes`, `DELETE …` | przydziela / zwalnia runtime (**kosztuje**) | tak, wymaga `allow_write` |
+
+To API zwraca **stan runtime'u** (czy żyje, jaka maszyna), a nie stan komórek notebooka. Postęp eksperymentu nadal
+odczytujemy z plików na Drive. API jest w wersji `v1beta`, więc może się zmienić.
+
+Przykład: `workctl --profile google request GET https://colaboratory.googleapis.com/v1beta/runtimes`.
+Absolutny URL jest dozwolony tylko dla hostów z tabeli usług danego profilu.
+
+## Kim jest „aplikacja” przy OAuth (GitHub / GitLab)
+
+**Krótko: przy OAuth logujesz się nadal jako ty (`przestaw`, `pstawczyk`, `stawczyk`). Aplikacja tylko
+przedstawia się na ekranie zgody.**
+
+Każde logowanie OAuth ma dwie tożsamości:
+
+| | Kto to | Co widzi serwer |
+| --- | --- | --- |
+| **klient** (`client_id`) | program, który prosi o token, tu „workctl” | nazwa na ekranie zgody, lista „Authorized applications”, audit log organizacji |
+| **użytkownik** | konto, które kliknęło „Authorize” | **autor każdej akcji** (komentarz, PR, odczyt) |
+
+Token z logowania OAuth to **token użytkownika**. Może tyle, ile może konto, i tylko w zakresie zatwierdzonych
+scope'ów. Dokładnie tak działa `gh auth login`, bo `gh` to aplikacja OAuth „GitHub CLI”. Commity i komentarze są
+podpisane twoim loginem, a nie „GitHub CLI”.
+
+**„Logowanie jako aplikacja”, które brzmi ślisko, to coś innego** i tego **nie** robimy w MCP:
+
+| Rodzaj tokenu | Działa jako | Dla MCP? |
+| --- | --- | --- |
+| PAT (dziś) | ty | tak |
+| token OAuth użytkownika (ten plan) | ty, „przez workctl” | tak |
+| token instalacji GitHub App, token grupy/projektu GitLab, konto bota | **bot**, nie ty | **nie** |
+
+MCP to prawa ręka agenta, a agent to prawa ręka zalogowanego usera. Każda akcja musi mieć autora-człowieka i jego
+uprawnienia, więc w MCP dozwolone są tylko tokeny użytkownika. Tokeny bota ewentualnie kiedyś dla wspólnego
+dashboardu zespołu, w osobnym profilu i nigdy przez MCP.
+
+**Kilka kont:** każde konto to osobny profil z osobnym tokenem i przypiętym `username`. Ten sam `client_id` może
+obsłużyć wiele kont na tym samym hoście. Jeśli zalogujesz się na złe konto, workctl to wykryje i zablokuje zapis.
+
+**Skąd `client_id` (decyzja D3):**
+
+- **github.com:** rejestrujesz jedną aplikację OAuth „workctl” na koncie `przestaw` i włączasz device flow.
+  `client_id` jest publiczny, więc można go wkompilować. Organizacje z „OAuth App access restrictions” muszą
+  ją raz zatwierdzić; inaczej zostaje PAT.
+- **GitLab firmowy:** aplikację rejestruje się na tej instancji. Może to zrobić każdy użytkownik
+  (Preferences → Applications) albo admin jako aplikację instancji (bez ekranu zgody). `client_id` wpisujesz
+  w profil.
+- **Nie** używamy `client_id` należącego do `gh`, `glab` ani innego programu, bo to podszywanie się pod cudzą
+  aplikację.
+
+**Co OAuth daje w porównaniu z PAT:** nie trzeba ręcznie tworzyć ani przedłużać tokenów, tokeny GitLaba wygasają
+po 2 h i same się odświeżają (mniejsza szkoda przy wycieku), a dostęp odwołuje się jednym kliknięciem
+w „Authorized applications”. Ryzyko po stronie MCP jest takie samo jak przy PAT o tych samych scope'ach.
+
+**Homepage „na początek dnia”** (pipeline'y, MR-y, Jira, OTRS) to ten sam model: CLI z tokenami użytkownika
+i scope'ami tylko do odczytu, osobne profile `*-ro` z `read_only: true`.
+
+## Co jest na gałęzi i co trzeba poprawić
+
+Już jest: `auth: "oauth2"` (dziś dla `kind: "api"`), logowanie loopback + PKCE, odświeżanie i cache tokenu,
+`auth status`, `logout`, `doctor`, upload resumable do Drive, link do Colaba dla notebooków. Testy napisane,
+ale nieuruchomione.
+
+Blokuje merge:
+
+1. Upload pliku o nazwie, która już jest w folderze, **nadpisuje go bez pytania**. Bez `--overwrite` ma się nie udać.
+2. Uruchomić build, testy i lint.
+
+Do poprawy:
+
+3. Brak ponownej próby po 401: wyczyścić cache, odświeżyć token i spróbować raz jeszcze.
+4. Parametry Google wpisane na sztywno w ogólnym logowaniu. Przenieść do presetu.
+5. `set-token` nie czyści cache tokenu.
+6. Brak sprawdzenia konta (`username`) po logowaniu i przed zapisem.
+7. Aplikacja OAuth Google w trybie „Testing” daje refresh token ważny 7 dni. Przełączyć na „In production”,
+   a `doctor` ma czytelnie zgłaszać wygaśnięcie.
+8. Odpowiedź `callback` z błędem nie sprawdza `state`.
+
+## Fazy
+
+| Faza | Co | Kiedy gotowe |
+| --- | --- | --- |
+| **MR uproszczeń** | osobny MR według [raport-prostota-kodu.md](raport-prostota-kodu.md), szybkie poprawki przed fazą 1 | build, testy i lint zielone; zachowanie bez zmian |
+| **0** | poprawki 1–8 na obecnej gałęzi | logowanie, `doctor`, pobieranie i upload do Drive działają; brak cichego nadpisywania |
+| **1** | `kind: "google"` z tabelą usług, presety OAuth jako dane, lista hostów zamiast heurystyki URL, przeniesienie kodu Drive do `internal/google` | trzy profile działają; `gdrive` odmawia wysłania tokenu poza Drive (test) |
+| **2** | Colab API w profilu `google`: `doctor` pokazuje runtime'y i nadane scope'y, dokumentacja przykładów | `request` na `/v1beta/runtimes` działa; `POST`/`DELETE` blokowane bez `allow_write` |
+| **3** | wspólny rdzeń OAuth dla kolejnych dostawców: device flow, zapis nowego refresh tokenu z blokadą między procesami | testy każdego flow; dwa procesy naraz nie psują tokenu |
+| **4** | GitHub i GitLab: `auth: "oauth2"` jako opcja; `setup-git` oddaje token OAuth | `pr_list` działa na profilu OAuth; profile PAT i `cli` bez zmian |
+| **5** | dokumentacja (`services-auth.md`, `config.example.json`, konfiguracja Google Cloud Console) | – |
+
+Faza 0 w trzech commitach: (a) OAuth + `auth` + `doctor`, (b) upload, (c) dokumentacja.
+
+## Decyzje
+
+| # | Pytanie | Stan |
+| --- | --- | --- |
+| D1 | Jak oznaczyć profil Google? | **przyjęte:** `kind: "google"` + `service: drive / cloud / all` |
+| D2 | Colab w workctl? | **przyjęte:** tylko Colab API (odczyt stanu); przeglądarkowy Colab poza workctl |
+| D3 | Czyj `client_id`? | **do potwierdzenia:** własna aplikacja per host, tylko tokeny użytkownika, w MCP nigdy tokeny bota |
+| D4 | Azure / Entra | **poza zakresem** |
+
+## Ryzyka
+
+- **Logowanie Google wygasa podczas długiego runu.** Zabezpieczenie: punkt 7, a monitor zgłasza błąd logowania
+  zamiast „brak nowych plików”.
+- **Colab API jest w `v1beta`** i może się zmienić. Używamy go tylko przez `request`, więc nie ma kodu
+  do przepisywania.
+- **`*.googleapis.com` to szeroka lista hostów.** Dlatego `gdrive` jej nie używa, a szerokie profile mają
+  minimalne scope'y.
+- **Organizacja blokuje aplikację OAuth.** Wtedy zostaje PAT albo `gh`/`glab`.

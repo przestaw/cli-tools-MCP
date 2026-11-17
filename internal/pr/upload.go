@@ -21,6 +21,7 @@ import (
 	"workctl/internal/api"
 	"workctl/internal/cliutil"
 	"workctl/internal/config"
+	"workctl/internal/generic"
 	"workctl/internal/issue"
 	"workctl/internal/mcp"
 )
@@ -39,17 +40,56 @@ const maxUploadBytes = 100 << 20
 var githubUploads = map[string]string{"https://api.github.com": "https://uploads.github.com"}
 
 func uploadTool(repo, profile map[string]any) mcp.Tool {
-	return mcp.Tool{Name: "upload", Description: "Upload one image or video from a local file (png, jpg, gif, webp, mp4, mov, webm; up to 100 MB) so it can be shown in a pull request, merge request or issue: a GitHub user attachment (github.com), a GitLab project upload or a Jira issue attachment. Returns url and markdown to paste into a description or comment. Needs policy.allow_write=true.",
-		InputSchema: mcp.ObjSchema(map[string]any{"path": mcp.StrProp("Absolute path of the local file"), "repo": repo,
-			"issue": mcp.StrProp("Jira issue key, e.g. ABC-123, instead of repo"), "profile": profile}, "path")}
+	return mcp.Tool{Name: "upload", Description: "Upload a local file: for github/gitlab/jira profiles, uploads one image or video (png, jpg, gif, webp, mp4, mov, webm; up to 100 MB) and returns url and markdown; for api profiles (such as Google Drive v3), streams any regular file (checkpoints, wheels, .ipynb Colab notebooks, results) into folder_id (or profile.default_project) and returns id, sha256, url and colab_url. Needs policy.allow_write=true.",
+		InputSchema: mcp.ObjSchema(map[string]any{
+			"path":      mcp.StrProp("Absolute path of the local file"),
+			"repo":      repo,
+			"issue":     mcp.StrProp("Jira issue key, e.g. ABC-123, instead of repo"),
+			"folder_id": mcp.StrProp("Parent folder ID for Google Drive api profiles (defaults to profile.default_project)"),
+			"name":      mcp.StrProp("Remote file name for api profiles (defaults to local file base name)"),
+			"target":    mcp.StrProp("Upload endpoint path for non-Google-Drive api profiles"),
+			"overwrite": map[string]any{"type": "boolean", "description": "Replace an existing Google Drive file of the same name in the folder (default: fail)"},
+			"profile":   profile,
+		}, "path")}
 }
 
-// upload sends one local media file to the repository's or the issue's server.
+// isAPIProfileUpload reports whether an upload call targets a kind "api" profile.
+func isAPIProfileUpload(cfg *config.Config, a map[string]any) (string, config.Profile, bool) {
+	if pName := mcp.ArgString(a, "profile"); pName != "" {
+		if p, ok := cfg.Profiles[pName]; ok && p.Kind == generic.Kind {
+			return pName, p, true
+		}
+	}
+	if mcp.ArgString(a, "folder_id") != "" || mcp.ArgString(a, "target") != "" {
+		if pName, p, err := cfg.ProfileOf(generic.Kind); err == nil {
+			return pName, p, true
+		}
+	}
+	return "", config.Profile{}, false
+}
+
+// upload sends one local media file to the repository's or the issue's server, or streams a file to an api profile.
 func upload(ctx context.Context, cfg *config.Config, a map[string]any) (out []byte, resultErr error) {
 	if err := cfg.RequireWrite(); err != nil {
 		return nil, err
 	}
 	path := mcp.ArgString(a, "path")
+	if pName, profile, ok := isAPIProfileUpload(cfg, a); ok {
+		if profile.UsesSSHExec() {
+			return nil, fmt.Errorf("profile %q runs remote commands over ssh: upload needs an HTTP api profile", pName)
+		}
+		c, err := api.NewProfileClient(cfg, pName, profile)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { resultErr = errors.Join(resultErr, c.Close()) }()
+		return generic.UploadFile(ctx, c, profile, path, generic.UploadOptions{
+			FolderID:  mcp.ArgString(a, "folder_id"),
+			Name:      mcp.ArgString(a, "name"),
+			Target:    mcp.ArgString(a, "target"),
+			Overwrite: mcp.ArgBool(a, "overwrite"),
+		})
+	}
 	data, ctype, err := readMedia(path)
 	if err != nil {
 		return nil, err

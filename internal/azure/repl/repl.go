@@ -14,6 +14,7 @@ import (
 	"workctl/internal/azure/client"
 	"workctl/internal/azure/output"
 	"workctl/internal/azure/service"
+	"workctl/internal/cliutil"
 )
 
 // Session is one interactive shell session.
@@ -574,11 +575,11 @@ func (s *Session) open(args []string) error {
 		if err != nil {
 			return err
 		}
-		return openBrowser(s.svc.Client.PRWebURL(project, pr.Repository.Name, id))
+		return cliutil.OpenURL(s.svc.Client.PRWebURL(project, pr.Repository.Name, id))
 	case s.ctx.level == levelRepo:
-		return openBrowser(s.svc.Client.RepoWebURL(project, s.ctx.repo))
+		return cliutil.OpenURL(s.svc.Client.RepoWebURL(project, s.ctx.repo))
 	default:
-		return openBrowser(s.svc.OrgURL + "/" + project)
+		return cliutil.OpenURL(s.svc.OrgURL + "/" + project)
 	}
 }
 

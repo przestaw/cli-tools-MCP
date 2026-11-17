@@ -41,6 +41,7 @@ type Profile struct {
 	URL            string       `json:"url"`
 	Auth           string       `json:"auth,omitempty"`
 	AuthHeader     string       `json:"auth_header,omitempty"` // header that carries the secret when auth is "header" (kind api)
+	OAuth2         *OAuth2      `json:"oauth2,omitempty"`      // kind api with auth "oauth2": OAuth 2.0 refresh-token grant
 	CSRF           *CSRF        `json:"csrf,omitempty"`        // kind api: writes carry an anti-CSRF token
 	FormLogin      *FormLogin   `json:"form_login,omitempty"`  // kind api with auth "form": the login form to post
 	ReadOnly       bool         `json:"read_only,omitempty"`   // only GET and HEAD, whatever policy.allow_write says
@@ -56,6 +57,17 @@ type Profile struct {
 	Backend        string       `json:"backend,omitempty"`         // "native" (default), "cli" (gh or glab sends the requests and username pins the account), "ssh-tunnel" or "ssh-exec"
 	SSHDestination string       `json:"ssh_destination,omitempty"` // ssh host or ~/.ssh/config alias for the ssh backends
 	Commands       []SSHCommand `json:"commands,omitempty"`        // ssh-exec: the only commands that may run
+}
+
+// OAuth2 describes the OAuth 2.0 endpoints and public client identifier for an api profile with auth "oauth2".
+// Secrets (client_secret and refresh_token) are stored in the keyring or token_env, never in config.json.
+type OAuth2 struct {
+	ClientID string   `json:"client_id"`
+	AuthURL  string   `json:"auth_url,omitempty"`
+	TokenURL string   `json:"token_url"`
+	Scopes   []string `json:"scopes,omitempty"`
+	// AuthParams are extra query parameters of the authorization request, for example access_type=offline for Google.
+	AuthParams map[string]string `json:"auth_params,omitempty"`
 }
 
 // SSHCommand allows the remote commands of an ssh-exec profile that start with Prefix.
@@ -641,7 +653,7 @@ func ValidateProfile(name string, profile Profile) error {
 		"github": {"bearer"},
 		"gitlab": {"private-token", "bearer"},
 		"jira":   {"bearer", "basic"},
-		"api":    {"bearer", "basic", "header", "form", "none"},
+		"api":    {"bearer", "basic", "header", "form", "oauth2", "none"},
 	}[kind]
 	auth := strings.ToLower(profile.Auth)
 	if auth != "" && auths != nil && !slices.Contains(auths, auth) {
@@ -651,6 +663,9 @@ func ValidateProfile(name string, profile Profile) error {
 		return fmt.Errorf("profiles.%s.username is required for basic auth", name)
 	}
 	if err := validateFormLogin(name, auth, profile); err != nil {
+		return err
+	}
+	if err := validateOAuth2(name, auth, profile); err != nil {
 		return err
 	}
 	if (auth == "header") != (profile.AuthHeader != "") {
@@ -706,6 +721,32 @@ func validateFormLogin(name, auth string, profile Profile) error {
 		return fmt.Errorf("profiles.%s.form_login.logout_verify_path must start with /", name)
 	case f.LogoutPath == "" && (f.LogoutTokenField != "" || f.LogoutVerifyPath != ""):
 		return fmt.Errorf("profiles.%s.form_login.logout_path is required for logout verification or a token", name)
+	}
+	return nil
+}
+
+// validateOAuth2 checks that auth "oauth2" and the oauth2 block come together and use safe URLs.
+func validateOAuth2(name, auth string, profile Profile) error {
+	o := profile.OAuth2
+	switch {
+	case (auth == "oauth2") != (o != nil):
+		return fmt.Errorf("profiles.%s.oauth2 is required with auth \"oauth2\" and not allowed otherwise", name)
+	case o == nil:
+		return nil
+	case strings.TrimSpace(o.ClientID) == "" || strings.TrimSpace(o.TokenURL) == "":
+		return fmt.Errorf("profiles.%s.oauth2 needs client_id and token_url", name)
+	}
+	for field, raw := range map[string]string{"token_url": o.TokenURL, "auth_url": o.AuthURL} {
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(NormalizeBaseURL(raw))
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return fmt.Errorf("profiles.%s.oauth2.%s must be an absolute http or https URL", name, field)
+		}
+		if u.Scheme == "http" && profile.VerifyTLS && u.Hostname() != "localhost" && u.Hostname() != "127.0.0.1" {
+			return fmt.Errorf("profiles.%s.oauth2.%s: http is only allowed for localhost or when verify_tls is false", name, field)
+		}
 	}
 	return nil
 }

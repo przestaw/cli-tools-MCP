@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -110,11 +111,29 @@ func doctorCheckProfile(ctx context.Context, cfg *config.Config, name string, pr
 		}
 		return map[string]string{"kind": "jira", "user": cliutil.FirstNonEmpty(cliutil.JSONField(me, "name"), cliutil.JSONField(me, "displayName"))}, nil
 	case "api":
-		_, contentType, err := c.Do(ctx, http.MethodGet, "/", nil, nil, "")
+		checkPath := "/"
+		var query url.Values
+		if strings.HasSuffix(strings.ToLower(config.NormalizeBaseURL(profile.URL)), "/drive/v3") {
+			checkPath = "/about"
+			query = url.Values{"fields": {"user(emailAddress,displayName)"}}
+		}
+		out, contentType, err := c.Do(ctx, http.MethodGet, checkPath, query, nil, "")
 		if err != nil {
 			return nil, err
 		}
-		return map[string]string{"kind": "api", "content_type": contentType}, nil
+		detail := map[string]string{"kind": "api", "content_type": contentType}
+		if checkPath == "/about" {
+			var about struct {
+				User struct {
+					EmailAddress string `json:"emailAddress"`
+					DisplayName  string `json:"displayName"`
+				} `json:"user"`
+			}
+			if json.Unmarshal(out, &about) == nil && (about.User.EmailAddress != "" || about.User.DisplayName != "") {
+				detail["user"] = cliutil.FirstNonEmpty(about.User.EmailAddress, about.User.DisplayName)
+			}
+		}
+		return detail, nil
 	default:
 		return nil, fmt.Errorf("unsupported profile kind %q", profile.Kind)
 	}

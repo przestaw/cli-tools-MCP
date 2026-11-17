@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"workctl/internal/azure/client"
 	"workctl/internal/azure/output"
+	"workctl/internal/cliutil"
 )
 
 var releaseCmd = &cobra.Command{
@@ -179,7 +180,7 @@ var releaseOpenCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return openBrowser(svc.Client.ReleaseWebURL(project, id))
+		return cliutil.OpenURL(svc.Client.ReleaseWebURL(project, id))
 	},
 }
 

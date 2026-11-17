@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"workctl/internal/atlassian/client"
+	"workctl/internal/cliutil"
 )
 
 var pageCmd = &cobra.Command{
@@ -431,7 +432,7 @@ var pageOpenCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return openBrowser(svc.Client.WikiURL(pg.Links.WebUI))
+		return cliutil.OpenURL(svc.Client.WikiURL(pg.Links.WebUI))
 	},
 }
 

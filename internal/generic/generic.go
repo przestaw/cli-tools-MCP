@@ -26,16 +26,16 @@ import (
 // Kind is the profile kind served by this package.
 const Kind = "api"
 
-// Command runs `workctl api raw|download|exec ...` against the selected api profile.
+// Command runs `workctl api raw|download|upload|exec ...` against the selected api profile.
 func Command(cfg *config.Config, args []string) (resultErr error) {
-	usage := fmt.Errorf("api commands: raw [--body JSON|@file] METHOD PATH, download [--output FILE] PATH, exec [--] CMD [ARG...], session-check")
+	usage := fmt.Errorf("api commands: raw [--body JSON|@file] METHOD PATH, download [--output FILE] PATH, upload [--folder ID] [--name NAME] FILE, exec [--] CMD [ARG...], session-check")
 	if len(args) == 0 {
 		return usage
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.CommandTimeout("api"))
 	defer cancel()
 	switch args[0] {
-	case "raw", "download", "session-check":
+	case "raw", "download", "upload", "session-check":
 		c, err := api.NewKindClient(cfg, Kind)
 		if err != nil {
 			return err
@@ -53,6 +53,9 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 		}
 		if args[0] == "download" {
 			return downloadCommand(ctx, c, args[1:])
+		}
+		if args[0] == "upload" {
+			return uploadCommand(ctx, cfg, c, args[1:])
 		}
 		return api.RawCommand(ctx, c, cfg, args[1:])
 	case "exec":

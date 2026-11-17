@@ -28,8 +28,10 @@ func toolAvailable(cfg *config.Config, name string) bool {
 		return cfg.Has("github") || cfg.Has("gitlab") || cfg.Has("azure")
 	case "pr_create", "pr_edit", "ci", "file":
 		return cfg.Has("github") || cfg.Has("gitlab")
-	case "comment", "upload":
+	case "comment":
 		return cfg.Has("github") || cfg.Has("gitlab") || issue.Available(cfg)
+	case "upload":
+		return cfg.Has("github") || cfg.Has("gitlab") || issue.Available(cfg) || generic.Available(cfg)
 	case "issue_show", "issue_search", "issue_update":
 		return issue.Available(cfg)
 	case "request", "download":

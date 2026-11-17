@@ -5,23 +5,9 @@ package cmd
 
 import (
 	"fmt"
-	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 )
-
-// openBrowser opens a URL in the default browser cross-platform.
-func openBrowser(url string) error {
-	switch runtime.GOOS {
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-	case "darwin":
-		return exec.Command("open", url).Start()
-	default:
-		return exec.Command("xdg-open", url).Start()
-	}
-}
 
 // shortTime trims an ISO timestamp to minute precision (2026-06-30 14:05).
 func shortTime(s string) string {

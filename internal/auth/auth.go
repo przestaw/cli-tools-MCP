@@ -7,6 +7,7 @@ package auth
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 
@@ -50,10 +52,11 @@ func Command(configPath, profile string, args []string) error {
 	}
 }
 
-// loginCommand logs a cli profile in through gh or glab and binds the profile to that account (see api.BindCLI).
+// loginCommand logs a cli profile in through gh or glab (see api.BindCLI), or runs an OAuth 2.0 loopback login.
 func loginCommand(cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("auth login", flag.ContinueOnError)
 	profileName := fs.String("profile", "", "profile name")
+	noBrowser := fs.Bool("no-browser", false, "print the OAuth2 authorization URL without opening a browser")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -64,6 +67,9 @@ func loginCommand(cfg *config.Config, args []string) error {
 	profile, ok := cfg.Profiles[name]
 	if !ok {
 		return fmt.Errorf("profile %q not found in config", name)
+	}
+	if strings.EqualFold(profile.Auth, "oauth2") {
+		return loginOAuth2Profile(cfg, name, profile, !*noBrowser)
 	}
 	if !profile.UsesCLI() {
 		return fmt.Errorf("profile %q keeps a token in the keyring: use `workctl auth set-token --profile %s`", name, name)
@@ -77,6 +83,50 @@ func loginCommand(cfg *config.Config, args []string) error {
 		return err
 	}
 	fmt.Printf("profile %s is bound to %s\n", name, profile.Username)
+	return nil
+}
+
+func loginOAuth2Profile(cfg *config.Config, name string, profile config.Profile, openBrowser bool) error {
+	if err := config.ValidateProfile(name, profile); err != nil {
+		return err
+	}
+	account := secret.Account(profile.Kind, name)
+	var existing api.OAuth2Credential
+	if raw, err := config.TokenStore.Get(account); err == nil && raw != "" {
+		existing = api.ParseOAuth2Credential(raw)
+	} else if profile.TokenEnv != "" && os.Getenv(profile.TokenEnv) != "" {
+		existing = api.ParseOAuth2Credential(os.Getenv(profile.TokenEnv))
+	}
+	if existing.ClientSecret == "" && term.IsTerminal(int(os.Stdin.Fd())) {
+		r := bufio.NewReader(cliutil.Stdin)
+		sec, err := prompt.AskSecret(r, "OAuth2 client_secret for "+name+" (leave empty for public PKCE clients)")
+		if err != nil {
+			return fmt.Errorf("read client_secret: %w", err)
+		}
+		existing.ClientSecret = strings.TrimSpace(sec)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	cred, err := api.LoginOAuth2(ctx, cfg, name, profile, existing, func(authURL string) {
+		fmt.Printf("Open this URL to authorize profile %s:\n%s\n", name, authURL)
+		if openBrowser {
+			if err := cliutil.OpenURL(authURL); err != nil {
+				fmt.Fprintf(os.Stderr, "could not open a browser (%v); open the URL above by hand\n", err)
+			}
+		}
+	})
+	if err != nil {
+		return err
+	}
+	encoded, err := cred.Encode()
+	if err != nil {
+		return err
+	}
+	if err := config.TokenStore.Set(account, encoded); err != nil {
+		return err
+	}
+	fmt.Printf("OAuth2 refresh token stored in keyring for profile %s (%s)\n", name, account)
 	return nil
 }
 
@@ -125,6 +175,9 @@ func setTokenCommand(cfg *config.Config, args []string) error {
 	}
 	if storeErr := config.TokenStore.Set(account, tok); storeErr != nil {
 		return storeErr
+	}
+	if _, forgetErr := api.ForgetOAuth2Token(name, profile); forgetErr != nil {
+		return forgetErr
 	}
 	fmt.Printf("token stored in keyring for profile %s (%s)\n", name, account)
 	if err != nil {
@@ -206,6 +259,11 @@ func logoutCommand(cfg *config.Config, args []string) error {
 		return err
 	} else if removed {
 		fmt.Printf("saved form-login session removed for profile %s\n", name)
+	}
+	if removed, err := api.ForgetOAuth2Token(name, profile); err != nil {
+		return err
+	} else if removed {
+		fmt.Printf("cached OAuth2 access token removed for profile %s\n", name)
 	}
 	account := secret.Account(profile.Kind, name)
 	if err := config.TokenStore.Delete(account); err != nil {
