@@ -10,7 +10,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 )
@@ -25,8 +24,7 @@ func (c *Client) csrfHeader(ctx context.Context) (csrfToken, error) {
 		return *c.token, nil
 	}
 	b, _, err := c.Do(ctx, http.MethodGet, c.csrf.Path, nil, nil, "")
-	var apiErr *Error
-	if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+	if IsStatus(err, http.StatusNotFound) {
 		c.token = &csrfToken{}
 		return *c.token, nil
 	}
