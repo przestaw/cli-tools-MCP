@@ -14,8 +14,8 @@ Then start it under **MCP: List Servers** and enable its tools in agent mode; re
 
 Tools (listed only for the backends that are configured; `workctl tools` prints the same list with the matching CLI command, `workctl tools NAME` the parameters):
 
-Optional `request.output: "compact"` minifies JSON and simplifies HTML locally; omission preserves the original
-presentation. XML stays unchanged. See [compaction and limitations](compaction.md).
+Optional `request.output: "compact"` minifies JSON (numbers untouched) and turns HTML into visible text locally (lossy);
+omission keeps the response as received. XML stays unchanged. See [compaction and limitations](compaction.md).
 
 | Tool | What |
 | --- | --- |

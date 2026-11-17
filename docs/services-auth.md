@@ -302,10 +302,12 @@ and uploads; they are not treated as signed external storage URLs.
 
 ### Saving tokens: `compact`, and short PR details
 
-- `request` with `compact: true` turns an HTML page into its visible text (no markup, scripts or styles); JSON and
-  other answers are unchanged. An HTML error body in a failed call is shown as text the same way, capped at 1200 characters.
+- `request` with `output: "compact"` (CLI `api raw --output compact`) minifies JSON without touching numbers and turns an
+  HTML page into its visible text; XML and other answers are unchanged. The older `compact: true` converts HTML only.
+  An HTML error body in a failed call is shown as text the same way, capped at 1200 bytes. HTML conversion is lossy;
+  see [compaction](compaction.md).
 - `pr_list` and `pr_show` (and `pr list|show --format json`) return the title, description, state, branches and a short
-  `details` (merge state, conflicts, size, labels, reviewers). `format: raw` (CLI `--format raw`) returns the full provider JSON.
+  `details` (merge state, conflicts, size, labels, reviewers). `format: raw` (CLI `--format raw`) keeps the provider `details`.
 
 ### Anti-CSRF tokens
 

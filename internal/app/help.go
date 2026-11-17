@@ -25,7 +25,8 @@ profile that exists and has a usable kind; it is never replaced by a default.
 
   raw [--body JSON|@file] [--query KEY=VALUE]... [--output original|compact] METHOD PATH
         one request. Every response is written unchanged, without indentation or an added newline.
-        Optional --output compact minifies JSON and simplifies HTML; XML and other formats are unchanged.
+        Optional --output compact minifies JSON (numbers untouched) and turns HTML into its visible text (lossy);
+        XML, other text and binary data are unchanged.
         Anything but GET and HEAD needs policy.allow_write. MCP: request (output).
   download [--query KEY=VALUE]... [--output FILE] [--name NAME] PATH
         stream a file to disk without changing a byte; prints path, size, SHA-256, content type and a warning when an
@@ -51,7 +52,7 @@ With --resource (owner/name, group/project or a Jira key) it shows which profile
   show  [--repo R] [--project P] [--include PARTS] NUMBER
         PARTS is a comma list of files, reviews, reviewers, comments, discussion, checks (GitHub and GitLab); the output
         is then JSON with the same keys as the pr_show tool.
-  common: --provider github|gitlab|azure  --format text|json  --json  (--format raw: unprojected provider details)
+  common: --provider github|gitlab|azure  --format text|json  --json  (--format raw: keep the provider details, no projection)
 
 MCP: pr_list, pr_show.`,
 	"tools": `workctl tools [--all] [NAME]

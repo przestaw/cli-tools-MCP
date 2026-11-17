@@ -30,8 +30,9 @@ Start with the exact resource the user named, then read the relevant discussion,
 
 ## Large API responses
 
-For large API responses, `request` can use `output: compact` to minify JSON or simplify HTML locally.
-XML stays unchanged. Use the original response for markup-dependent inspection; do not replay writes to reformat them.
+For large API responses, `request` can use `output: compact` to minify JSON (numbers untouched) or turn HTML into its visible text locally.
+HTML conversion is lossy (no links, form values or attributes); XML stays unchanged. Use the original response when markup matters; do not replay writes to reformat them.
+`pr_list` and `pr_show` return a short `details` by default; pass `format: raw` for the provider's full details.
 
 ## Inspect screenshots and attachments
 

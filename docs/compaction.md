@@ -1,34 +1,62 @@
-# Optional API response compaction
+# Optional response compaction
 
-The first slice on `feat/compaction` adds the same opt-in presentation to MCP `request` and CLI `api raw`:
+Compaction saves LLM tokens. It is always opt-in for raw requests; for `pr_list` and `pr_show` the short `details`
+projection is the default and `raw` opts out. Compaction happens locally, after the HTTP call.
+
+## Raw requests: `request` and `api raw`
 
 ```sh
 workctl --profile gitlab api raw --output compact GET version
 ```
 
-MCP: `request` with `output: "compact"`. `output: "original"` or omission retains the existing response.
-The legacy `compact: true` remains HTML-only; contradictory options fail before sending a request.
-The new option also works with `response_metadata: true` without losing Location or bypassing binary checks.
+MCP: `request` with `output: "compact"`. `output: "original"` or omission keeps the response as received.
+The legacy `compact: true` (MCP only) means "HTML only": an HTML page becomes text, JSON and everything else stay
+as sent. `compact: true` with `output: "compact"` is the same as `output: "compact"`; `compact: true` with
+`output: "original"`, or an unknown `output`, fails before any request is sent (CLI: before the write policy check too).
+`response_metadata: true` works with both: `body` is the compacted text and `location` is kept.
 
-| Data | Current compact behavior |
-|---|---|
-| JSON | Remove insignificant whitespace without decoding numbers or selecting fields |
-| HTML | DOM-to-text conversion; table cells of a row are separated with ` | `; link addresses and form controls are not kept; fragment detection also uses Content-Type |
-| XML | Unchanged bytes, including mixed content and namespaces |
-| Other text | Unchanged |
-| Binary | MCP request refuses it; use download. CLI raw preserves bytes. |
+| Data | What `output: compact` does | Lossy? |
+|---|---|---|
+| JSON | Removes whitespace between tokens only. Numbers (`9007199254740993`, `1.2300`, `1E+2`) and string contents are copied byte for byte. | No (key order and values kept) |
+| HTML | Replaced by its visible text, see below. | **Yes** |
+| XML (`application/xml`, `text/xml`, `+xml`) | Unchanged. | No |
+| Other text | Unchanged. | No |
+| Binary | MCP `request` refuses it (use `download`); CLI `api raw` writes the bytes unchanged. | No |
 
-Invalid declared JSON gives an explicit conversion error. This does not undo the HTTP operation: never replay
-a write merely to get a different presentation. CLI `api raw` without the option remains byte-preserving.
-PR projection is separate: `pr list|show --format raw` retains provider details; descriptions remain in both modes.
+A body counts as HTML when its Content-Type is `text/html` or it starts with `<!doctype html`, `<html`, `<head` or `<body`.
+A body that is valid JSON is minified whatever its Content-Type. A body declared as JSON that is not valid JSON, or an HTML
+page the parser refuses (nesting deeper than 512 levels), is an error. The request was already sent: never replay a write
+just to get another presentation.
 
-## Remaining work, intentionally not enabled
+### What the HTML conversion keeps and drops
 
-- Semantic HTML renderer preserving tables, links, code and safe form information. The existing text renderer
-  is lossy and does not reconstruct browser/CSS state.
-- Retention and paginated retrieval of the same original response before aggressive truncation.
-- TOON only after number/type round-trip and tokenizer benchmarks.
-- XML compaction for concrete schemas; no generic XML-to-JSON conversion or whitespace stripping.
-- Compact presentations for normalized list tools, without changing their default response contracts.
+Kept: text, with a line break at block elements (`p`, `div`, `br`, `li`, `tr`, headings, `table`, `ul`, `ol`, `section`,
+`article`, `blockquote`), `|` between the cells of a row, and the layout (indentation, line breaks) inside `<pre>`.
+Whitespace elsewhere collapses to one space and blank lines disappear. Entities are decoded.
 
-No runtime tokenizer, new MCP tool, RTK dependency or external conversion service was added.
+Dropped: every attribute, so link targets, image `alt`, `value`, `placeholder`, hidden inputs and CSRF tokens are not in the
+output; comments; `script`, `style`, `head` (title included), `noscript`, `svg`, `template`. Text the page shows only in
+form controls (an `option` label, a `textarea` body) is kept, input values are not. Not kept: links, list bullets,
+emphasis, tables as grids, images, and the effect of CSS (text hidden by CSS stays; the result is not what a browser draws).
+Use the original response when markup matters.
+
+## Error bodies
+
+When a request fails, the error shows the first 1200 bytes of the response body (cut at a character boundary). An HTML
+body is shown as the same visible text, never as markup. If it cannot be converted, a short note replaces it.
+
+## Pull requests: `pr_list`, `pr_show`
+
+`details` of every item keeps only: merge state (`merged`, `merged_at`, `closed_at`, `mergeable`, `mergeable_state`,
+`merge_status`, `detailed_merge_status`, `has_conflicts`), `squash`, `sha`, size (`commits`, `changed_files`, `additions`,
+`deletions`, `changes_count`), counters (`comments`, `review_comments`, `user_notes_count`), and the names of `labels`,
+`assignees`, `reviewers`, `requested_reviewers`. Everything else the provider sent (author objects, URLs, avatars, nested
+repositories, time stats) is dropped, including fields not listed here. Title, description, state and branches are not
+affected. `format: raw` (CLI `--format raw`) keeps the provider's `details` unchanged. The `include` parts of `pr_show`
+follow the same rule: a fixed short shape per part, provider JSON with `format: raw`.
+
+## Not done
+
+- A semantic HTML renderer (links, tables as grids).
+- Paged retrieval of the original response.
+- TOON or other encodings; XML compaction.
