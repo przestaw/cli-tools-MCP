@@ -37,27 +37,28 @@ var CLITools = map[string]string{"github": "gh", "gitlab": "glab"}
 
 // Profile is one named provider connection; the profile name is also the keyring identity.
 type Profile struct {
-	Kind           string       `json:"kind"`
-	URL            string       `json:"url"`
-	Auth           string       `json:"auth,omitempty"`
-	AuthHeader     string       `json:"auth_header,omitempty"` // header that carries the secret when auth is "header" (kind api)
-	OAuth2         *OAuth2      `json:"oauth2,omitempty"`      // kind api with auth "oauth2": OAuth 2.0 refresh-token grant
-	CSRF           *CSRF        `json:"csrf,omitempty"`        // kind api: writes carry an anti-CSRF token
-	FormLogin      *FormLogin   `json:"form_login,omitempty"`  // kind api with auth "form": the login form to post
-	ReadOnly       bool         `json:"read_only,omitempty"`   // only GET and HEAD, whatever policy.allow_write says
-	Service        string       `json:"service,omitempty"`     // kind google: drive, cloud or all (see google.go)
-	Username       string       `json:"username,omitempty"`
-	TokenEnv       string       `json:"token_env,omitempty"`
-	VerifyTLS      bool         `json:"verify_tls"`
-	CAFile         string       `json:"ca_file,omitempty"`
-	DefaultRepo    string       `json:"default_repo,omitempty"`
-	DefaultProject string       `json:"default_project,omitempty"`
-	Repos          []string     `json:"repos,omitempty"`
-	Projects       []string     `json:"projects,omitempty"`
-	TimeoutSeconds int          `json:"timeout_seconds,omitempty"`
-	Backend        string       `json:"backend,omitempty"`         // "native" (default), "cli" (gh or glab sends the requests and username pins the account), "ssh-tunnel" or "ssh-exec"
-	SSHDestination string       `json:"ssh_destination,omitempty"` // ssh host or ~/.ssh/config alias for the ssh backends
-	Commands       []SSHCommand `json:"commands,omitempty"`        // ssh-exec: the only commands that may run
+	googleDeclaration *Profile
+	Kind              string       `json:"kind"`
+	URL               string       `json:"url"`
+	Auth              string       `json:"auth,omitempty"`
+	AuthHeader        string       `json:"auth_header,omitempty"` // header that carries the secret when auth is "header" (kind api)
+	OAuth2            *OAuth2      `json:"oauth2,omitempty"`      // kind api with auth "oauth2": OAuth 2.0 refresh-token grant
+	CSRF              *CSRF        `json:"csrf,omitempty"`        // kind api: writes carry an anti-CSRF token
+	FormLogin         *FormLogin   `json:"form_login,omitempty"`  // kind api with auth "form": the login form to post
+	ReadOnly          bool         `json:"read_only,omitempty"`   // only GET and HEAD, whatever policy.allow_write says
+	Service           string       `json:"service,omitempty"`     // kind google: drive, cloud or all (see google.go)
+	Username          string       `json:"username,omitempty"`
+	TokenEnv          string       `json:"token_env,omitempty"`
+	VerifyTLS         bool         `json:"verify_tls"`
+	CAFile            string       `json:"ca_file,omitempty"`
+	DefaultRepo       string       `json:"default_repo,omitempty"`
+	DefaultProject    string       `json:"default_project,omitempty"`
+	Repos             []string     `json:"repos,omitempty"`
+	Projects          []string     `json:"projects,omitempty"`
+	TimeoutSeconds    int          `json:"timeout_seconds,omitempty"`
+	Backend           string       `json:"backend,omitempty"`         // "native" (default), "cli" (gh or glab sends the requests and username pins the account), "ssh-tunnel" or "ssh-exec"
+	SSHDestination    string       `json:"ssh_destination,omitempty"` // ssh host or ~/.ssh/config alias for the ssh backends
+	Commands          []SSHCommand `json:"commands,omitempty"`        // ssh-exec: the only commands that may run
 }
 
 // OAuth2 describes the OAuth 2.0 endpoints and public client identifier for an api profile with auth "oauth2".
@@ -274,7 +275,16 @@ func (c *Config) Save() error {
 		return err
 	}
 	c.Version = 2
-	b, err := json.MarshalIndent(c, "", "  ")
+	saved := *c
+	saved.Profiles = make(map[string]Profile, len(c.Profiles))
+	for name, p := range c.Profiles {
+		declaration, err := p.declaredGoogle()
+		if err != nil {
+			return fmt.Errorf("save profile %s: %w", name, err)
+		}
+		saved.Profiles[name] = declaration
+	}
+	b, err := json.MarshalIndent(&saved, "", "  ")
 	if err != nil {
 		return err
 	}

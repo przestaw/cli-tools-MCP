@@ -296,6 +296,10 @@ including valid UTF-8 binary data and JSON, without indentation or an added newl
 server keep their exact path even when the profile has a base path; only known external storage URLs use the
 credential-free download transport.
 
+Google preset expansion is runtime-only: saving a loaded configuration preserves `kind: google` and implicit
+defaults while retaining explicit edits. Allowed Google API URLs use the same transport for requests, downloads
+and uploads; they are not treated as signed external storage URLs.
+
 ### Anti-CSRF tokens
 
 Some servers refuse a write signed with a password unless it carries a token that a GET handed out

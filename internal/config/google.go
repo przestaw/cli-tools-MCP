@@ -5,7 +5,9 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -76,6 +78,7 @@ func HostAllowed(patterns []string, host string) bool {
 // expandGoogle fills a google profile from its service preset and turns it into a kind api profile.
 // The user supplies the service and oauth2.client_id; everything else has a default that the profile may override.
 func expandGoogle(name string, p Profile) (Profile, error) {
+	original := p
 	svc, ok := googleServices[p.Service]
 	if !ok {
 		return p, fmt.Errorf("profiles.%s.service %q is unsupported for kind google (use %s)", name, p.Service, strings.Join(GoogleServiceNames(), ", "))
@@ -87,6 +90,8 @@ func expandGoogle(name string, p Profile) (Profile, error) {
 		return p, fmt.Errorf("profiles.%s.oauth2.client_id is required for kind google", name)
 	}
 	o := *p.OAuth2
+	o.Scopes = slices.Clone(o.Scopes)
+	o.AuthParams = maps.Clone(o.AuthParams)
 	if o.AuthURL == "" {
 		o.AuthURL = googleAuthURL
 	}
@@ -106,6 +111,46 @@ func expandGoogle(name string, p Profile) (Profile, error) {
 	if u, err := url.Parse(p.URL); err != nil || !HostAllowed(svc.Hosts, u.Hostname()) {
 		return p, fmt.Errorf("profiles.%s.url must be a host of the %q service (%s)", name, p.Service, strings.Join(svc.Hosts, ", "))
 	}
+	p.googleDeclaration = &original
 	p.Kind, p.Auth, p.OAuth2, p.VerifyTLS = "api", "oauth2", &o, true
+	return p, nil
+}
+
+// declaredGoogle removes only unchanged runtime defaults, retaining edits such as account bindings and scopes.
+func (p Profile) declaredGoogle() (Profile, error) {
+	source := p.googleDeclaration
+	if source == nil || p.Kind != "api" || p.Service != source.Service {
+		return p, nil
+	}
+	baseline, err := expandGoogle("", *source)
+	if err != nil {
+		return p, err
+	}
+	p.Kind = source.Kind
+	if p.URL == baseline.URL {
+		p.URL = source.URL
+	}
+	if p.Auth == baseline.Auth {
+		p.Auth = source.Auth
+	}
+	if p.VerifyTLS == baseline.VerifyTLS {
+		p.VerifyTLS = source.VerifyTLS
+	}
+	if p.OAuth2 != nil {
+		o := *p.OAuth2
+		if o.AuthURL == baseline.OAuth2.AuthURL {
+			o.AuthURL = source.OAuth2.AuthURL
+		}
+		if o.TokenURL == baseline.OAuth2.TokenURL {
+			o.TokenURL = source.OAuth2.TokenURL
+		}
+		if slices.Equal(o.Scopes, baseline.OAuth2.Scopes) {
+			o.Scopes = source.OAuth2.Scopes
+		}
+		if maps.Equal(o.AuthParams, baseline.OAuth2.AuthParams) {
+			o.AuthParams = source.OAuth2.AuthParams
+		}
+		p.OAuth2 = &o
+	}
 	return p, nil
 }
