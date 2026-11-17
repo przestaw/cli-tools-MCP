@@ -74,6 +74,10 @@ Only when their tools (`git_*`, `gitlens_*`) are available:
 - GitKraken provider tools (`pull_request_*`, `issues_*`) act as the one account connected in GitKraken and take no account argument. Call `accounts` first to see whether workctl has a profile for that host. Use them only for what workctl does not offer (for example GitHub issues) or where workctl has no profile, say which account they used, and never to work around a workctl refusal, policy or missing profile.
 - GitKraken writes (commit, push, pull request, issue, comment) need the same explicit approval as workctl writes.
 
+## Google Drive, Sheets and Docs
+
+Profiles of `kind: "google"` (`gdrive`, `gcloud`, `google`) need no extra tools: list, search, metadata, comments, Sheets and Docs reads go through `request` (GET), files through `download` and `upload`. Edits (cell values, `batchUpdate`) are writes and need the write policy and approval. Take the file `id` from an unambiguous lookup, and pass `fields=`. A `403 SERVICE_DISABLED` means the API is not enabled in the OAuth project; tell the user, do not retry. Request recipes: `docs/services-auth.md`, section "Drive, Sheets and Docs through existing tools".
+
 ## Report
 
 Lead with findings and link to the relevant PR/MR, comment or attachment. State which evidence was actually inspected, which revision it represents, and what remains unverified. Keep observations separate from proposed changes; never claim an assessment or an action succeeded when access was blocked.

@@ -32,9 +32,10 @@ const (
 )
 
 // googleServices is the single table of Google presets: drive (profile gdrive), cloud (gcloud) and all (google).
+// drive also reaches the Sheets and Docs APIs: both accept the drive scope, so the token gains no new rights.
 // The scopes are defaults; oauth2.scopes in the profile replaces them, for example with narrower read-only ones.
 var googleServices = map[string]GoogleService{
-	"drive": {BaseURL: "https://www.googleapis.com/drive/v3", Hosts: []string{"www.googleapis.com"}, Scopes: []string{scopeDrive}},
+	"drive": {BaseURL: "https://www.googleapis.com/drive/v3", Hosts: []string{"www.googleapis.com", "sheets.googleapis.com", "docs.googleapis.com"}, Scopes: []string{scopeDrive}},
 	"cloud": {BaseURL: "https://cloudresourcemanager.googleapis.com/v1", Hosts: []string{"*.googleapis.com"}, Scopes: []string{scopeCloud}},
 	"all":   {BaseURL: "https://www.googleapis.com/drive/v3", Hosts: []string{"*.googleapis.com"}, Scopes: []string{scopeDrive, scopeCloud, scopeColab}},
 }

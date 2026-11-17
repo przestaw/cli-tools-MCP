@@ -245,7 +245,7 @@ Faza 0 w trzech commitach: (a) OAuth + `auth` + `doctor`, (b) upload, (c) dokume
 | D2 | Colab w workctl? | **przyjęte:** tylko Colab API (odczyt stanu); przeglądarkowy Colab poza workctl |
 | D3 | Czyj `client_id`? | **do potwierdzenia:** własna aplikacja per host, tylko tokeny użytkownika, w MCP nigdy tokeny bota |
 | D4 | Azure / Entra | **poza zakresem** |
-| D5 | Sheets i Docs w hostach `gdrive`? | **propozycja:** tak (te same uprawnienia `drive`); do potwierdzenia |
+| D5 | Sheets i Docs w hostach `gdrive`? | **wdrożone w kodzie (do potwierdzenia):** hosty w presecie `drive`; API Sheets/Docs trzeba włączyć w projekcie klienta OAuth (test na żywo: `SERVICE_DISABLED`) |
 | D6 | `file` zwraca treść pliku tekstowego, czy tylko metadane? | **propozycja:** treść do `max_output_bytes`, resztę przez `download`; do potwierdzenia |
 
 ## Ryzyka

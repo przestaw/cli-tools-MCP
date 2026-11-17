@@ -183,7 +183,7 @@ Load fills in the endpoints, `auth_params`, base URL and default scopes (all ove
 
 | `service` | Typical name | Base URL | Token may go to | Default scopes |
 |---|---|---|---|---|
-| `drive` | `gdrive` | `www.googleapis.com/drive/v3` | `www.googleapis.com` | `drive` |
+| `drive` | `gdrive` | `www.googleapis.com/drive/v3` | `www.googleapis.com`, `sheets.googleapis.com`, `docs.googleapis.com` | `drive` |
 | `cloud` | `gcloud` | `cloudresourcemanager.googleapis.com/v1` | `*.googleapis.com` | `cloud-platform` |
 | `all` | `google` | `www.googleapis.com/drive/v3` | `*.googleapis.com` | `drive`, `cloud-platform`, `colaboratory` |
 
@@ -196,6 +196,39 @@ for example `request GET https://colaboratory.googleapis.com/v1beta/runtimes` (r
 the narrower `colaboratory.readonly` scope in `oauth2.scopes` if you want reads only). Any other host is refused, so
 the token cannot leave Google. Writes (`POST`/`DELETE`, e.g. creating a paid Colab runtime) still need
 `policy.allow_write`. Browser Colab does not use workctl. Login: `workctl auth set-token` then `workctl auth login`.
+
+#### Drive, Sheets and Docs through existing tools
+
+No Google-specific tools exist. Everything goes through `request` (MCP) / `api raw|download|upload` (CLI) on a
+`gdrive` or `google` profile. Status: **works today** unless marked *planned*.
+
+| Goal | Call | Write? |
+|---|---|---|
+| List / search files | `GET /files?q=<Drive query>&fields=files(id,name,mimeType)` | no |
+| File metadata | `GET /files/{id}?fields=id,name,mimeType,size,modifiedTime,owners` | no |
+| Download a binary file | `download` (`GET /files/{id}?alt=media`) | no |
+| Export a native file (Doc, Sheet) | `GET /files/{id}/export?mimeType=text/csv` (Sheets: first sheet only; 10 MB limit) | no |
+| Upload | `upload` (refuses to overwrite without `--overwrite`) | yes |
+| Comments: read | `GET /files/{id}/comments?fields=comments(id,content,resolved,author)` | no |
+| Comments: add / reply / resolve | `POST /files/{id}/comments`, `.../replies` | yes |
+| Sheets: structure, titles | `GET https://sheets.googleapis.com/v4/spreadsheets/{id}?fields=properties.title,sheets.properties` | no |
+| Sheets: read cells | `GET https://sheets.googleapis.com/v4/spreadsheets/{id}/values/{A1range}` | no |
+| Sheets: edit cells | `PUT .../values/{A1range}?valueInputOption=USER_ENTERED`, `POST .../values/{range}:append`, `POST .../spreadsheets/{id}:batchUpdate` | yes |
+| Docs: read | `GET https://docs.googleapis.com/v1/documents/{id}` (structured JSON; use export for plain text) | no |
+| Docs: edit | `POST https://docs.googleapis.com/v1/documents/{id}:batchUpdate` | yes |
+
+Rules of thumb:
+
+- Always pass `fields=`; Google returns far more than needed otherwise.
+- Writes need `policy.allow_write` and approval. Editing is the "advanced" path: build the `batchUpdate` body yourself.
+- File names are not unique on Drive. Look up the `id` first and take it from a single unambiguous match.
+- Sheets and Docs accept the `drive` scope, so no re-login is needed. Both APIs must be **enabled in the Google Cloud
+  project of the OAuth client** (Console → APIs & Services → Library). Otherwise Google answers `403 SERVICE_DISABLED`
+  with the activation link. Drive comments need nothing extra.
+- Checked live with a `gdrive` profile: Drive list and comments work; Sheets and Docs reached Google and returned
+  `SERVICE_DISABLED` until enabled in the project.
+- *Planned* (see `docs/plans/plan-oauth-sso.md`, phase 2b): `accounts` with a Drive about/quota check, metadata in the
+  `download` result, `file` for Drive list/search.
 
 ### `read_only` — reads only
 

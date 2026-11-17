@@ -40,8 +40,13 @@ func TestGoogleProfilePresets(t *testing.T) {
 	if got := cfg.Profiles["google"].OAuth2.Scopes; len(got) != 1 || !strings.HasSuffix(got[0], "colaboratory.readonly") {
 		t.Fatalf("explicit scopes must win, got %v", got)
 	}
+	for _, host := range []string{"www.googleapis.com", "sheets.googleapis.com", "docs.googleapis.com"} {
+		if !HostAllowed(drive.AbsoluteHosts(), host) {
+			t.Fatalf("gdrive must allow %s", host)
+		}
+	}
 	if HostAllowed(drive.AbsoluteHosts(), "colaboratory.googleapis.com") {
-		t.Fatal("gdrive must only allow www.googleapis.com")
+		t.Fatal("gdrive must not allow colaboratory.googleapis.com")
 	}
 	if !HostAllowed(cfg.Profiles["google"].AbsoluteHosts(), "colaboratory.googleapis.com") {
 		t.Fatal("google must allow colaboratory.googleapis.com")
