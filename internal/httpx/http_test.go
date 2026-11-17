@@ -132,3 +132,17 @@ func TestErrorFormats(t *testing.T) {
 		t.Fatal("raw error truncation changed")
 	}
 }
+
+func TestHTMLToTextKeepsVisibleTextOnly(t *testing.T) {
+	page := `<!DOCTYPE html><html><head><title>x</title><style>a{}</style></head><body><script>var a=1;</script><h1>Ticket 5</h1><p>Hello   <b>world</b></p><ul><li>one</li><li>two</li></ul></body></html>`
+	got := HTMLToText([]byte(page))
+	if want := "Ticket 5\nHello world\none\ntwo"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if !LooksLikeHTML([]byte(" <!doctype HTML><p>x")) || LooksLikeHTML([]byte(`{"a":"<html>"}`)) {
+		t.Fatal("LooksLikeHTML misjudged the input")
+	}
+	if msg := RawError("GET", "u", 404, page); strings.Contains(msg, "<") || !strings.Contains(msg, "Ticket 5") {
+		t.Fatalf("an HTML error body must be shown as text: %q", msg)
+	}
+}

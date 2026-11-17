@@ -20,6 +20,7 @@ import (
 	"workctl/internal/api"
 	"workctl/internal/cliutil"
 	"workctl/internal/config"
+	"workctl/internal/httpx"
 	"workctl/internal/mcp"
 )
 
@@ -91,6 +92,7 @@ func Tools() []mcp.Tool {
 		Description: "Send one HTTP request through a configured profile (any provider API or a generic service) for what the other tools do not cover. GET/HEAD always allowed, other methods need policy.allow_write=true. Returns text only: use download for images, archives and other binary files.",
 		InputSchema: mcp.ObjSchema(map[string]any{"method": mcp.StrProp("HTTP method, default GET"), "path": path, "query": query, "body": mcp.StrProp("Request body (JSON text)"),
 			"content_type":      mcp.StrProp("Body media type; default application/json; use application/x-www-form-urlencoded for form parameters"),
+			"compact":           mcp.BoolProp("Turn an HTML page into its visible text (no markup, scripts or styles) to save tokens; other answers are unchanged"),
 			"response_metadata": mcp.BoolProp("Return body and Location (e.g. Jenkins queue item URL); native HTTP profiles only"),
 			"accept":            mcp.StrProp("Accept header, e.g. application/vnd.github.full+json for body_html with signed attachment links"), "profile": profile}, "path"),
 	}, {
@@ -180,6 +182,7 @@ type requestSpec struct {
 	query                       url.Values
 	body                        []byte
 	meta                        bool // response_metadata: answer {body, location}
+	compact                     bool // compact: an HTML answer becomes its visible text
 }
 
 func parseRequest(a map[string]any) (requestSpec, error) {
@@ -188,12 +191,13 @@ func parseRequest(a map[string]any) (requestSpec, error) {
 		return requestSpec{}, err
 	}
 	s := requestSpec{
-		method: strings.ToUpper(mcp.ArgString(a, "method")),
-		path:   mcp.ArgString(a, "path"),
-		accept: mcp.ArgString(a, "accept"),
-		ctype:  mcp.ArgString(a, "content_type"),
-		query:  query,
-		meta:   mcp.ArgBool(a, "response_metadata"),
+		method:  strings.ToUpper(mcp.ArgString(a, "method")),
+		path:    mcp.ArgString(a, "path"),
+		accept:  mcp.ArgString(a, "accept"),
+		ctype:   mcp.ArgString(a, "content_type"),
+		query:   query,
+		meta:    mcp.ArgBool(a, "response_metadata"),
+		compact: mcp.ArgBool(a, "compact"),
 	}
 	if s.method == "" {
 		s.method = http.MethodGet
@@ -249,6 +253,9 @@ func request(ctx context.Context, cfg *config.Config, a map[string]any) (out []b
 	}
 	if api.IsBinary(ctype, data) {
 		return nil, fmt.Errorf("the answer is binary (%s, %d bytes) and would be corrupted as text: fetch it with download", cliutil.FirstNonEmpty(ctype, "type unknown"), len(data))
+	}
+	if s.compact && (strings.HasPrefix(ctype, "text/html") || httpx.LooksLikeHTML(data)) {
+		data = []byte(httpx.HTMLToText(data))
 	}
 	if !s.meta {
 		return data, nil

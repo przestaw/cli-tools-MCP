@@ -70,6 +70,7 @@ func Command(cfg *config.Config, args []string) error {
 		if err != nil {
 			return err
 		}
+		compactItems(&res)
 		return render.PullRequests(os.Stdout, os.Stderr, res, format, false)
 	case "show", "get":
 		if fs.NArg() != 1 {
@@ -95,9 +96,17 @@ func Command(cfg *config.Config, args []string) error {
 		if err != nil {
 			return err
 		}
+		compactItems(&res)
 		return render.PullRequests(os.Stdout, os.Stderr, res, format, true)
 	default:
 		return fmt.Errorf("unknown pr action %q", args[0])
+	}
+}
+
+// compactItems replaces the provider details of every item with the short form; raw output skips it.
+func compactItems(res *vcs.Result) {
+	for i := range res.Items {
+		res.Items[i].Details = compactDetails(res.Items[i].Details)
 	}
 }
 
@@ -220,6 +229,9 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 	res, err := Fetch(ctx, cfg, pName, profile, mcp.ArgString(a, "repo"), mcp.ArgString(a, "project"), mcp.ArgString(a, "search"), mcp.ArgString(a, "state"), id)
 	if err != nil {
 		return nil, err
+	}
+	if !raw {
+		compactItems(&res)
 	}
 	format, err := render.ParseFormat(formatName)
 	if err != nil {

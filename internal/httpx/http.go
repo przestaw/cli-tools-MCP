@@ -132,6 +132,9 @@ func ErrorMessage(provider string, status int, message, url string) string {
 
 // RawError formats an HTTP error with the method, URL and the first 1200 bytes of the response body.
 func RawError(method, url string, status int, body string) string {
+	if LooksLikeHTML([]byte(body)) {
+		body = HTMLToText([]byte(body))
+	}
 	body = strings.TrimSpace(body)
 	if len(body) > 1200 {
 		body = body[:1200] + "..."

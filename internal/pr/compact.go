@@ -215,3 +215,36 @@ func compactWrite(data []byte) []byte {
 	b, _ := json.Marshal(out)
 	return b
 }
+
+// detailKeys are the provider fields worth keeping from a pull request's details: merge state, size and people.
+var detailKeys = []string{"merged", "merged_at", "closed_at", "mergeable", "mergeable_state", "merge_status", "detailed_merge_status", "has_conflicts",
+	"squash", "sha", "commits", "changed_files", "additions", "deletions", "changes_count", "comments", "review_comments", "user_notes_count"}
+
+// names reduces a list of labels or users (strings or objects) to their names.
+func names(v any) []string {
+	out := []string{}
+	for _, it := range list(v, "") {
+		if s := str(it, "name", "login", "username"); s != "" {
+			out = append(out, s)
+		} else if s, ok := it.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// compactDetails drops the provider noise (avatars, URLs, time stats, nested repositories) from the details of a pull request.
+func compactDetails(d map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, k := range detailKeys {
+		if v, ok := d[k]; ok && v != nil && v != "" {
+			out[k] = v
+		}
+	}
+	for _, k := range []string{"labels", "assignees", "reviewers", "requested_reviewers"} {
+		if n := names(d[k]); len(n) > 0 {
+			out[k] = n
+		}
+	}
+	return out
+}
