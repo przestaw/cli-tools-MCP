@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 )
 
 // maxErrorBody limits how much of a failed answer is read into the error.
@@ -69,6 +70,16 @@ func (c *Client) downloadClient() *http.Client {
 		return nil
 	}
 	return &dc
+}
+
+// IsBinary reports whether a response body cannot travel as text: a non-text content type or bytes that are not UTF-8.
+// Such a body must be fetched with a download, which keeps every byte.
+func IsBinary(contentType string, body []byte) bool {
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+	textual := mediaType == "" || strings.HasPrefix(mediaType, "text/") || strings.HasSuffix(mediaType, "json") ||
+		strings.HasSuffix(mediaType, "xml") || strings.HasSuffix(mediaType, "javascript") || strings.HasSuffix(mediaType, "yaml") ||
+		mediaType == "application/x-www-form-urlencoded"
+	return !textual || !utf8.Valid(body)
 }
 
 // htmlWarning flags an HTML answer to a download: usually a login, SSO or error page instead of the file.

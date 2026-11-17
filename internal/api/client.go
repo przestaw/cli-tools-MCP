@@ -204,13 +204,18 @@ func (c *Client) WithBaseURL(base string) *Client {
 }
 
 // relPath turns a caller's path into the server-relative path of a request: a path that starts with "/" is used as it
-// is, any other one gets the provider prefix. Absolute URLs are refused so a credential cannot leave the profile's host.
+// is, any other one gets the provider prefix. An absolute URL is accepted only for the profile's own server, so a credential cannot leave its host.
 func (c *Client) relPath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		path = "/"
 	}
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		if u, err := url.Parse(path); err == nil && u.User == nil {
+			if base, berr := url.Parse(c.baseURL); berr == nil && u.Scheme == base.Scheme && u.Host == base.Host {
+				return u.RequestURI(), nil // the profile's own server: same as the path on it
+			}
+		}
 		return "", fmt.Errorf("absolute URLs are not allowed; use a path on the configured server")
 	}
 	if !strings.HasPrefix(path, "/") {
