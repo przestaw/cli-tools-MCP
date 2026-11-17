@@ -2,8 +2,10 @@
 
 Autor: [przestaw](https://github.com/przestaw)
 
-Status (2026-11-16): w toku na gałęzi `feat/google-drive-colab`, nic nie zacommitowane. Kod OAuth i uploadu
-do Drive jest napisany, ale niesprawdzony (na tej maszynie nie ma Go).
+Status (2026-11-17): fazy 0 i 1 wdrożone: OAuth, `auth login` i kontrola uploadu są na `main` (PR #9), `kind: "google"`
+(gdrive / gcloud / google) w PR #10. Faza 2b (konto i quota, list/search/metadane, eksport, Sheets i Docs) jest zrobiona
+w lokalnej gałęzi `feat/google-2b`, sprawdzona na prawdziwym Drive oraz odczytami Sheets i Docs; zapisy do Sheets i Docs
+nie były testowane. Fazy 2 (Colab API), 3 i 4 nie są rozpoczęte.
 
 ## Cel
 
@@ -245,8 +247,8 @@ Faza 0 w trzech commitach: (a) OAuth + `auth` + `doctor`, (b) upload, (c) dokume
 | D2 | Colab w workctl? | **przyjęte:** tylko Colab API (odczyt stanu); przeglądarkowy Colab poza workctl |
 | D3 | Czyj `client_id`? | **do potwierdzenia:** własna aplikacja per host, tylko tokeny użytkownika, w MCP nigdy tokeny bota |
 | D4 | Azure / Entra | **poza zakresem** |
-| D5 | Sheets i Docs w hostach `gdrive`? | **wdrożone w kodzie (do potwierdzenia):** hosty w presecie `drive`; API Sheets/Docs trzeba włączyć w projekcie klienta OAuth (test na żywo: `SERVICE_DISABLED`) |
-| D6 | `file` zwraca treść pliku tekstowego, czy tylko metadane? | **propozycja:** treść do `max_output_bytes`, resztę przez `download`; do potwierdzenia |
+| D5 | Sheets i Docs w hostach `gdrive`? | **wdrożone (do potwierdzenia):** hosty w presecie `drive`; API trzeba włączyć w projekcie klienta OAuth. Po włączeniu odczyty Sheets i Docs działają na żywo |
+| D6 | `file` zwraca treść pliku tekstowego, czy tylko metadane? | **wdrożone w 2b jako propozycja zawężona (do potwierdzenia):** `file` daje metadane lub listę, treść przez `download` (z `export_mime` dla dokumentów natywnych) |
 
 ## Ryzyka
 

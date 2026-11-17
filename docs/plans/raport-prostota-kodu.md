@@ -2,9 +2,9 @@
 
 Autor: [przestaw](https://github.com/przestaw)
 
-Status (2026-11-16): propozycja, nic nie zrobione. Ma to być osobny MR, niezależny od
-[plan-oauth-sso.md](plan-oauth-sso.md). Szybkie poprawki najlepiej zrobić **przed** fazą 1 tamtego planu,
-bo `kind: "google"` dotyka tych samych miejsc.
+Status (2026-11-17): częściowo zrobione. Sześć uproszczeń (tabela kind-ów, `FetchRequest`, `DoBody`, wspólny wybór
+profilu, podział `MatchResource`, `StatusOf`) jest w lokalnej gałęzi `draft/simplify-core-isolated`, niewypchniętej.
+Pójdą jako osobny MR po scaleniu PR #11, bo dotykają tych samych plików. Reszta listy poniżej czeka.
 
 Cel: kod prosty, DRY i ze wspólnymi backendami; dobry do nauki zaawansowanego Go, bez frameworków
 „na zapas”. Każda zmiana nie zmienia zachowania i przechodzi `go build`, `go vet`, `go test -race` oraz `golangci-lint`.
