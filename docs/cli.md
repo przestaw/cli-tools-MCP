@@ -55,6 +55,25 @@ MCP write confirmation is configured separately: `confirm_writes` asks for every
 `confirm_session_writes` asks for the first write in each MCP connection and covers its remaining writes. These modes
 are mutually exclusive. `confirm: true` still requests detailed approval for that operation.
 
+## Help, accounts and tools
+
+```sh
+workctl help                  # all commands
+workctl help api              # also: workctl api --help; topics: api, accounts, pr (mr), tools, config, doctor
+workctl api raw -h            # flags of one leaf command (exit code 0)
+workctl accounts              # profiles, kind, account, bound repos; --resource owner/repo shows which one serves it
+workctl tools                 # MCP tools of the configured backends with the CLI command that does the same
+workctl tools --all           # every tool; workctl tools pr_show prints its parameters
+```
+
+When a command says that several profiles match, run `workctl accounts` and pass `--profile NAME`. An explicit
+`--profile` is never replaced by a default: a missing or unusable profile is an error. `workctl doctor` adds a `code`
+(`dns`, `timeout`, `tls`, `refused`, `unauthorized`, `forbidden`, `other`) to a failed profile. `workctl config show`
+replaces OAuth client ids, `token_env`, `auth_header` and form-login field values with `***`.
+
+`workctl pr show --include comments,checks NUMBER` (also `mr show`) returns the same parts as the `pr_show` tool:
+`files`, `reviews`, `reviewers`, `comments`, `discussion`, `checks`; `--format raw` gives the provider JSON.
+
 ## GitHub
 
 ```powershell

@@ -159,6 +159,40 @@ func (c *Config) ProfileName() string { return c.profile }
 // SetProfileName selects a profile to use instead of defaults.<kind> for its kind.
 func (c *Config) SetProfileName(name string) { c.profile = name }
 
+const redacted = "***"
+
+// Redacted returns a copy for display: identifiers and credential-related values of the profiles are replaced with
+// "***" (empty ones stay empty, so a missing setting is still visible). Secrets themselves are never in the config.
+func (c *Config) Redacted() *Config {
+	hide := func(s *string) {
+		if *s != "" {
+			*s = redacted
+		}
+	}
+	out := *c
+	out.Profiles = make(map[string]Profile, len(c.Profiles))
+	for name, p := range c.Profiles {
+		hide(&p.TokenEnv)
+		hide(&p.AuthHeader)
+		if p.OAuth2 != nil {
+			o := *p.OAuth2
+			hide(&o.ClientID)
+			p.OAuth2 = &o
+		}
+		if p.FormLogin != nil {
+			f := *p.FormLogin
+			f.Fields = make(map[string]string, len(p.FormLogin.Fields))
+			for k, v := range p.FormLogin.Fields {
+				hide(&v)
+				f.Fields[k] = v
+			}
+			p.FormLogin = &f
+		}
+		out.Profiles[name] = p
+	}
+	return &out
+}
+
 // Default returns a configuration with the built-in defaults and no profiles.
 func Default() *Config {
 	return &Config{
@@ -324,7 +358,7 @@ func (c *Config) ProfileOf(kind string) (string, Profile, error) {
 		}
 		return "", Profile{}, fmt.Errorf("%s is not configured: add a profile of that kind (see config.example.json)", kind)
 	}
-	return "", Profile{}, fmt.Errorf("several profiles match (%s); pass --profile or set defaults.<kind>", strings.Join(names, ", "))
+	return "", Profile{}, fmt.Errorf("several profiles match (%s); pass --profile NAME or set defaults.<kind> (see: workctl accounts)", strings.Join(names, ", "))
 }
 
 // PRProfile resolves the profile of a pull request command: the requested name, then --profile or
@@ -488,7 +522,7 @@ func (c *Config) matchProfileWhere(resource string, allow func(Profile) bool) (s
 	case 1:
 		return best[0], nil
 	default:
-		return "", fmt.Errorf("several profiles match %q (%s); pass --profile", resource, strings.Join(best, ", "))
+		return "", fmt.Errorf("several profiles match %q (%s); pass --profile NAME (see: workctl accounts)", resource, strings.Join(best, ", "))
 	}
 }
 

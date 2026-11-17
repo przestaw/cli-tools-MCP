@@ -12,7 +12,7 @@ VS Code: `python3 scripts/install.py --vscode` (`python` on Windows) builds the 
 it to the VS Code user profile as the MCP server `workctl` (`workctl mcp`, default config path, tokens from the keyring).
 Then start it under **MCP: List Servers** and enable its tools in agent mode; restart it after changing the config.
 
-Tools (listed only for the backends that are configured):
+Tools (listed only for the backends that are configured; `workctl tools` prints the same list with the matching CLI command, `workctl tools NAME` the parameters):
 
 | Tool | What |
 | --- | --- |

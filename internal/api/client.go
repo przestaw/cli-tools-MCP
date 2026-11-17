@@ -35,6 +35,21 @@ func (e *Error) Error() string {
 	return httpx.RawError(e.Method, e.URL, e.Status, e.Body)
 }
 
+// StatusOf returns the HTTP status of err when it wraps an *Error.
+func StatusOf(err error) (int, bool) {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.Status, true
+	}
+	return 0, false
+}
+
+// IsStatus reports whether err wraps an *Error with the given HTTP status.
+func IsStatus(err error, status int) bool {
+	got, ok := StatusOf(err)
+	return ok && got == status
+}
+
 // ErrNoHeaders is returned when response headers are asked of a gh or glab profile, which only gives the body.
 var ErrNoHeaders = errors.New("response headers need a native HTTP profile, not gh or glab")
 

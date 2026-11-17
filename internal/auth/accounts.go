@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 
 	"workctl/internal/api"
+	"workctl/internal/cliutil"
 	"workctl/internal/config"
 	"workctl/internal/mcp"
 	"workctl/internal/secret"
@@ -92,6 +94,21 @@ func Tools() []mcp.Tool {
 			"bind_project": mcp.StrProp("Optional project or prefix pattern (e.g. 'group/*' or 'PROJ') to add to bind_profile.projects"),
 		}),
 	}}
+}
+
+// AccountsCommand is `workctl accounts [--kind KIND] [--resource RESOURCE]`: the accounts MCP tool, read-only.
+func AccountsCommand(cfg *config.Config, args []string) error {
+	fs := flag.NewFlagSet("accounts", flag.ContinueOnError)
+	kind := fs.String("kind", "", "only profiles of this kind: github, gitlab, jira, azure, atlassian, api")
+	resource := fs.String("resource", "", "repository (owner/name), project or Jira key: show which profile resolves for it")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	out, err := CallTool(context.Background(), cfg, "accounts", map[string]any{"kind": *kind, "resource": *resource})
+	if err != nil {
+		return err
+	}
+	return cliutil.PrintBody(out)
 }
 
 // CallTool runs the accounts MCP tool.
