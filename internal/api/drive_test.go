@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"workctl/internal/config"
@@ -65,5 +67,19 @@ func TestDriveListingValidationAndEscaping(t *testing.T) {
 	out, err := c.DriveList(context.Background(), "", `a\b'c`, "", 30)
 	if err != nil || !out.Incomplete {
 		t.Fatalf("listing = %+v, %v", out, err)
+	}
+}
+
+func TestDriveSizeIsReportedAsANumber(t *testing.T) {
+	var f DriveFile
+	if err := json.Unmarshal([]byte(`{"id":"a","name":"n","mimeType":"m","size":"6679"}`), &f); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(f)
+	if !strings.Contains(string(out), `"size":6679`) {
+		t.Fatalf("size not numeric: %s", out)
+	}
+	if err := json.Unmarshal([]byte(`{"size":"x"}`), &f); err == nil {
+		t.Fatal("invalid size accepted")
 	}
 }

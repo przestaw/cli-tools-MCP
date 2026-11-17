@@ -17,13 +17,26 @@ const driveFileFields = "id,name,mimeType,size,modifiedTime,md5Checksum,webViewL
 
 // DriveFile is metadata shared by file listings and downloads.
 type DriveFile struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	MIMEType    string `json:"mimeType"`
-	Size        *int64 `json:"size,string,omitempty"`
-	Modified    string `json:"modifiedTime,omitempty"`
-	MD5         string `json:"md5Checksum,omitempty"`
-	WebViewLink string `json:"webViewLink,omitempty"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	MIMEType    string     `json:"mimeType"`
+	Size        *DriveSize `json:"size,omitempty"`
+	Modified    string     `json:"modifiedTime,omitempty"`
+	MD5         string     `json:"md5Checksum,omitempty"`
+	WebViewLink string     `json:"webViewLink,omitempty"`
+}
+
+// DriveSize is a file size: Drive sends it as a string, workctl reports it as a JSON number (files stay far below 2^53).
+type DriveSize int64
+
+// UnmarshalJSON accepts the string form of Drive and a plain number.
+func (d *DriveSize) UnmarshalJSON(b []byte) error {
+	n, err := strconv.ParseInt(strings.Trim(string(b), `"`), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid Drive size %s", b)
+	}
+	*d = DriveSize(n)
+	return nil
 }
 
 // DriveListing retains provider pagination and completeness information.
