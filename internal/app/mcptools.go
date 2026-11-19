@@ -47,13 +47,16 @@ func toolAvailable(cfg *config.Config, name string) bool {
 }
 
 // mcpTools composes the MCP tools of the configured backends.
-func mcpTools(cfg *config.Config) []mcp.Tool {
+func mcpTools(cfg *config.Config) []mcp.Tool { return toolList(cfg, true) }
+
+// toolList is mcpTools, or with onlyConfigured false every tool, whatever is configured (the `workctl tools --all` list).
+func toolList(cfg *config.Config, onlyConfigured bool) []mcp.Tool {
 	all := append(append(append([]mcp.Tool{}, pr.Tools()...), issue.Tools()...), generic.Tools()...)
 	all = append(all, mcp.Tool{Name: "task_get_context", Description: "Get Jira issue plus matching branches and merge requests from configured GitLab projects.", InputSchema: mcp.ObjSchema(map[string]any{"key": mcp.StrProp("Jira issue key")}, "key")})
 	all = append(all, batchTool)
 	tools := append([]mcp.Tool{}, auth.Tools()...)
 	for _, t := range all {
-		if toolAvailable(cfg, t.Name) {
+		if !onlyConfigured || toolAvailable(cfg, t.Name) {
 			tools = append(tools, t)
 		}
 	}

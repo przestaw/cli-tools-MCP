@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 
 	"workctl/internal/api"
+	"workctl/internal/cliutil"
 	"workctl/internal/config"
 	"workctl/internal/mcp"
 	"workctl/internal/secret"
@@ -85,13 +87,28 @@ func Tools() []mcp.Tool {
 		Name:        "accounts",
 		Description: "List configured workctl profiles with their kind, host, username, optional repos/projects patterns, credential status (never the secret) and write policy, or check which profile resolves for a repository/project/issue key. Optionally bind a repo or project pattern (e.g. 'owner/*' or 'PROJ') to an existing profile.",
 		InputSchema: mcp.ObjSchema(map[string]any{
-			"kind":         mcp.StrProp("Optional provider kind filter or resolution hint: github, gitlab, jira, azure, atlassian, api"),
-			"resource":     mcp.StrProp("Optional repository (owner/name), project (group/name) or Jira key (KEY-123) to check which profile resolves for it"),
+			"kind":         mcp.StrProp("Optional provider kind: github, gitlab, jira, azure, atlassian, api. Lists only profiles of this kind, and resolves within the kind when resource is given"),
+			"resource":     mcp.StrProp("Optional repository (owner/name), project (group/name) or Jira key (KEY-123) to check which profile resolves for it (resolved_profile or resolution_error); it does not filter the list"),
 			"bind_profile": mcp.StrProp("Optional existing profile name to add bind_repo or bind_project to"),
 			"bind_repo":    mcp.StrProp("Optional repository or prefix pattern (e.g. 'owner/repo' or 'owner/*') to add to bind_profile.repos"),
 			"bind_project": mcp.StrProp("Optional project or prefix pattern (e.g. 'group/*' or 'PROJ') to add to bind_profile.projects"),
 		}),
 	}}
+}
+
+// AccountsCommand is `workctl accounts [--kind KIND] [--resource RESOURCE]`: the accounts MCP tool, read-only.
+func AccountsCommand(cfg *config.Config, args []string) error {
+	fs := flag.NewFlagSet("accounts", flag.ContinueOnError)
+	kind := fs.String("kind", "", "only profiles of this kind: github, gitlab, jira, azure, atlassian, api")
+	resource := fs.String("resource", "", "repository (owner/name), project or Jira key: show which profile resolves for it")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	out, err := CallTool(context.Background(), cfg, "accounts", map[string]any{"kind": *kind, "resource": *resource})
+	if err != nil {
+		return err
+	}
+	return cliutil.PrintBody(out)
 }
 
 // CallTool runs the accounts MCP tool.
@@ -107,7 +124,7 @@ func CallTool(_ context.Context, cfg *config.Config, name string, a map[string]a
 
 	names := make([]string, 0, len(cfg.Profiles))
 	for n, p := range cfg.Profiles {
-		if kind != "" && resource == "" && p.Kind != kind {
+		if kind != "" && p.Kind != kind {
 			continue
 		}
 		names = append(names, n)

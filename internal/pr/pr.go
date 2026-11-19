@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"workctl/internal/api"
 	azureclient "workctl/internal/azure/client"
@@ -36,12 +37,17 @@ func Command(cfg *config.Config, args []string) error {
 	project := fs.String("project", "", "project (Azure DevOps or GitLab alias)")
 	state := fs.String("state", "all", "open, closed, merged or all")
 	search := fs.String("search", "", "search text")
-	formatValue := fs.String("format", "text", "text or json")
+	formatValue := fs.String("format", "text", "text or json; raw (provider JSON) with show --include")
+	include := fs.String("include", "", "show: extra parts, comma separated: files, reviews, reviewers, comments, discussion, checks")
 	jsonOutput := fs.Bool("json", false, "equivalent to --format json")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
 	if *jsonOutput {
+		*formatValue = "json"
+	}
+	rawFormat := *formatValue == "raw"
+	if rawFormat {
 		*formatValue = "json"
 	}
 	format, err := render.ParseFormat(*formatValue)
@@ -73,6 +79,18 @@ func Command(cfg *config.Config, args []string) error {
 		if err != nil || id <= 0 {
 			return fmt.Errorf("NUMBER must be a positive integer")
 		}
+		if *include != "" || rawFormat {
+			// The same code as the pr_show tool, so that CLI and MCP return the same parts.
+			a := map[string]any{"number": id, "repo": *repository, "project": *project, "profile": name, "include": splitList(*include)}
+			if rawFormat {
+				a["format"] = "raw"
+			}
+			out, err := CallTool(ctx, cfg, "pr_show", a)
+			if err != nil {
+				return err
+			}
+			return cliutil.PrintBody(out)
+		}
 		res, err := Fetch(ctx, cfg, name, profile, *repository, *project, "", "", id)
 		if err != nil {
 			return err
@@ -81,6 +99,17 @@ func Command(cfg *config.Config, args []string) error {
 	default:
 		return fmt.Errorf("unknown pr action %q", args[0])
 	}
+}
+
+// splitList turns "a, b" into []any{"a", "b"} for tool arguments; an empty string gives an empty list.
+func splitList(s string) []any {
+	var out []any
+	for _, item := range strings.Split(s, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // Fetch lists (id 0) or gets one pull request; state is open, closed (not merged), merged or all.

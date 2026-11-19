@@ -9,6 +9,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -35,18 +36,19 @@ func usage() {
 Usage:
   workctl [--config FILE] init [module...]   guided setup (alias: setup); tokens go to the OS keyring
   workctl [--config FILE] auth login|set-token|status|logout|setup-git   profile credentials; setup-git points git at workctl
-  workctl [--config FILE] doctor
-  workctl [--config FILE] config show|path
+  workctl [--config FILE] doctor         check every profile; failures carry a code (dns, timeout, tls, ...)
+  workctl [--config FILE] config show|path   show prints the config with identifiers redacted
+  workctl [--config FILE] accounts [--kind K] [--resource R]   profiles and which one serves a resource
   workctl [--config FILE] azure ...      Azure DevOps (alias: ado)
   workctl [--config FILE] atlassian ...  Jira and Confluence Cloud (alias: atl)
   workctl [--config FILE] jira ...     Jira
   workctl [--config FILE] gitlab ...   GitLab
   workctl [--config FILE] github ...   GitHub
-  workctl [--config FILE] api raw METHOD PATH   any HTTP service of a kind "api" profile
-	workctl --profile NAME api session-check   verify form login and server-side logout without page output
-  workctl [--config FILE] pr|mr ...    provider-neutral pull/merge requests
+  workctl [--config FILE] api raw|download|upload|exec|session-check ...   any HTTP service or ssh-exec profile
+  workctl [--config FILE] pr|mr list|show ...    provider-neutral pull/merge requests (show --include comments,checks,...)
   workctl [--config FILE] issue|i ...  provider-neutral issues (Jira Server and Cloud)
   workctl [--config FILE] task ISSUE-KEY
+  workctl [--config FILE] tools [--all] [NAME]   the MCP tools, with the CLI command that does the same
   workctl [--config FILE] mcp
   workctl [--profile NAME] git-credential get   git credential helper (profile from --profile, else from host and repository path)
 
@@ -54,13 +56,17 @@ Global:
   --config FILE     config path (or WORKCTL_CONFIG)
   --profile NAME    use this profile instead of defaults.<kind> for its kind
 
-Run workctl help or see docs/cli.md for command examples.
+Help: workctl help COMMAND (any command above), workctl COMMAND --help, flags of a leaf command with -h.
+Examples: docs/cli.md.
 `, Version)
 }
 
 // Main is the whole program; it returns the process exit code.
 func Main(args []string) int {
 	if err := run(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0 // the flag package already printed the usage
+		}
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
@@ -80,17 +86,20 @@ func run(args []string) error {
 		usage()
 		return nil
 	}
-	cmd := modules.Aliases[rest[0]]
-	if cmd == "" {
-		cmd = rest[0]
-	}
-	if cmd == "i" {
-		cmd = "issue"
-	}
+	cmd := canonicalCommand(rest[0])
 	rest = rest[1:]
+	if helpWanted(rest) && printCommandHelp(os.Stdout, cmd) {
+		return nil
+	}
 	switch cmd {
 	case "help", "-h", "--help":
-		usage()
+		if len(rest) == 0 || helpWanted(rest[:1]) {
+			usage()
+			return nil
+		}
+		if !printCommandHelp(os.Stdout, rest[0]) {
+			return fmt.Errorf("unknown command %q (see: workctl help)", rest[0])
+		}
 		return nil
 	case "version":
 		fmt.Println(Version)
@@ -121,6 +130,7 @@ func run(args []string) error {
 
 func commandHandlers() map[string]func(*config.Config, []string) error {
 	handlers := map[string]func(*config.Config, []string) error{
+		"accounts": auth.AccountsCommand, "tools": toolsCommand,
 		"doctor": func(cfg *config.Config, _ []string) error { return doctorCommand(cfg) },
 		"jira":   jira.Command, "gitlab": gitlab.Command, "github": github.Command, "api": generic.Command,
 		"pr": pr.Command, "mr": pr.Command, "task": taskCommand, "issue": issue.Command,
@@ -178,7 +188,7 @@ func configCommand(path string, args []string) error {
 		if err != nil {
 			return err
 		}
-		b, _ := json.MarshalIndent(cfg, "", "  ")
+		b, _ := json.MarshalIndent(cfg.Redacted(), "", "  ")
 		return cliutil.PrintBody(b)
 	default:
 		return fmt.Errorf("usage: workctl config show|path")

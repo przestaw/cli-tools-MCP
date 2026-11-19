@@ -68,3 +68,20 @@ func TestGoogleProfileRejectsBadConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactedHidesIdentifiersButKeepsTheRest(t *testing.T) {
+	cfg := Default()
+	cfg.Profiles["a"] = Profile{Kind: "api", URL: "https://a.test", Username: "alice", TokenEnv: "SECRET_ENV", AuthHeader: "X-Key",
+		OAuth2:    &OAuth2{ClientID: "client-123", TokenURL: "https://t.test"},
+		FormLogin: &FormLogin{Path: "/login", Fields: map[string]string{"k": "v", "empty": ""}}}
+	got := cfg.Redacted().Profiles["a"]
+	if got.TokenEnv != "***" || got.AuthHeader != "***" || got.OAuth2.ClientID != "***" || got.FormLogin.Fields["k"] != "***" {
+		t.Fatalf("not redacted: %+v %+v %+v", got, got.OAuth2, got.FormLogin)
+	}
+	if got.Username != "alice" || got.URL != "https://a.test" || got.OAuth2.TokenURL != "https://t.test" || got.FormLogin.Fields["empty"] != "" {
+		t.Fatalf("too much redacted: %+v", got)
+	}
+	if orig := cfg.Profiles["a"]; orig.OAuth2.ClientID != "client-123" || orig.TokenEnv != "SECRET_ENV" || orig.FormLogin.Fields["k"] != "v" {
+		t.Fatal("Redacted changed the original")
+	}
+}

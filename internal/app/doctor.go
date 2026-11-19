@@ -5,12 +5,16 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+	"syscall"
 
 	"workctl/internal/api"
 	azureclient "workctl/internal/azure/client"
@@ -26,6 +30,31 @@ type doctorCheck struct {
 	OK     bool   `json:"ok"`
 	Detail any    `json:"detail,omitempty"`
 	Error  string `json:"error,omitempty"`
+	Code   string `json:"code,omitempty"` // dns, timeout, tls, refused, unauthorized, forbidden or other (see classifyError)
+}
+
+// classifyError names the likely cause of a failed profile check, so that a reader need not guess from the message.
+func classifyError(err error) string {
+	var dnsErr *net.DNSError
+	var netErr net.Error
+	var certErr *tls.CertificateVerificationError
+	switch {
+	case err == nil:
+		return ""
+	case api.IsStatus(err, http.StatusUnauthorized):
+		return "unauthorized"
+	case api.IsStatus(err, http.StatusForbidden):
+		return "forbidden"
+	case errors.As(err, &dnsErr):
+		return "dns"
+	case errors.As(err, &certErr):
+		return "tls"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "refused"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &netErr) && netErr.Timeout():
+		return "timeout"
+	}
+	return "other"
 }
 
 func doctorCommand(cfg *config.Config) error {
@@ -45,7 +74,7 @@ func doctorCommand(cfg *config.Config) error {
 		}
 		detail, err := doctorCheckProfile(ctx, cfg, name, cfg.Profiles[name])
 		if err != nil {
-			result[name] = doctorCheck{Error: err.Error()}
+			result[name] = doctorCheck{Error: err.Error(), Code: classifyError(err)}
 			allOK = false
 		} else {
 			result[name] = doctorCheck{OK: true, Detail: detail}

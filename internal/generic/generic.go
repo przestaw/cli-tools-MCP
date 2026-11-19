@@ -36,7 +36,7 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 	defer cancel()
 	switch args[0] {
 	case "raw", "download", "upload", "session-check":
-		c, err := api.NewKindClient(cfg, Kind)
+		c, err := httpClient(cfg, "")
 		if err != nil {
 			return err
 		}
@@ -120,13 +120,12 @@ var httpKinds = map[string]bool{"github": true, "gitlab": true, "jira": true, "a
 // httpClient connects to the profile of a request or download: the named profile of any HTTP kind, else defaults.api.
 func httpClient(cfg *config.Config, name string) (*api.Client, error) {
 	if name == "" {
-		if p, ok := cfg.Profiles[cfg.ProfileName()]; ok && httpKinds[p.Kind] {
-			name = cfg.ProfileName()
-		} else {
-			var err error
-			if name, _, err = cfg.ProfileOf(Kind); err != nil {
-				return nil, fmt.Errorf("pass profile (any of github, gitlab, jira, atlassian, api): %w", err)
-			}
+		name = cfg.ProfileName() // an explicit --profile is never replaced by a default
+	}
+	if name == "" {
+		var err error
+		if name, _, err = cfg.ProfileOf(Kind); err != nil {
+			return nil, fmt.Errorf("pass profile (any of github, gitlab, jira, atlassian, api): %w", err)
 		}
 	}
 	p, ok := cfg.Profiles[name]

@@ -227,3 +227,19 @@ func TestRequestRefusesBinaryAndDownloadKeepsBytes(t *testing.T) {
 		t.Fatal("another host must stay refused")
 	}
 }
+
+func TestExplicitProfileIsNeverReplacedByTheDefault(t *testing.T) {
+	cfg := testConfig("https://svc.test")
+	cfg.Profiles["other"] = config.Profile{Kind: "azure", URL: "https://dev.azure.com/x"}
+	cfg.Defaults[Kind] = "svc"
+	for _, name := range []string{"missing", "other"} {
+		cfg.SetProfileName(name)
+		if _, err := httpClient(cfg, ""); err == nil {
+			t.Fatalf("--profile %s must fail instead of using defaults.api", name)
+		}
+	}
+	cfg.SetProfileName("")
+	if _, err := httpClient(cfg, ""); err != nil {
+		t.Fatalf("defaults.api is used without --profile: %v", err)
+	}
+}
