@@ -20,7 +20,7 @@ omission keeps the response as received. XML stays unchanged. See [compaction an
 | Tool | What |
 | --- | --- |
 | `accounts` | profiles, their bindings and credential state; binds a repository/project with consent |
-| `pr_list`, `pr_show` | pull/merge requests (GitHub, GitLab, Azure DevOps); `include: [files, reviews, reviewers, comments, discussion, checks]`; files, reviews, comments and discussion are read page by page; a full last page is followed by one empty-page probe; results beyond the local 3000-item limit report possible truncation, not a complete list |
+| `pr_list`, `pr_show` | pull/merge requests (GitHub, GitLab, Azure DevOps); `include: [files, diff, reviews, reviewers, comments, discussion, checks]`; `diff` is the unified diff as a JSON string (GitHub: `Accept: application/vnd.github.diff`; GitLab: assembled from the merge request changes), cut at a line boundary at 200000 bytes and then returned as `{diff, truncated: true, bytes_total, bytes_returned, hint}` — read the rest with `file` at the head ref or `request` with `accept`; files, reviews, comments and discussion are read page by page; a full last page is followed by one empty-page probe; results beyond the local 3000-item limit report possible truncation, not a complete list |
 | `pr_create`, `pr_edit` | create or edit a pull/merge request (write) |
 | `ci` | runs/pipelines for a `ref`, one `run` with `include: [jobs]`, the log of one `job` |
 | `file` | repository file at a ref; explicit Drive profile: file metadata, folder listing or name search, with pagination |
