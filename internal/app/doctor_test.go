@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"workctl/internal/api"
@@ -55,5 +58,42 @@ func TestDoctorCheckAPI(t *testing.T) {
 		if tc.wantDetail != nil && fmt.Sprint(got) != fmt.Sprint(tc.wantDetail) {
 			t.Errorf("%s: detail %v, want %v", tc.name, got, tc.wantDetail)
 		}
+	}
+}
+
+func TestDoctorSkills(t *testing.T) {
+	tests := []struct {
+		name     string
+		prepare  func(home string)
+		wantOK   bool
+		wantCode string
+		wantErr  string
+	}{
+		{"no agent installed", func(string) {}, true, "", ""},
+		{"up to date", func(string) { mustSkills(t, "install", "--target", "claude") }, true, "", ""},
+		{"outdated copy", func(home string) {
+			mustSkills(t, "install", "--target", "all")
+			if err := os.WriteFile(filepath.Join(home, ".codex/skills/workctl/SKILL.md"), []byte("old"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}, false, "outdated", "workctl skills install --target codex"},
+	}
+	for _, tc := range tests {
+		home := skillsHome(t)
+		tc.prepare(home)
+		got := doctorSkills()
+		if got.OK != tc.wantOK || got.Code != tc.wantCode || !strings.Contains(got.Error, tc.wantErr) {
+			t.Errorf("%s: %+v", tc.name, got)
+		}
+		if tc.name == "outdated copy" && strings.Contains(got.Error, "claude") {
+			t.Errorf("%s: current copies must not be listed: %s", tc.name, got.Error)
+		}
+	}
+}
+
+func mustSkills(t *testing.T, args ...string) {
+	t.Helper()
+	if _, _, err := runSkillsCmd(args...); err != nil {
+		t.Fatal(err)
 	}
 }
