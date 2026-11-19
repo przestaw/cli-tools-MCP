@@ -37,7 +37,7 @@ func TestToolDetailsCompactOrRaw(t *testing.T) {
 			format        string
 			raw, wantFail bool
 		}{
-			{"", false, false}, {"json", false, false}, {"raw", true, false}, {"RAW", true, false}, {"compact", false, true},
+			{"", false, false}, {"json", false, false}, {"raw", true, false}, {"RAW", true, false}, {"compact", false, false}, {"bogus", false, true},
 		} {
 			t.Run(tool+"/"+tc.format, func(t *testing.T) {
 				out, err := CallTool(context.Background(), cfg, tool, map[string]any{"profile": "gl", "number": 1, "format": tc.format})
