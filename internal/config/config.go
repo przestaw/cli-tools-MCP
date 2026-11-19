@@ -331,12 +331,48 @@ func NormalizeBaseURL(s string) string {
 	return strings.TrimRight(strings.TrimSpace(os.ExpandEnv(s)), "/")
 }
 
-// PRKinds are the profile kinds that can serve pull or merge requests.
-var PRKinds = map[string]bool{"github": true, "gitlab": true, "azure": true}
+// kindInfo describes what a profile kind can do.
+type kindInfo struct {
+	HTTP bool // reachable through request and download
+	PR   bool // serves pull or merge requests
+	SSH  bool // may use the ssh backend
+}
+
+// kinds is the single table of supported profile kinds: a new kind is one entry.
+var kinds = map[string]kindInfo{
+	"github":    {HTTP: true, PR: true, SSH: true},
+	"gitlab":    {HTTP: true, PR: true, SSH: true},
+	"azure":     {PR: true},
+	"jira":      {HTTP: true, SSH: true},
+	"atlassian": {HTTP: true},
+	"api":       {HTTP: true, SSH: true},
+}
+
+// SupportsPR reports whether profiles of kind serve pull or merge requests.
+func SupportsPR(kind string) bool { return kinds[kind].PR }
+
+// IsHTTPKind reports whether profiles of kind are reachable through request and download.
+func IsHTTPKind(kind string) bool { return kinds[kind].HTTP }
+
+// accepts reports whether p is of kind; an empty kind accepts any pull request provider.
+func accepts(kind string, p Profile) bool {
+	return p.Kind == kind || kind == "" && SupportsPR(p.Kind)
+}
+
+// explicitName is the profile named by the caller, --profile or WORKCTL_PROFILE, else "".
+func (c *Config) explicitName(requested string) string {
+	if requested != "" {
+		return requested
+	}
+	if c.profile != "" {
+		return c.profile
+	}
+	return strings.TrimSpace(os.Getenv("WORKCTL_PROFILE"))
+}
 
 // ProfileOf picks defaults.<kind>, else the only profile of that kind; an empty kind means any pull request provider.
 func (c *Config) ProfileOf(kind string) (string, Profile, error) {
-	if p, ok := c.Profiles[c.profile]; ok && (p.Kind == kind || kind == "" && PRKinds[p.Kind]) {
+	if p, ok := c.Profiles[c.profile]; ok && accepts(kind, p) {
 		return c.profile, p, nil
 	}
 	if name := c.Defaults[kind]; name != "" {
@@ -344,7 +380,7 @@ func (c *Config) ProfileOf(kind string) (string, Profile, error) {
 	}
 	var names []string
 	for name, p := range c.Profiles {
-		if p.Kind == kind || kind == "" && PRKinds[p.Kind] {
+		if accepts(kind, p) {
 			names = append(names, name)
 		}
 	}
@@ -364,12 +400,7 @@ func (c *Config) ProfileOf(kind string) (string, Profile, error) {
 // PRProfile resolves the profile of a pull request command: the requested name, then --profile or
 // WORKCTL_PROFILE, then the per-kind default. An empty requestedKind accepts any pull request provider.
 func (c *Config) PRProfile(requestedName, requestedKind string) (string, Profile, error) {
-	if requestedName == "" {
-		requestedName = c.profile
-		if requestedName == "" {
-			requestedName = strings.TrimSpace(os.Getenv("WORKCTL_PROFILE"))
-		}
-	}
+	requestedName = c.explicitName(requestedName)
 	if requestedName != "" {
 		profile, ok := c.Profiles[requestedName]
 		if !ok {
@@ -386,8 +417,14 @@ func (c *Config) PRProfile(requestedName, requestedKind string) (string, Profile
 // PRProfileFor resolves the profile of a pull request command: explicit profile (--profile or WORKCTL_PROFILE),
 // then an optional resource match on repos/projects, then defaults.<kind> or the single matching profile.
 func (c *Config) PRProfileFor(requestedName, requestedKind, resource string) (string, Profile, error) {
-	if requestedName == "" && c.profile == "" && strings.TrimSpace(os.Getenv("WORKCTL_PROFILE")) == "" {
-		matched, err := c.matchProfile(requestedKind, resource)
+	return c.resolveByResource(requestedName, requestedKind, resource, func(p Profile) bool { return accepts(requestedKind, p) })
+}
+
+// resolveByResource is PRProfile preceded by a resource match among the profiles allow accepts, which applies only
+// when no profile was named explicitly.
+func (c *Config) resolveByResource(requestedName, requestedKind, resource string, allow func(Profile) bool) (string, Profile, error) {
+	if c.explicitName(requestedName) == "" {
+		matched, err := c.matchProfile(resource, allow)
 		if err != nil {
 			return "", Profile{}, err
 		}
@@ -440,61 +477,58 @@ func (p Profile) MatchResource(resource string) int {
 		return 0
 	}
 	if p.Kind == "jira" || p.Kind == "atlassian" {
-		projKey := res
-		if k, _, ok := strings.Cut(res, "-"); ok && k != "" {
-			projKey = k
-		}
-		for _, raw := range append([]string{p.DefaultProject}, p.Projects...) {
-			pat := strings.Trim(strings.TrimSpace(raw), "/")
-			pat = strings.TrimSuffix(strings.TrimSuffix(pat, "/*"), "-*")
-			if pat != "" && (strings.EqualFold(pat, res) || strings.EqualFold(pat, projKey)) {
-				return 1000 + len(pat)
-			}
-		}
-		return 0
+		return p.matchJiraProject(res)
 	}
 	best := 0
-	keep := func(score int) {
-		if score > best {
-			best = score
-		}
-	}
 	for _, raw := range append(append([]string{p.DefaultRepo}, p.Repos...), append([]string{p.DefaultProject}, p.Projects...)...) {
-		pat := strings.Trim(strings.TrimSpace(raw), "/")
-		if pat == "" {
-			continue
-		}
-		if strings.HasSuffix(pat, "/*") {
-			ownerPrefix := strings.TrimSuffix(pat, "/*")
-			prefix := ownerPrefix + "/"
-			if ownerPrefix != "" && (strings.EqualFold(res, ownerPrefix) || (len(res) > len(prefix) && strings.EqualFold(res[:len(prefix)], prefix))) {
-				keep(1 + len(prefix))
-			}
-			continue
-		}
-		if strings.EqualFold(pat, res) {
-			keep(1000 + len(pat))
-			continue
-		}
-		if (p.Kind == "gitlab" || p.Kind == "azure") && !strings.Contains(pat, "/") {
-			prefix := pat + "/"
-			if len(res) > len(prefix) && strings.EqualFold(res[:len(prefix)], prefix) {
-				keep(1 + len(prefix))
-			}
-		}
+		best = max(best, p.matchPath(strings.Trim(strings.TrimSpace(raw), "/"), res))
 	}
 	return best
 }
 
-// matchProfile returns the profile of kind (or any PRKinds when kind is empty) that best matches resource.
-// It returns ("", nil) when resource is empty or no profile's repos/projects match it.
-func (c *Config) matchProfile(kind, resource string) (string, error) {
-	return c.matchProfileWhere(resource, func(p Profile) bool {
-		return kind != "" && p.Kind == kind || kind == "" && PRKinds[p.Kind]
-	})
+// matchJiraProject scores res, an issue key or project key, against the profile's Jira projects.
+func (p Profile) matchJiraProject(res string) int {
+	projKey := res
+	if k, _, ok := strings.Cut(res, "-"); ok && k != "" {
+		projKey = k
+	}
+	for _, raw := range append([]string{p.DefaultProject}, p.Projects...) {
+		pat := strings.Trim(strings.TrimSpace(raw), "/")
+		pat = strings.TrimSuffix(strings.TrimSuffix(pat, "/*"), "-*")
+		if pat != "" && (strings.EqualFold(pat, res) || strings.EqualFold(pat, projKey)) {
+			return 1000 + len(pat)
+		}
+	}
+	return 0
 }
 
-func (c *Config) matchProfileWhere(resource string, allow func(Profile) bool) (string, error) {
+// matchPath scores res against one trimmed repo or project pattern: exact beats an owner prefix (org/*, or a bare
+// owner on GitLab and Azure), which scores by prefix length.
+func (p Profile) matchPath(pat, res string) int {
+	switch {
+	case pat == "":
+		return 0
+	case strings.HasSuffix(pat, "/*"):
+		owner := strings.TrimSuffix(pat, "/*")
+		if owner != "" && (strings.EqualFold(res, owner) || hasPrefixFold(res, owner+"/")) {
+			return 1 + len(owner) + 1
+		}
+	case strings.EqualFold(pat, res):
+		return 1000 + len(pat)
+	case (p.Kind == "gitlab" || p.Kind == "azure") && !strings.Contains(pat, "/") && hasPrefixFold(res, pat+"/"):
+		return 1 + len(pat) + 1
+	}
+	return 0
+}
+
+// hasPrefixFold reports whether s starts with prefix and is longer than it, ignoring case.
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) > len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+}
+
+// matchProfile returns the allowed profile that best matches resource.
+// It returns ("", nil) when resource is empty or no profile's repos/projects match it.
+func (c *Config) matchProfile(resource string, allow func(Profile) bool) (string, error) {
 	if strings.TrimSpace(resource) == "" {
 		return "", nil
 	}
@@ -603,10 +637,10 @@ func (c *Config) ScopedFor(profileName, kind, resource string) (*Config, error) 
 	if profileName != "" {
 		return c.Scoped(profileName, kind)
 	}
-	if p, ok := c.Profiles[c.profile]; ok && (p.Kind == kind || kind == "" && PRKinds[p.Kind]) {
+	if p, ok := c.Profiles[c.profile]; ok && accepts(kind, p) {
 		return c, nil
 	}
-	matched, err := c.matchProfile(kind, resource)
+	matched, err := c.matchProfile(resource, func(p Profile) bool { return accepts(kind, p) })
 	if err != nil {
 		return nil, err
 	}
@@ -626,16 +660,7 @@ func (c *Config) ResolveFor(kind, resource string) (string, Profile, error) {
 		}
 		return scoped.ProfileOf(kind)
 	}
-	if c.profile == "" && strings.TrimSpace(os.Getenv("WORKCTL_PROFILE")) == "" && strings.TrimSpace(resource) != "" {
-		matched, err := c.matchProfileWhere(resource, func(Profile) bool { return true })
-		if err != nil {
-			return "", Profile{}, err
-		}
-		if matched != "" {
-			return matched, c.Profiles[matched], nil
-		}
-	}
-	return c.PRProfile("", "")
+	return c.resolveByResource("", "", resource, func(Profile) bool { return true })
 }
 
 // Validate checks every profile, and that each default points to an existing profile of the right kind.
@@ -678,9 +703,7 @@ func (p PolicyConfig) validate() error {
 // ValidateProfile checks one profile: kind, URL, TLS and CA settings, authentication scheme and backend.
 func ValidateProfile(name string, profile Profile) error {
 	kind := strings.ToLower(strings.TrimSpace(profile.Kind))
-	switch kind {
-	case "github", "gitlab", "azure", "jira", "atlassian", "api":
-	default:
+	if _, ok := kinds[kind]; !ok {
 		return fmt.Errorf("profiles.%s.kind %q is unsupported", name, profile.Kind)
 	}
 	if profile.UsesSSHExec() {
@@ -859,9 +882,7 @@ func validateSSHExec(name string, profile Profile) error {
 // validateSSHDestination checks the ssh target of an ssh backend. A leading "-" would be read by ssh as an option
 // (for example -oProxyCommand=...), so it is refused even though workctl also passes "--" before it.
 func validateSSHDestination(name string, profile Profile) error {
-	switch profile.Kind {
-	case "github", "gitlab", "jira", "api":
-	default:
+	if !kinds[profile.Kind].SSH {
 		return fmt.Errorf("profiles.%s.backend %s is only available for github, gitlab, jira and api", name, profile.Backend)
 	}
 	d := profile.SSHDestination

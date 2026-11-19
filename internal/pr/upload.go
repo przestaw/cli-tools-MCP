@@ -266,7 +266,7 @@ func multipartFile(name, ctype string, data []byte) ([]byte, string, error) {
 }
 
 func doJSON(ctx context.Context, c *api.Client, method, path string, q url.Values, body []byte, ctype string, v any) error {
-	data, err := api.BodyOnly(c.Do(ctx, method, path, q, body, ctype))
+	data, err := c.DoBody(ctx, method, path, q, body, ctype)
 	if err != nil {
 		return err
 	}

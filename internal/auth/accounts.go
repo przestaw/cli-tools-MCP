@@ -271,7 +271,7 @@ func bindResource(cfg *config.Config, profileName, repoPattern, projectPattern s
 	host := profileHost(prof)
 
 	if repoPattern != "" {
-		if !config.PRKinds[prof.Kind] {
+		if !config.SupportsPR(prof.Kind) {
 			return fmt.Errorf("profile %q (%s) does not use repos", profileName, prof.Kind)
 		}
 		if err := validatePattern(repoPattern, true); err != nil {

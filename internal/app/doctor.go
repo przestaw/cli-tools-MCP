@@ -9,10 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
-	"sort"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -63,12 +64,7 @@ func doctorCommand(cfg *config.Config) error {
 	defer cancel()
 	allOK := true
 
-	names := make([]string, 0, len(cfg.Profiles))
-	for name := range cfg.Profiles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range slices.Sorted(maps.Keys(cfg.Profiles)) {
 		if cfg.Profiles[name].Kind == "atlassian" {
 			continue // Atlassian Cloud is verified via the embedded module below
 		}
@@ -140,30 +136,35 @@ func doctorCheckProfile(ctx context.Context, cfg *config.Config, name string, pr
 		}
 		return map[string]string{"kind": "jira", "user": cliutil.FirstNonEmpty(cliutil.JSONField(me, "name"), cliutil.JSONField(me, "displayName"))}, nil
 	case "api":
-		checkPath := "/"
-		var query url.Values
-		if profile.HasDrive() {
-			checkPath = "/about"
-			query = url.Values{"fields": {"user(emailAddress,displayName)"}}
-		}
-		out, contentType, err := c.Do(ctx, http.MethodGet, checkPath, query, nil, "")
-		if err != nil {
-			return nil, err
-		}
-		detail := map[string]string{"kind": "api", "content_type": contentType}
-		if checkPath == "/about" {
-			var about struct {
-				User struct {
-					EmailAddress string `json:"emailAddress"`
-					DisplayName  string `json:"displayName"`
-				} `json:"user"`
-			}
-			if json.Unmarshal(out, &about) == nil && (about.User.EmailAddress != "" || about.User.DisplayName != "") {
-				detail["user"] = cliutil.FirstNonEmpty(about.User.EmailAddress, about.User.DisplayName)
-			}
-		}
-		return detail, nil
+		return doctorCheckAPI(ctx, c, profile)
 	default:
 		return nil, fmt.Errorf("unsupported profile kind %q", profile.Kind)
 	}
+}
+
+// doctorCheckAPI probes a generic API profile; Google Drive profiles also report the signed-in user.
+func doctorCheckAPI(ctx context.Context, c *api.Client, profile config.Profile) (any, error) {
+	checkPath := "/"
+	var query url.Values
+	if profile.HasDrive() {
+		checkPath = "/about"
+		query = url.Values{"fields": {"user(emailAddress,displayName)"}}
+	}
+	out, contentType, err := c.Do(ctx, http.MethodGet, checkPath, query, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	detail := map[string]string{"kind": "api", "content_type": contentType}
+	if checkPath == "/about" {
+		var about struct {
+			User struct {
+				EmailAddress string `json:"emailAddress"`
+				DisplayName  string `json:"displayName"`
+			} `json:"user"`
+		}
+		if json.Unmarshal(out, &about) == nil && (about.User.EmailAddress != "" || about.User.DisplayName != "") {
+			detail["user"] = cliutil.FirstNonEmpty(about.User.EmailAddress, about.User.DisplayName)
+		}
+	}
+	return detail, nil
 }

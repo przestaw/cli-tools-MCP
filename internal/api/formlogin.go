@@ -168,9 +168,8 @@ func sessionError(operation string, err error) error {
 	if err == nil {
 		return nil
 	}
-	var status *Error
-	if errors.As(err, &status) {
-		return fmt.Errorf("%s: HTTP %d (response and URL withheld)", operation, status.Status)
+	if status, ok := StatusOf(err); ok {
+		return fmt.Errorf("%s: HTTP %d (response and URL withheld)", operation, status)
 	}
 	return fmt.Errorf("%s failed (details withheld to protect session credentials)", operation)
 }

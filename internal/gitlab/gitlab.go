@@ -27,16 +27,12 @@ func projectOf(cfg *config.Config, project string) (string, error) {
 
 func projectID(project string) string { return url.PathEscape(project) }
 
-func get(ctx context.Context, c *api.Client, path string, q url.Values) ([]byte, error) {
-	return api.BodyOnly(c.Do(ctx, http.MethodGet, path, q, nil, ""))
-}
-
 func getProject(ctx context.Context, c *api.Client, project string) ([]byte, error) {
-	return get(ctx, c, "/api/v4/projects/"+projectID(project), nil)
+	return c.Get(ctx, "/api/v4/projects/"+projectID(project), nil)
 }
 
 func getMRChanges(ctx context.Context, c *api.Client, project string, iid int) ([]byte, error) {
-	return get(ctx, c, fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/changes", projectID(project), iid), nil)
+	return c.Get(ctx, fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/changes", projectID(project), iid), nil)
 }
 
 func getMRNotes(ctx context.Context, c *api.Client, project string, iid int) ([]byte, error) {
@@ -47,7 +43,7 @@ func getMRNotes(ctx context.Context, c *api.Client, project string, iid int) ([]
 func addMRNote(ctx context.Context, c *api.Client, project string, iid int, text string) ([]byte, error) {
 	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/notes", projectID(project), iid)
 	q := url.Values{"body": {text}}
-	return api.BodyOnly(c.Do(ctx, http.MethodPost, p, q, nil, ""))
+	return c.DoBody(ctx, http.MethodPost, p, q, nil, "")
 }
 
 func createMR(ctx context.Context, c *api.Client, project, source, target, title, description string, draft bool) ([]byte, error) {
@@ -62,7 +58,7 @@ func createMR(ctx context.Context, c *api.Client, project, source, target, title
 		q.Set("description", description)
 	}
 	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests", projectID(project))
-	return api.BodyOnly(c.Do(ctx, http.MethodPost, p, q, nil, ""))
+	return c.DoBody(ctx, http.MethodPost, p, q, nil, "")
 }
 
 func listPipelines(ctx context.Context, c *api.Client, project, ref string, perPage int) ([]byte, error) {
@@ -70,20 +66,20 @@ func listPipelines(ctx context.Context, c *api.Client, project, ref string, perP
 	if ref != "" {
 		q.Set("ref", ref)
 	}
-	return get(ctx, c, fmt.Sprintf("/api/v4/projects/%s/pipelines", projectID(project)), q)
+	return c.Get(ctx, fmt.Sprintf("/api/v4/projects/%s/pipelines", projectID(project)), q)
 }
 
 func getPipeline(ctx context.Context, c *api.Client, project string, id int) ([]byte, error) {
-	return get(ctx, c, fmt.Sprintf("/api/v4/projects/%s/pipelines/%d", projectID(project), id), nil)
+	return c.Get(ctx, fmt.Sprintf("/api/v4/projects/%s/pipelines/%d", projectID(project), id), nil)
 }
 
 func listPipelineJobs(ctx context.Context, c *api.Client, project string, id int) ([]byte, error) {
 	p := fmt.Sprintf("/api/v4/projects/%s/pipelines/%d/jobs", projectID(project), id)
-	return get(ctx, c, p, url.Values{"per_page": {"100"}})
+	return c.Get(ctx, p, url.Values{"per_page": {"100"}})
 }
 
 func jobTrace(ctx context.Context, c *api.Client, project string, id int) ([]byte, error) {
-	return get(ctx, c, fmt.Sprintf("/api/v4/projects/%s/jobs/%d/trace", projectID(project), id), nil)
+	return c.Get(ctx, fmt.Sprintf("/api/v4/projects/%s/jobs/%d/trace", projectID(project), id), nil)
 }
 
 // ListBranches lists or searches branches; the task context uses it to find branches that mention an issue key.
@@ -92,7 +88,7 @@ func ListBranches(ctx context.Context, c *api.Client, project, search string) ([
 	if search != "" {
 		q.Set("search", search)
 	}
-	return get(ctx, c, fmt.Sprintf("/api/v4/projects/%s/repository/branches", projectID(project)), q)
+	return c.Get(ctx, fmt.Sprintf("/api/v4/projects/%s/repository/branches", projectID(project)), q)
 }
 
 func getFile(ctx context.Context, c *api.Client, project, filePath, ref string) ([]byte, error) {
@@ -101,12 +97,12 @@ func getFile(ctx context.Context, c *api.Client, project, filePath, ref string) 
 	}
 	q := url.Values{"ref": {ref}}
 	p := fmt.Sprintf("/api/v4/projects/%s/repository/files/%s/raw", projectID(project), url.PathEscape(filePath))
-	return get(ctx, c, p, q)
+	return c.Get(ctx, p, q)
 }
 
 // Version fetches the server version; doctor and the setup wizard use it as the connectivity check.
 func Version(ctx context.Context, c *api.Client) ([]byte, error) {
-	return get(ctx, c, "/api/v4/version", nil)
+	return c.Get(ctx, "/api/v4/version", nil)
 }
 
 func projectFlagSet(name string) (*flag.FlagSet, *string) {
@@ -377,12 +373,12 @@ func mrCommand(ctx context.Context, c *api.Client, cfg *config.Config, args []st
 
 func mrPipelines(ctx context.Context, c *api.Client, project string, iid int) ([]byte, error) {
 	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/pipelines", projectID(project), iid)
-	return api.BodyOnly(c.Do(ctx, http.MethodGet, p, nil, nil, ""))
+	return c.Get(ctx, p, nil)
 }
 
 func mrApprovals(ctx context.Context, c *api.Client, project string, iid int) ([]byte, error) {
 	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/approvals", projectID(project), iid)
-	return api.BodyOnly(c.Do(ctx, http.MethodGet, p, nil, nil, ""))
+	return c.Get(ctx, p, nil)
 }
 
 // editMR changes title, description, target branch or state (open reopens, closed closes) of a merge request.
@@ -406,5 +402,5 @@ func editMR(ctx context.Context, c *api.Client, project string, iid int, title, 
 		return nil, fmt.Errorf("at least one of title, body, base or state must be provided")
 	}
 	p := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d", projectID(project), iid)
-	return api.BodyOnly(c.Do(ctx, http.MethodPut, p, q, nil, ""))
+	return c.DoBody(ctx, http.MethodPut, p, q, nil, "")
 }

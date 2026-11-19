@@ -2,9 +2,10 @@
 
 Autor: [przestaw](https://github.com/przestaw)
 
-Status (2026-11-17): częściowo zrobione. Sześć uproszczeń (tabela kind-ów, `FetchRequest`, `DoBody`, wspólny wybór
-profilu, podział `MatchResource`, `StatusOf`) jest w lokalnej gałęzi `draft/simplify-core-isolated`, niewypchniętej.
-Pójdą jako osobny MR po scaleniu PR #11, bo dotykają tych samych plików. Reszta listy poniżej czeka.
+Status (2026-11-17): częściowo zrobione na gałęzi `feat/simplify-core` (na bazie PR #11, niewypchnięta). Zrobione:
+tabela kind-ów, `FetchRequest`, `DoBody` (bez adaptera `BodyOnly`), wspólny wybór profilu, podział `MatchResource`,
+`StatusOf`/`IsStatus` w obsłudze błędów (csrf, formlogin), `Client.Get` zamiast trzech wrapperów `get`,
+`slices.Sorted(maps.Keys)` i `doctorCheckAPI`; wszystkie z testami. Reszta listy poniżej czeka.
 
 Cel: kod prosty, DRY i ze wspólnymi backendami; dobry do nauki zaawansowanego Go, bez frameworków
 „na zapas”. Każda zmiana nie zmienia zachowania i przechodzi `go build`, `go vet`, `go test -race` oraz `golangci-lint`.

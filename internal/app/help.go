@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"sort"
@@ -215,11 +216,7 @@ func printTool(w io.Writer, t mcp.Tool) {
 			required[name] = true
 		}
 	}
-	names := make([]string, 0, len(props))
-	for name := range props {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(props))
 	fmt.Fprintln(w, "\nParameters:")
 	for _, name := range names {
 		prop, _ := props[name].(map[string]any)

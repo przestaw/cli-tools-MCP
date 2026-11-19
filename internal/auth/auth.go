@@ -12,8 +12,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -205,17 +206,14 @@ func statusCommand(cfg *config.Config, args []string) error {
 		return nil
 	}
 
-	names := make([]string, 0, len(cfg.Profiles))
+	var names []string
 	if only := cliutil.FirstNonEmpty(*profileName, cfg.ProfileName()); only != "" {
 		if _, ok := cfg.Profiles[only]; !ok {
 			return fmt.Errorf("profile %q not found in config", only)
 		}
 		names = append(names, only)
 	} else {
-		for n := range cfg.Profiles {
-			names = append(names, n)
-		}
-		sort.Strings(names)
+		names = slices.Sorted(maps.Keys(cfg.Profiles))
 	}
 
 	for _, n := range names {
