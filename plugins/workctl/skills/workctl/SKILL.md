@@ -28,18 +28,6 @@ When unsure which account serves a resource, call `accounts` first: it lists the
 
 Start with the exact resource the user named, then read the relevant discussion, reviews or checks. Report current provider state separately from older local notes. A passing check is evidence only for the commit and scenario it ran against.
 
-## Google Drive
-
-For an explicit Drive profile (`gdrive` or a Google preset with Drive access), use `accounts` with `check: true`
-for account/quota, `file` for metadata (file ID) or list/search (folder ID or omitted path, `query`, `limit`,
-`page_token`). Follow `nextPageToken`; do not infer completeness from one page.
-Use `download` for bytes; native documents require `export_mime`. CSV export contains only the first sheet.
-To read a Google Doc as text, export it with `export_mime: text/plain`: the Docs API answer for the same document is about 25 times larger, so keep the API for structure and edits.
-Drive metadata and available MD5 verification accompany downloads. Sheets/Docs reads and approved edits use
-`request`; comments use Drive API. APIs must be enabled and scopes granted; do not retry unchanged 403 errors.
-Full URLs are allowed only for the configured server or Google preset hosts; known signed storage URLs are
-downloaded without profile credentials. Use tool schemas rather than assuming all full URLs are refused.
-
 ## Large API responses
 
 Shorten a response before it reaches the context, when the full one is not needed:
@@ -48,6 +36,18 @@ Shorten a response before it reaches the context, when the full one is not neede
 - **JSON that a server pretty-prints:** `output: compact` removes the whitespace (about 20%), numbers untouched. Most provider APIs already send minified JSON; there it changes nothing. Prefer `pr_list`, `pr_show` and `ci`, which return a short normalized form (`format: raw` for the provider's full data), or the API's own `fields` parameter.
 
 HTML conversion is lossy: attributes are dropped (so link targets, form values and hidden-input values are not in the output), and text of elements with the `hidden` attribute is dropped. Text hidden by CSS stays, and page navigation stays. This is a size reduction, not a way to remove secrets from a page; for sensitive pages use the original response and your own judgement. XML and binary data are never changed. When markup matters (forms, links, exact layout) read the original response. `output: compact` changes only the presentation of a response already received; never replay a write to reformat it.
+
+## Google Drive, Sheets and Docs
+
+For a `kind: "google"` profile (`gdrive`, `gcloud`, `google`) no extra tools are needed.
+
+- `accounts` with `check: true` shows account and quota. `file` gives metadata (file ID) or lists/searches (folder ID or omitted path, `query`, `limit`, `page_token`). Follow `nextPageToken`; one page is not proof of completeness. Take the file `id` from an unambiguous lookup, because names are not unique.
+- `download` fetches bytes; native documents need `export_mime`. CSV export contains only the first sheet. Metadata and available MD5 verification come with downloads. `upload` refuses to overwrite without `overwrite: true`.
+- Read a Google Doc as text by exporting it with `export_mime: text/plain`: the Docs API answer for the same document is about 25 times larger. Keep the API for structure and edits.
+- Sheets and Docs reads and Drive comments use `request` (GET). Full URLs (for example `https://sheets.googleapis.com/v4/spreadsheets/{id}/values/{range}`) are accepted only for the configured server and the Google hosts of the profile; signed storage URLs are downloaded without credentials. Pass `fields=`.
+- Edits (cell values, `batchUpdate`) and adding comments are writes: they need the write policy and approval.
+- `403 SERVICE_DISABLED` means the API is not enabled in the OAuth project; tell the user, do not retry. Do not retry other unchanged 403 errors either (missing scope).
+- Request recipes: `docs/services-auth.md`, section "Drive, Sheets and Docs through existing tools".
 
 ## Inspect screenshots and attachments
 
@@ -94,10 +94,6 @@ Only when their tools (`git_*`, `gitlens_*`) are available:
 - Review a pull request in the editor: take its URL from `pr_show`, then call `gitlens_start_review`. Start work on an issue: `gitlens_start_work` with the issue URL. What needs attention: `gitlens_launchpad`, details through workctl.
 - GitKraken provider tools (`pull_request_*`, `issues_*`) act as the one account connected in GitKraken and take no account argument. Call `accounts` first to see whether workctl has a profile for that host. Use them only for what workctl does not offer (for example GitHub issues) or where workctl has no profile, say which account they used, and never to work around a workctl refusal, policy or missing profile.
 - GitKraken writes (commit, push, pull request, issue, comment) need the same explicit approval as workctl writes.
-
-## Google Drive, Sheets and Docs
-
-Profiles of `kind: "google"` (`gdrive`, `gcloud`, `google`) need no extra tools: list, search, metadata, comments, Sheets and Docs reads go through `request` (GET), files through `download` and `upload`. Edits (cell values, `batchUpdate`) are writes and need the write policy and approval. Take the file `id` from an unambiguous lookup, and pass `fields=`. A `403 SERVICE_DISABLED` means the API is not enabled in the OAuth project; tell the user, do not retry. Request recipes: `docs/services-auth.md`, section "Drive, Sheets and Docs through existing tools".
 
 ## Report
 
