@@ -13,6 +13,7 @@ import (
 
 	"workctl/internal/cliutil"
 	"workctl/internal/config"
+	"workctl/internal/httpx"
 )
 
 // RawCommand is the shared `raw [--body JSON|@file] [--query KEY=VALUE]... METHOD PATH` command of the thin providers:
@@ -21,11 +22,16 @@ func RawCommand(ctx context.Context, c *Client, cfg *config.Config, args []strin
 	fs := flag.NewFlagSet("raw", flag.ContinueOnError)
 	bodyArg := fs.String("body", "", "JSON body or @file")
 	query := QueryFlag(fs)
+	output := fs.String("output", "original", "response presentation: original or compact (JSON/HTML; other formats unchanged)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 2 {
 		return fmt.Errorf("usage: raw [--body JSON|@file] [--query KEY=VALUE]... METHOD PATH")
+	}
+	mode, err := httpx.ParseMode(*output, false)
+	if err != nil {
+		return err
 	}
 	method := strings.ToUpper(fs.Arg(0))
 	if !IsReadMethod(method) {
@@ -37,9 +43,14 @@ func RawCommand(ctx context.Context, c *Client, cfg *config.Config, args []strin
 	if err != nil {
 		return err
 	}
-	b, _, err := c.Do(ctx, method, fs.Arg(1), query, body, "application/json")
+	b, ctype, err := c.Do(ctx, method, fs.Arg(1), query, body, "application/json")
 	if err != nil {
 		return err
+	}
+	if !IsBinary(ctype, b) {
+		if b, err = mode.Apply(b, ctype); err != nil {
+			return err
+		}
 	}
 	_, err = os.Stdout.Write(b)
 	return err

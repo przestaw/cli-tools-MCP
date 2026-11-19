@@ -124,6 +124,19 @@ func NewProfileClient(cfg *config.Config, name string, profile config.Profile) (
 	return newProfileClient(cfg, name, profile, "")
 }
 
+// WithProfileClient runs fn with a client for the profile and a context bounded by the profile's timeout, then
+// closes the client; a Close error is joined to fn's.
+func WithProfileClient(ctx context.Context, cfg *config.Config, name string, profile config.Profile, fn func(context.Context, *Client) error) (err error) {
+	c, err := NewProfileClient(cfg, name, profile)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, c.Close()) }()
+	ctx, cancel := context.WithTimeout(ctx, cfg.ProfileTimeout(profile))
+	defer cancel()
+	return fn(ctx, c)
+}
+
 func newProfileClient(cfg *config.Config, name string, profile config.Profile, token string) (*Client, error) {
 	if err := config.ValidateProfile(name, profile); err != nil {
 		return nil, err

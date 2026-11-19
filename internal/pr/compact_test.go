@@ -114,3 +114,14 @@ func compactJSON(raw []byte) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+func TestCompactDetailsDropsNoiseAndKeepsMergeState(t *testing.T) {
+	got := compactDetails(map[string]any{
+		"merge_status": "can_be_merged", "has_conflicts": false, "labels": []any{"bug"}, "reviewers": []any{map[string]any{"username": "ann", "avatar_url": "x"}},
+		"time_stats": map[string]any{"a": 1}, "diff_refs": map[string]any{"b": 2}, "author": map[string]any{"avatar_url": "y"}, "changes_count": "3",
+	})
+	b, _ := json.Marshal(got)
+	if want := `{"changes_count":"3","has_conflicts":false,"labels":["bug"],"merge_status":"can_be_merged","reviewers":["ann"]}`; string(b) != want {
+		t.Fatalf("got %s, want %s", b, want)
+	}
+}

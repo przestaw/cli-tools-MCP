@@ -27,12 +27,15 @@ var commandHelp = map[string]string{
 Any HTTP profile (kinds api, github, gitlab, jira, atlassian, google) or an ssh-exec profile. --profile must name a
 profile that exists and has a usable kind; it is never replaced by a default.
 
-  raw [--body JSON|@file] [--query KEY=VALUE]... METHOD PATH
-        one request. The response is written exactly as received: no indentation, no added newline.
-        Anything but GET and HEAD needs policy.allow_write. MCP: request.
-  download [--query KEY=VALUE]... [--output FILE] [--name NAME] PATH
+  raw [--body JSON|@file] [--query KEY=VALUE]... [--output original|compact] METHOD PATH
+        one request. Every response is written unchanged, without indentation or an added newline.
+        Optional --output compact minifies JSON (numbers untouched) and turns HTML into its visible text (lossy);
+        XML, other text and binary data are unchanged.
+        Anything but GET and HEAD needs policy.allow_write. MCP: request (output).
+  download [--query KEY=VALUE]... [--output FILE] [--name NAME] [--export-mime MIME] PATH
         stream a file to disk without changing a byte; prints path, size, SHA-256, content type and a warning when an
-        HTML page (login, error) came instead. MCP: download.
+        HTML page (login, error) came instead. Drive: ID or file URL, metadata and checksum verification;
+        native documents require --export-mime. MCP: download.
   upload [--folder ID] [--name NAME] [--target PATH] [--overwrite] FILE
         upload a file (Google Drive, or an issue attachment). Refuses to overwrite without --overwrite. MCP: upload.
   exec [--] CMD [ARG...]
@@ -43,19 +46,26 @@ profile that exists and has a usable kind; it is never replaced by a default.
 PATH is relative to the profile's API prefix, or starts with / for the site root. A full URL is accepted only for the
 profile's own server (and the Google hosts of a google profile). Put values that need encoding in --query.
 Per-command flags: workctl api raw -h`,
-	"accounts": `workctl accounts [--kind KIND] [--resource RESOURCE]
+	"accounts": `workctl accounts [--kind KIND] [--resource RESOURCE] [--profile NAME] [--check]
 
 List the configured profiles: kind, host, account, bound repos/projects, credential state (never a secret).
 --kind limits the list to profiles of that kind. --resource (owner/name, group/project or a Jira key) shows which
 profile resolves for it (within the kind, if given); it does not filter the list. Use it to pick
---profile when a command says that several profiles match. MCP: accounts.`,
+--profile when a command says that several profiles match. --check fetches Drive account/quota and reports
+errors per profile; without it no Drive network check is made. MCP: accounts.`,
+	"file": `workctl file [--profile NAME] [--repo REPO] [--ref REF] [PATH]
+
+Repository: read PATH at REF. Drive profile: PATH is a file ID (metadata) or folder ID (listing).
+Omit PATH to list --folder ID, profile default folder or root.
+Drive flags: --folder ID (not with PATH), --query TEXT (name contains), --limit 1..1000 (default 30), --page-token TOKEN.
+For bytes or native document exports use api download. MCP: file.`,
 	"pr": `workctl [--profile NAME] pr|mr list|show [flags]
 
   list  [--repo R] [--project P] [--state open|closed|merged|all] [--search TEXT]
   show  [--repo R] [--project P] [--include PARTS] NUMBER
         PARTS is a comma list of files, reviews, reviewers, comments, discussion, checks (GitHub and GitLab); the output
         is then JSON with the same keys as the pr_show tool.
-  common: --provider github|gitlab|azure  --format text|json  --json  (--format raw: provider JSON, show only)
+  common: --provider github|gitlab|azure  --format text|json  --json  (--format raw: keep the provider details, no projection)
 
 MCP: pr_list, pr_show.`,
 	"tools": `workctl tools [--all] [NAME]
@@ -120,6 +130,7 @@ Without COMMAND the list of commands; with COMMAND the help of that command. Als
 
 // cliEquivalent is the CLI command that does what an MCP tool does; tools without one are for agents only.
 var cliEquivalent = map[string]string{
+	"file":     "file",
 	"accounts": "accounts", "request": "api raw", "download": "api download", "upload": "api upload", "api_exec": "api exec",
 	"pr_list": "pr list", "pr_show": "pr show", "task_get_context": "task KEY",
 	"issue_show": "issue show", "issue_update": "issue update|move|close|dup|link", "issue_search": "issue search",

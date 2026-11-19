@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestJSON(t *testing.T) {
@@ -130,5 +131,34 @@ func TestErrorFormats(t *testing.T) {
 	}
 	if got := RawError("GET", "/path", 400, strings.Repeat("x", 1201)); !strings.HasSuffix(got, strings.Repeat("x", 1200)+"...") {
 		t.Fatal("raw error truncation changed")
+	}
+}
+
+func TestRawErrorBodies(t *testing.T) {
+	page := `<!DOCTYPE html><html><head><title>x</title><style>a{}</style></head><body><script>var k="TOKEN"</script><h1>Ticket 5</h1><form><input type="hidden" value="SECRET"></form></body></html>`
+	deep := "<html>" + strings.Repeat("<div>", 600) + "boom"
+	for _, tc := range []struct {
+		name, body string
+		check      func(msg string) bool
+	}{
+		{"html shown as text", page, func(m string) bool {
+			return strings.HasSuffix(m, "HTTP 404: Ticket 5") && !strings.ContainsAny(m, "<>") && !strings.Contains(m, "TOKEN") && !strings.Contains(m, "SECRET")
+		}},
+		{"html that cannot be parsed is not shown", deep, func(m string) bool {
+			return strings.HasSuffix(m, "(HTML error page not shown)")
+		}},
+		{"html text is capped", "<html><body>" + strings.Repeat("a ", 2000) + "</body></html>", func(m string) bool {
+			return strings.HasSuffix(m, "...") && len(m) < 1300
+		}},
+		{"cut keeps multi-byte characters whole", strings.Repeat("x", 1199) + "żż", func(m string) bool {
+			return utf8.ValidString(m) && strings.HasSuffix(m, strings.Repeat("x", 1199)+"...")
+		}},
+		{"json stays as sent", `{"message":"<html>"}`, func(m string) bool { return strings.HasSuffix(m, `{"message":"<html>"}`) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if msg := RawError("GET", "u", 404, tc.body); !tc.check(msg) {
+				t.Fatalf("unexpected message: %q", msg)
+			}
+		})
 	}
 }

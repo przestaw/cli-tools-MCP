@@ -24,9 +24,30 @@ When unsure which account serves a resource, call `accounts` first: it lists the
 - CI: `ci` lists runs/pipelines for a `ref`, shows one `run` (with `include: [jobs]`) or the log of one `job` (GitHub logs arrive as a downloaded file). Files: `file` with `path` and optional `ref`.
 - Issues (Jira Server and Cloud): `issue_show` (with `include: [comments, transitions]`), `issue_search` (JQL). `task_get_context` joins an issue with its branches and merge requests.
 - `cli` runs a module command line (`module`: azure, atlassian, jira; `args` as an array) for anything the tools above do not cover. Consult its help and use only read operations for an inspection; the wrapper is not permission to change configuration or policy.
-- Anything else: `request` (one HTTP request) and `download` (one file to the downloads directory) work with every HTTP profile (github, gitlab, jira, atlassian, api). A relative path gets the API prefix (`repos/o/r/branches`, `projects/1/merge_requests/2/approvals`, `issue/ABC-1/remotelink`), a path starting with `/` is taken from the site root; full URLs are refused. `api_exec` runs allow-listed remote commands of ssh-exec profiles. Do not create a new profile or relax host restrictions as a workaround.
+- Anything else: `request` (one HTTP request) and `download` (one file to the downloads directory) work with every HTTP profile (github, gitlab, jira, atlassian, api). Relative paths use the API base; full URLs must name the configured server or an allowed Google host. `download` additionally accepts known signed storage URLs without sending profile credentials. `api_exec` runs allow-listed remote commands of ssh-exec profiles. Do not create a new profile or relax host restrictions as a workaround.
 
 Start with the exact resource the user named, then read the relevant discussion, reviews or checks. Report current provider state separately from older local notes. A passing check is evidence only for the commit and scenario it ran against.
+
+## Google Drive
+
+For an explicit Drive profile (`gdrive` or a Google preset with Drive access), use `accounts` with `check: true`
+for account/quota, `file` for metadata (file ID) or list/search (folder ID or omitted path, `query`, `limit`,
+`page_token`). Follow `nextPageToken`; do not infer completeness from one page.
+Use `download` for bytes; native documents require `export_mime`. CSV export contains only the first sheet.
+To read a Google Doc as text, export it with `export_mime: text/plain`: the Docs API answer for the same document is about 25 times larger, so keep the API for structure and edits.
+Drive metadata and available MD5 verification accompany downloads. Sheets/Docs reads and approved edits use
+`request`; comments use Drive API. APIs must be enabled and scopes granted; do not retry unchanged 403 errors.
+Full URLs are allowed only for the configured server or Google preset hosts; known signed storage URLs are
+downloaded without profile credentials. Use tool schemas rather than assuming all full URLs are refused.
+
+## Large API responses
+
+Shorten a response before it reaches the context, when the full one is not needed:
+
+- **Older, server-rendered web applications** (dashboards, ticket or build overviews, login pages): call `request` with `output: compact` (CLI: `api raw --output compact`). A 100 KB page becomes about 5 KB of visible text: line breaks at blocks, ` | ` between table cells, no markup, scripts or attributes.
+- **JSON that a server pretty-prints:** `output: compact` removes the whitespace (about 20%), numbers untouched. Most provider APIs already send minified JSON; there it changes nothing. Prefer `pr_list`, `pr_show` and `ci`, which return a short normalized form (`format: raw` for the provider's full data), or the API's own `fields` parameter.
+
+HTML conversion is lossy: attributes are dropped (so link targets, form values and hidden-input values are not in the output), and text of elements with the `hidden` attribute is dropped. Text hidden by CSS stays, and page navigation stays. This is a size reduction, not a way to remove secrets from a page; for sensitive pages use the original response and your own judgement. XML and binary data are never changed. When markup matters (forms, links, exact layout) read the original response. `output: compact` changes only the presentation of a response already received; never replay a write to reformat it.
 
 ## Inspect screenshots and attachments
 
