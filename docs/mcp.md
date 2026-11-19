@@ -20,7 +20,7 @@ Tools (listed only for the backends that are configured; `workctl tools` prints 
 | `pr_list`, `pr_show` | pull/merge requests (GitHub, GitLab, Azure DevOps); `include: [files, reviews, reviewers, comments, discussion, checks]`; files, reviews, comments and discussion are read page by page; a full last page is followed by one empty-page probe; results beyond the local 3000-item limit report possible truncation, not a complete list |
 | `pr_create`, `pr_edit` | create or edit a pull/merge request (write) |
 | `ci` | runs/pipelines for a `ref`, one `run` with `include: [jobs]`, the log of one `job` |
-| `file` | repository file at a ref |
+| `file` | repository file at a ref; explicit Drive profile: file metadata, folder listing or name search, with pagination |
 | `comment` | comment on a pull/merge request (`repo` + `number`) or an issue (`issue`) (write) |
 | `upload` | one local image or video (png, jpg, gif, webp, mp4, mov, webm; up to 100 MB) for a pull request (`repo`, GitHub user attachment on github.com or GitLab upload) or an issue (`issue`, Jira attachment); returns `url` and `markdown` (write) |
 | `batch` | `calls: [{tool, description?, args}, ...]`, 1 to 20 writes run in order; optional per-call explanations in the approval prompt; listed only with `allow_write` |

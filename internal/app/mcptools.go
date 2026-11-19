@@ -26,7 +26,14 @@ func toolAvailable(cfg *config.Config, name string) bool {
 	switch name {
 	case "pr_list", "pr_show":
 		return cfg.Has("github") || cfg.Has("gitlab") || cfg.Has("azure")
-	case "pr_create", "pr_edit", "ci", "file":
+	case "file":
+		for _, p := range cfg.Profiles {
+			if p.HasDrive() {
+				return true
+			}
+		}
+		return cfg.Has("github") || cfg.Has("gitlab")
+	case "pr_create", "pr_edit", "ci":
 		return cfg.Has("github") || cfg.Has("gitlab")
 	case "comment":
 		return cfg.Has("github") || cfg.Has("gitlab") || issue.Available(cfg)
