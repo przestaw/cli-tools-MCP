@@ -2,8 +2,8 @@
 
 Autor: [przestaw](https://github.com/przestaw)
 
-Status (2026-11-17): punkty 1–9 wdrożone. Punkty 8 i 9 weszły do `main` w PR #8, reszta oraz pomoc CLI (`help`, `tools`)
-jest w PR #11. Źródło: raport agenta, który pracował z workctl z linii komend i musiał improwizować. Wszystkie punkty
+Status (2026-11-19): wszystkie 9 punktów wdrożone i na `main`. Punkty 8 i 9 weszły w PR #8, pozostałe oraz pomoc CLI
+(`help`, `tools`) w PR #11. Źródło: raport agenta, który pracował z workctl z linii komend i musiał improwizować. Wszystkie punkty
 sprawdzone ręcznie na profilach GitHub i GitLab (CLI i MCP) oraz testami jednostkowymi.
 
 Zasady: CLI i MCP korzystają z tych samych funkcji (bez drugiej implementacji), kod prosty i bez nowych
