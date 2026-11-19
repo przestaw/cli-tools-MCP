@@ -24,20 +24,23 @@ import (
 
 // AccountEntry is one profile's non-secret summary returned by the accounts MCP tool.
 type AccountEntry struct {
-	Name           string   `json:"name"`
-	Kind           string   `json:"kind"`
-	Host           string   `json:"host,omitempty"`
-	URL            string   `json:"url,omitempty"`
-	Backend        string   `json:"backend"`
-	Auth           string   `json:"auth"`
-	Username       string   `json:"username,omitempty"`
-	ReadOnly       bool     `json:"read_only,omitempty"`
-	Default        bool     `json:"default,omitempty"`
-	DefaultRepo    string   `json:"default_repo,omitempty"`
-	Repos          []string `json:"repos,omitempty"`
-	DefaultProject string   `json:"default_project,omitempty"`
-	Projects       []string `json:"projects,omitempty"`
-	Credential     string   `json:"credential"`
+	Name           string          `json:"name"`
+	Kind           string          `json:"kind"`
+	Host           string          `json:"host,omitempty"`
+	URL            string          `json:"url,omitempty"`
+	Backend        string          `json:"backend"`
+	Auth           string          `json:"auth"`
+	Username       string          `json:"username,omitempty"`
+	ReadOnly       bool            `json:"read_only,omitempty"`
+	Default        bool            `json:"default,omitempty"`
+	DefaultRepo    string          `json:"default_repo,omitempty"`
+	Repos          []string        `json:"repos,omitempty"`
+	DefaultProject string          `json:"default_project,omitempty"`
+	Projects       []string        `json:"projects,omitempty"`
+	Credential     string          `json:"credential"`
+	Drive          *api.DriveAbout `json:"drive,omitempty"`
+	CheckError     string          `json:"check_error,omitempty"`
+	CheckStatus    string          `json:"check_status,omitempty"`
 }
 
 // AccountsReport is the JSON payload returned by the accounts MCP tool.
@@ -88,6 +91,8 @@ func Tools() []mcp.Tool {
 		Description: "List configured workctl profiles with their kind, host, username, optional repos/projects patterns, credential status (never the secret) and write policy, or check which profile resolves for a repository/project/issue key. Optionally bind a repo or project pattern (e.g. 'owner/*' or 'PROJ') to an existing profile.",
 		InputSchema: mcp.ObjSchema(map[string]any{
 			"kind":         mcp.StrProp("Optional provider kind: github, gitlab, jira, azure, atlassian, api. Lists only profiles of this kind, and resolves within the kind when resource is given"),
+			"profile":      mcp.StrProp("Optional exact profile name"),
+			"check":        mcp.BoolProp("Fetch Drive account and storage quota; other profiles are marked not applicable"),
 			"resource":     mcp.StrProp("Optional repository (owner/name), project (group/name) or Jira key (KEY-123) to check which profile resolves for it (resolved_profile or resolution_error); it does not filter the list"),
 			"bind_profile": mcp.StrProp("Optional existing profile name to add bind_repo or bind_project to"),
 			"bind_repo":    mcp.StrProp("Optional repository or prefix pattern (e.g. 'owner/repo' or 'owner/*') to add to bind_profile.repos"),
@@ -101,10 +106,15 @@ func AccountsCommand(cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("accounts", flag.ContinueOnError)
 	kind := fs.String("kind", "", "only profiles of this kind: github, gitlab, jira, azure, atlassian, api")
 	resource := fs.String("resource", "", "repository (owner/name), project or Jira key: show which profile resolves for it")
+	profile := fs.String("profile", cfg.ProfileName(), "only this profile")
+	check := fs.Bool("check", false, "fetch Drive account and quota")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	out, err := CallTool(context.Background(), cfg, "accounts", map[string]any{"kind": *kind, "resource": *resource})
+	if fs.NArg() != 0 {
+		return fmt.Errorf("accounts does not accept positional arguments")
+	}
+	out, err := CallTool(context.Background(), cfg, "accounts", map[string]any{"kind": *kind, "resource": *resource, "profile": *profile, "check": *check})
 	if err != nil {
 		return err
 	}
@@ -112,7 +122,7 @@ func AccountsCommand(cfg *config.Config, args []string) error {
 }
 
 // CallTool runs the accounts MCP tool.
-func CallTool(_ context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
+func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
 	if name != "accounts" {
 		return nil, fmt.Errorf("unknown tool %q", name)
 	}
@@ -121,10 +131,19 @@ func CallTool(_ context.Context, cfg *config.Config, name string, a map[string]a
 	}
 	kind := strings.ToLower(strings.TrimSpace(mcp.ArgString(a, "kind")))
 	resource := strings.TrimSpace(mcp.ArgString(a, "resource"))
+	selected := mcp.ArgString(a, "profile")
+	if selected != "" {
+		if _, ok := cfg.Profiles[selected]; !ok {
+			return nil, fmt.Errorf("profile %q is not configured", selected)
+		}
+	}
 
 	names := make([]string, 0, len(cfg.Profiles))
 	for n, p := range cfg.Profiles {
-		if kind != "" && p.Kind != kind {
+		if selected != "" && n != selected {
+			continue
+		}
+		if kind != "" && p.Kind != kind && (kind != "google" || p.Service == "") {
 			continue
 		}
 		names = append(names, n)
@@ -165,6 +184,18 @@ func CallTool(_ context.Context, cfg *config.Config, name string, a map[string]a
 			Projects:       p.Projects,
 			Credential:     CredentialStatus(cfg, n, p),
 		})
+		if mcp.ArgBool(a, "check") {
+			entry := &entries[len(entries)-1]
+			entry.CheckStatus = "not_applicable"
+			if p.HasDrive() {
+				about, err := checkDriveAccount(ctx, cfg, n, p)
+				if err != nil {
+					entry.CheckStatus, entry.CheckError = "error", err.Error()
+				} else {
+					entry.CheckStatus, entry.Drive = "ok", &about
+				}
+			}
+		}
 	}
 
 	report := AccountsReport{
@@ -172,7 +203,7 @@ func CallTool(_ context.Context, cfg *config.Config, name string, a map[string]a
 		Defaults:   cfg.Defaults,
 		AllowWrite: cfg.Policy.AllowWrite,
 	}
-	if resource != "" || kind != "" {
+	if resource != "" || (kind != "" && kind != "google") {
 		resolved, _, err := cfg.ResolveFor(kind, resource)
 		if err != nil {
 			report.ResolutionError = err.Error()
@@ -181,6 +212,14 @@ func CallTool(_ context.Context, cfg *config.Config, name string, a map[string]a
 		}
 	}
 	return json.MarshalIndent(report, "", "  ")
+}
+
+func checkDriveAccount(ctx context.Context, cfg *config.Config, name string, p config.Profile) (out api.DriveAbout, err error) {
+	err = api.WithProfileClient(ctx, cfg, name, p, func(ctx context.Context, c *api.Client) (err error) {
+		out, err = c.DriveAbout(ctx)
+		return err
+	})
+	return out, err
 }
 
 func profileHost(p config.Profile) string {

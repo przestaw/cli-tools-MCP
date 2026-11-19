@@ -373,3 +373,27 @@ func TestAccountsFiltersTheListByKindAndResolvesIndependently(t *testing.T) {
 		})
 	}
 }
+
+// Google profiles are kind api with a service preset; --kind google must still list them.
+func TestAccountsKindGoogleListsTheGoogleProfiles(t *testing.T) {
+	cfg := config.Default()
+	cfg.Profiles = map[string]config.Profile{
+		"gdrive": {Kind: "api", Service: "drive", URL: "https://www.googleapis.com/drive/v3", Auth: "oauth2"},
+		"misc":   {Kind: "api", URL: "https://svc.example", TokenEnv: "T"},
+		"gh":     {Kind: "github", URL: "https://api.github.com", TokenEnv: "T"},
+	}
+	out, err := CallTool(context.Background(), cfg, "accounts", map[string]any{"kind": "google"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep AccountsReport
+	if err := json.Unmarshal(out, &rep); err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Profiles) != 1 || rep.Profiles[0].Name != "gdrive" {
+		t.Fatalf("kind google lists %+v, want only gdrive", rep.Profiles)
+	}
+	if rep.ResolutionError != "" || rep.ResolvedProfile != "" {
+		t.Fatalf("kind google must not try to resolve: %+v", rep)
+	}
+}

@@ -8,11 +8,16 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"gopkg.in/yaml.v3"
 
 	"workctl/internal/config"
 	"workctl/internal/testutil"
@@ -111,5 +116,102 @@ func TestInstallerCopiesTheSkillThatExists(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "plugins/workctl/skills/workctl/SKILL.md") {
 		t.Error("scripts/install.py does not copy plugins/workctl/skills/workctl/SKILL.md")
+	}
+}
+
+func TestSkillFrontMatter(t *testing.T) {
+	root := testutil.RepoRoot(t)
+	files, err := filepath.Glob(filepath.Join(root, "plugins/workctl/skills/*/SKILL.md"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no skills found: %v", err)
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := checkSkillFrontMatter(string(b), filepath.Base(filepath.Dir(f))); err != nil {
+			t.Errorf("%s: %v", f, err)
+		}
+	}
+}
+
+var skillNameRe = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
+
+// checkSkillFrontMatter parses the YAML front matter of a SKILL.md and checks the values, not their quoting.
+func checkSkillFrontMatter(doc, dir string) error {
+	lines := strings.Split(strings.ReplaceAll(doc, "\r\n", "\n"), "\n")
+	if len(lines) == 0 || lines[0] != "---" {
+		return errors.New("missing front matter")
+	}
+	end := -1
+	for i := 1; i < len(lines); i++ {
+		if lines[i] == "---" {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return errors.New("unterminated front matter")
+	}
+	var fm struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}
+	if err := yaml.Unmarshal([]byte(strings.Join(lines[1:end], "\n")), &fm); err != nil {
+		return fmt.Errorf("front matter is not valid YAML: %w", err)
+	}
+	if fm.Name != dir {
+		return fmt.Errorf("name %q must equal the directory %q", fm.Name, dir)
+	}
+	if !skillNameRe.MatchString(fm.Name) {
+		return fmt.Errorf("name %q must be 1-64 lowercase letters, digits and hyphens", fm.Name)
+	}
+	if n := utf8.RuneCountInString(fm.Description); n == 0 || n > 1024 {
+		return fmt.Errorf("description must be 1-1024 characters, has %d", n)
+	}
+	return nil
+}
+
+func TestCheckSkillFrontMatter(t *testing.T) {
+	fm := func(name, desc string) string {
+		return "---\nname: " + name + "\ndescription: " + desc + "\n---\nbody\n"
+	}
+	pl := strings.Repeat("ł", 1024)
+	cases := []struct {
+		name, doc, dir string
+		ok             bool
+	}{
+		{"single quoted", fm("workctl", "'Use it. It''s fine.'"), "workctl", true},
+		{"double quoted with escaped quote", fm("workctl", `"Say \"hi\" here"`), "workctl", true},
+		{"plain scalar", fm("workctl", "Plain text description"), "workctl", true},
+		{"folded block", "---\nname: workctl\ndescription: >\n  first line\n  second line\n---\n", "workctl", true},
+		{"1024 characters over 1024 bytes", fm("workctl", "'"+pl+"'"), "workctl", true},
+		{"1025 characters", fm("workctl", "'"+pl+"x'"), "workctl", false},
+		{"missing front matter", "# Title\n", "workctl", false},
+		{"missing name", "---\ndescription: text\n---\n", "workctl", false},
+		{"name differs from directory", fm("other", "text"), "workctl", false},
+		{"uppercase in name", fm("Workctl", "text"), "Workctl", false},
+		{"space in name", fm("'work ctl'", "text"), "work ctl", false},
+		{"empty description", fm("workctl", "''"), "workctl", false},
+		{"unbalanced quote", fm("workctl", "'unclosed"), "workctl", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := checkSkillFrontMatter(c.doc, c.dir); (err == nil) != c.ok {
+				t.Errorf("err = %v, want ok=%v", err, c.ok)
+			}
+		})
+	}
+}
+
+func TestVersionsAgree(t *testing.T) {
+	root := testutil.RepoRoot(t)
+	b, err := os.ReadFile(filepath.Join(root, "internal/api/client.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"User-Agent", "workctl/`+Version+`"`) {
+		t.Errorf("the User-Agent in internal/api/client.go must be workctl/%s", Version)
 	}
 }

@@ -100,7 +100,7 @@ func Tools() []mcp.Tool {
 		Name:        "download",
 		Description: "Download one file through a configured profile without changing a byte (attachments, logs, artifacts, archives). Streams it to a new file in the workctl downloads directory and returns its path, size, SHA-256, content type, the server's file name and a warning when an HTML page came instead. Redirects to known storage hosts (GitHub Actions logs, release assets) are followed without the credential.",
 		InputSchema: mcp.ObjSchema(map[string]any{"path": mcp.StrProp("Path as for request, or a signed https URL on a storage host (e.g. a private-user-images.githubusercontent.com link from body_html), fetched without the credential"),
-			"query": query, "filename": mcp.StrProp("File name to keep (default: the server's or the path's); directories are dropped"), "profile": profile}, "path"),
+			"query": query, "export_mime": mcp.StrProp("Drive native document export MIME type; required for native documents"), "filename": mcp.StrProp("File name to keep (default: the server's or the path's); directories are dropped"), "profile": profile}, "path"),
 	}, {
 		Name:        "api_exec",
 		Description: "Run one remote command of an ssh-exec api profile. Only commands allowed by the profile run; those not marked read_only need policy.allow_write=true.",
@@ -158,7 +158,7 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 		if err != nil {
 			return nil, err
 		}
-		return download(ctx, c, mcp.ArgString(a, "path"), query, "", mcp.ArgString(a, "filename"))
+		return download(ctx, c, mcp.ArgString(a, "path"), query, "", mcp.ArgString(a, "filename"), mcp.ArgString(a, "export_mime"))
 	case "api_exec":
 		cfg, err := cfg.Scoped(mcp.ArgString(a, "profile"), Kind)
 		if err != nil {

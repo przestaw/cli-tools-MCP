@@ -23,7 +23,7 @@ omission keeps the response as received. XML stays unchanged. See [compaction an
 | `pr_list`, `pr_show` | pull/merge requests (GitHub, GitLab, Azure DevOps); `include: [files, reviews, reviewers, comments, discussion, checks]`; files, reviews, comments and discussion are read page by page; a full last page is followed by one empty-page probe; results beyond the local 3000-item limit report possible truncation, not a complete list |
 | `pr_create`, `pr_edit` | create or edit a pull/merge request (write) |
 | `ci` | runs/pipelines for a `ref`, one `run` with `include: [jobs]`, the log of one `job` |
-| `file` | repository file at a ref |
+| `file` | repository file at a ref; explicit Drive profile: file metadata, folder listing or name search, with pagination |
 | `comment` | comment on a pull/merge request (`repo` + `number`) or an issue (`issue`) (write) |
 | `upload` | one local image or video (png, jpg, gif, webp, mp4, mov, webm; up to 100 MB) for a pull request (`repo`, GitHub user attachment on github.com or GitLab upload) or an issue (`issue`, Jira attachment); returns `url` and `markdown` (write) |
 | `batch` | `calls: [{tool, description?, args}, ...]`, 1 to 20 writes run in order; optional per-call explanations in the approval prompt; listed only with `allow_write` |
@@ -47,6 +47,12 @@ GitHub and GitLab, with the web URL); `format: "raw"` returns the provider JSON.
 attachments) and never sends the credential there; an HTML answer instead of the file is flagged. In `cli`,
 `atlassian attachment download` and `page attachment-download` are reads that save into the downloads directory.
 Each `cli` call runs as a child process of workctl with its own timeout (`timeouts.<module>`, else `modules.timeout_seconds`).
+
+Some clients declare the `elicitation` capability but answer every request at once without showing a prompt (reported
+for Claude Code in the VS Code extension, whose own "Allow" dialogs are separate). The write is then refused with
+`the user declined ... (the client declined the prompt; it answered in 2ms, so no person was asked ...)`. That is the
+client's behaviour, not a decision of the user. With such a client keep `confirm_writes` and `confirm_session_writes`
+off and rely on the client's own permission prompt, or use a second config file for it (`WORKCTL_CONFIG`).
 
 Confirmation defaults to off. For a single high-risk operation pass `confirm: true` to a write or to `batch`; it asks
 for detailed approval even after session approval. `confirm: false` cannot disable policy confirmation. A batch item
