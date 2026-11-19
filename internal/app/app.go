@@ -48,6 +48,7 @@ Usage:
   workctl [--config FILE] pr|mr list|show ...    provider-neutral pull/merge requests (show --include comments,checks,...)
   workctl [--config FILE] issue|i ...  provider-neutral issues (Jira Server and Cloud)
   workctl [--config FILE] task ISSUE-KEY
+  workctl skills status|install [--target vscode|claude|codex|all] [--with compact-output] [--dry-run] [--check]   agent skills
   workctl [--config FILE] tools [--all] [NAME]   the MCP tools, with the CLI command that does the same
   workctl [--config FILE] mcp
   workctl [--profile NAME] git-credential get   git credential helper (profile from --profile, else from host and repository path)
@@ -130,7 +131,7 @@ func run(args []string) error {
 
 func commandHandlers() map[string]func(*config.Config, []string) error {
 	handlers := map[string]func(*config.Config, []string) error{
-		"accounts": auth.AccountsCommand, "tools": toolsCommand, "file": pr.FileCommand,
+		"accounts": auth.AccountsCommand, "skills": skillsCommand, "tools": toolsCommand, "file": pr.FileCommand,
 		"doctor": func(cfg *config.Config, _ []string) error { return doctorCommand(cfg) },
 		"jira":   jira.Command, "gitlab": gitlab.Command, "github": github.Command, "api": generic.Command,
 		"pr": pr.Command, "mr": pr.Command, "task": taskCommand, "issue": issue.Command,
