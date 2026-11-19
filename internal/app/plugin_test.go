@@ -104,6 +104,30 @@ func TestSkillNamesOnlyExistingMCPTools(t *testing.T) {
 	}
 }
 
+func TestSkillHasNoOverlappingSections(t *testing.T) {
+	root := testutil.RepoRoot(t)
+	b, err := os.ReadFile(filepath.Join(root, "plugins/workctl/skills/workctl/SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		words := strings.Fields(strings.TrimPrefix(line, "## "))
+		if len(words) > 2 {
+			words = words[:2]
+		}
+		key := strings.ToLower(strings.Trim(strings.Join(words, " "), ",.:;"))
+		key = strings.ReplaceAll(key, ",", "")
+		if first, ok := seen[key]; ok {
+			t.Errorf("sections %q and %q overlap; merge them", first, line)
+		}
+		seen[key] = line
+	}
+}
+
 func TestInstallerCopiesTheSkillThatExists(t *testing.T) {
 	root := testutil.RepoRoot(t)
 	skill := filepath.Join(root, "plugins/workctl/skills/workctl/SKILL.md")
