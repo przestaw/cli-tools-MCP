@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
 	"workctl/internal/config"
+	"workctl/internal/issue"
 	"workctl/internal/mcp"
+	"workctl/internal/modules"
 )
 
 // commandHelp is the text of `workctl help COMMAND` and `workctl COMMAND --help`. Flags of the leaf commands
@@ -43,7 +46,8 @@ Per-command flags: workctl api raw -h`,
 	"accounts": `workctl accounts [--kind KIND] [--resource RESOURCE] [--profile NAME] [--check]
 
 List the configured profiles: kind, host, account, bound repos/projects, credential state (never a secret).
-With --resource (owner/name, group/project or a Jira key) it shows which profile resolves for it. Use it to pick
+--kind limits the list to profiles of that kind. --resource (owner/name, group/project or a Jira key) shows which
+profile resolves for it (within the kind, if given); it does not filter the list. Use it to pick
 --profile when a command says that several profiles match. --check fetches Drive account/quota and reports
 errors per profile; without it no Drive network check is made. MCP: accounts.`,
 	"file": `workctl file [--profile NAME] [--repo REPO] [--ref REF] [PATH]
@@ -74,6 +78,51 @@ path  print the path of the configuration file.`,
 
 Check every profile (and the azure and atlassian modules). A failed profile carries a "code": dns, timeout, tls,
 refused, unauthorized, forbidden or other, next to the error text. Exit code 1 when a profile failed.`,
+	"init": `workctl [--config FILE] init [module...]   (alias: setup)
+
+Guided setup of the configuration file. Without arguments it asks for each service in turn (jira, gitlab, github,
+azure, atlassian) and for policy.allow_write; with module names it sets up only those. Tokens go to the OS keyring,
+never to the config file. Non-interactive form per endpoint: workctl github|gitlab|jira init [--profile NAME] [--url U]
+[--auth SCHEME] [--user U] [--backend native|cli] [--token-stdin] [--non-interactive].`,
+	"auth": `workctl [--config FILE] auth login|set-token|status|logout|setup-git [flags]
+
+  login      [--profile NAME] [--no-browser]   OAuth 2.0 loopback login, or the gh/glab login of a cli profile
+  set-token  [--profile NAME] [--stdin]        store the token of a profile in the OS keyring
+  status     [--profile NAME]                  credential state of the profiles (never the secret)
+  logout     [--profile NAME]                  remove the stored credential
+  setup-git  [--dry-run]                       point git at workctl as the credential helper for the profile hosts`,
+	"jira": `workctl [--profile NAME] jira COMMAND [flags]
+
+Jira Server/Data Center REST: issue, search, comments, transitions, transition, comment, myself, server-info, raw,
+and init (profile setup: workctl jira init). Output is the JSON of the server. Writes need policy.allow_write.
+For provider-neutral issue work use: workctl help issue.`,
+	"gitlab": `workctl [--profile NAME] gitlab COMMAND [flags]
+
+GitLab REST: project, mr, pipelines, pipeline, job, branches, file, raw, and init (profile setup: workctl gitlab init).
+Output is the JSON of the server. Writes need policy.allow_write. For merge requests see also: workctl help pr.`,
+	"github": `workctl [--profile NAME] github COMMAND [flags]
+
+GitHub REST: repo, pr, branches, runs, run, file, raw, and init (profile setup: workctl github init). Most commands
+take --repo owner/name (else the profile's default repo). Output is the JSON of the server. Writes need
+policy.allow_write. For pull requests see also: workctl help pr.`,
+	"issue": issue.Usage,
+	"task": `workctl task ISSUE-KEY
+
+One JSON document: the Jira issue plus the branches and merge requests that mention its key in the configured
+GitLab projects. MCP: task_get_context.`,
+	"mcp": `workctl [--config FILE] mcp
+
+Run the MCP server on stdin/stdout (JSON-RPC). Started by an agent, not by hand; see workctl tools for what it offers.`,
+	"git-credential": `workctl [--profile NAME] git-credential get
+
+Git credential helper: reads git's key=value request on stdin and answers with the token of the profile for the host
+(and repository path). It stays silent when no profile matches. Set it up with: workctl auth setup-git.`,
+	"version": `workctl version
+
+Print the version of the binary.`,
+	"help": `workctl help [COMMAND]
+
+Without COMMAND the list of commands; with COMMAND the help of that command. Also: workctl COMMAND --help.`,
 }
 
 // cliEquivalent is the CLI command that does what an MCP tool does; tools without one are for agents only.
@@ -90,16 +139,35 @@ func helpWanted(args []string) bool {
 	return len(args) > 0 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help")
 }
 
-// printCommandHelp writes the help of a command; it reports false when the command has none of its own.
+// canonicalCommand maps the aliases (mr, ado, atl, i, setup) to the command they name.
+func canonicalCommand(name string) string {
+	if full := modules.Aliases[name]; full != "" {
+		return full
+	}
+	switch name {
+	case "mr":
+		return "pr"
+	case "i":
+		return "issue"
+	case "setup":
+		return "init"
+	}
+	return name
+}
+
+// printCommandHelp writes the help of a command; it reports false when the name is not a command. The cobra
+// module trees print their own help (to stdout, side effect free).
 func printCommandHelp(w io.Writer, command string) bool {
-	if command == "mr" {
-		command = "pr"
-	}
-	text, ok := commandHelp[command]
-	if ok {
+	command = canonicalCommand(command)
+	if text, ok := commandHelp[command]; ok {
 		fmt.Fprintln(w, text)
+		return true
 	}
-	return ok
+	if desc, ok := plannedModules[command]; ok {
+		fmt.Fprintf(w, "workctl %s\n\nReserved for %s. Not implemented yet.\n", command, desc)
+		return true
+	}
+	return slices.Contains(modules.Names(), command) && modules.Command(config.Default(), command, []string{"--help"}) == nil
 }
 
 // toolsCommand is `workctl tools [--all] [NAME]`.

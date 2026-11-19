@@ -90,10 +90,10 @@ func Tools() []mcp.Tool {
 		Name:        "accounts",
 		Description: "List configured workctl profiles with their kind, host, username, optional repos/projects patterns, credential status (never the secret) and write policy, or check which profile resolves for a repository/project/issue key. Optionally bind a repo or project pattern (e.g. 'owner/*' or 'PROJ') to an existing profile.",
 		InputSchema: mcp.ObjSchema(map[string]any{
-			"kind":         mcp.StrProp("Optional provider kind filter or resolution hint: github, gitlab, jira, azure, atlassian, api"),
+			"kind":         mcp.StrProp("Optional provider kind: github, gitlab, jira, azure, atlassian, api. Lists only profiles of this kind, and resolves within the kind when resource is given"),
 			"profile":      mcp.StrProp("Optional exact profile name"),
 			"check":        mcp.BoolProp("Fetch Drive account and storage quota; other profiles are marked not applicable"),
-			"resource":     mcp.StrProp("Optional repository (owner/name), project (group/name) or Jira key (KEY-123) to check which profile resolves for it"),
+			"resource":     mcp.StrProp("Optional repository (owner/name), project (group/name) or Jira key (KEY-123) to check which profile resolves for it (resolved_profile or resolution_error); it does not filter the list"),
 			"bind_profile": mcp.StrProp("Optional existing profile name to add bind_repo or bind_project to"),
 			"bind_repo":    mcp.StrProp("Optional repository or prefix pattern (e.g. 'owner/repo' or 'owner/*') to add to bind_profile.repos"),
 			"bind_project": mcp.StrProp("Optional project or prefix pattern (e.g. 'group/*' or 'PROJ') to add to bind_profile.projects"),
@@ -143,7 +143,7 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 		if selected != "" && n != selected {
 			continue
 		}
-		if kind != "" && resource == "" && p.Kind != kind && (kind != "google" || p.Service == "") {
+		if kind != "" && p.Kind != kind && (kind != "google" || p.Service == "") {
 			continue
 		}
 		names = append(names, n)

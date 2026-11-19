@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -320,5 +321,79 @@ func TestSetTokenKeepsTheOldTokenWhenTheNewOneIsAnotherAccounts(t *testing.T) {
 	}
 	if val, _ := config.TokenStore.Get(account); val != "old-token" {
 		t.Fatalf("token in keyring = %q, want the old one", val)
+	}
+}
+
+func TestAccountsFiltersTheListByKindAndResolvesIndependently(t *testing.T) {
+	cfg := config.Default()
+	cfg.Profiles = map[string]config.Profile{
+		"gh":   {Kind: "github", URL: "https://api.github.com", TokenEnv: "T", Repos: []string{"owner/*"}},
+		"gl":   {Kind: "gitlab", URL: "https://gitlab.example/api/v4", TokenEnv: "T", Repos: []string{"group/*"}},
+		"jira": {Kind: "jira", URL: "https://jira.example", TokenEnv: "T", Projects: []string{"PROJ"}},
+		"misc": {Kind: "api", URL: "https://svc.example", TokenEnv: "T"},
+	}
+	cfg.Defaults = map[string]string{"github": "gh", "gitlab": "gl", "jira": "jira", "api": "misc"}
+	cases := []struct {
+		name, kind, resource string
+		kinds                []string
+		resolved             string
+		wantError            bool
+	}{
+		{"kind only", "github", "", []string{"github"}, "gh", false},
+		{"resource only lists everything", "", "owner/repo", []string{"api", "github", "gitlab", "jira"}, "gh", false},
+		{"kind and resource", "github", "owner/repo", []string{"github"}, "gh", false},
+		{"unknown kind", "nonsense", "", nil, "", true},
+		{"resource bound to another kind falls back to the kind's default", "gitlab", "owner/repo", []string{"gitlab"}, "gl", false},
+		{"kind without profiles", "azure", "owner/repo", nil, "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out, err := CallTool(context.Background(), cfg, "accounts", map[string]any{"kind": c.kind, "resource": c.resource})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var rep AccountsReport
+			if err := json.Unmarshal(out, &rep); err != nil {
+				t.Fatal(err)
+			}
+			var kinds []string
+			for _, p := range rep.Profiles {
+				kinds = append(kinds, p.Kind)
+			}
+			sort.Strings(kinds)
+			if strings.Join(kinds, ",") != strings.Join(c.kinds, ",") {
+				t.Errorf("profile kinds %v, want %v", kinds, c.kinds)
+			}
+			if rep.ResolvedProfile != c.resolved {
+				t.Errorf("resolved %q, want %q", rep.ResolvedProfile, c.resolved)
+			}
+			if (rep.ResolutionError != "") != c.wantError {
+				t.Errorf("resolution_error %q, want error=%v", rep.ResolutionError, c.wantError)
+			}
+		})
+	}
+}
+
+// Google profiles are kind api with a service preset; --kind google must still list them.
+func TestAccountsKindGoogleListsTheGoogleProfiles(t *testing.T) {
+	cfg := config.Default()
+	cfg.Profiles = map[string]config.Profile{
+		"gdrive": {Kind: "api", Service: "drive", URL: "https://www.googleapis.com/drive/v3", Auth: "oauth2"},
+		"misc":   {Kind: "api", URL: "https://svc.example", TokenEnv: "T"},
+		"gh":     {Kind: "github", URL: "https://api.github.com", TokenEnv: "T"},
+	}
+	out, err := CallTool(context.Background(), cfg, "accounts", map[string]any{"kind": "google"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep AccountsReport
+	if err := json.Unmarshal(out, &rep); err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Profiles) != 1 || rep.Profiles[0].Name != "gdrive" {
+		t.Fatalf("kind google lists %+v, want only gdrive", rep.Profiles)
+	}
+	if rep.ResolutionError != "" || rep.ResolvedProfile != "" {
+		t.Fatalf("kind google must not try to resolve: %+v", rep)
 	}
 }

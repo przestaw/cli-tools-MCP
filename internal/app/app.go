@@ -56,7 +56,7 @@ Global:
   --config FILE     config path (or WORKCTL_CONFIG)
   --profile NAME    use this profile instead of defaults.<kind> for its kind
 
-Help: workctl help COMMAND (api, accounts, pr, tools, config, doctor), workctl COMMAND --help, flags of a leaf command with -h.
+Help: workctl help COMMAND (any command above), workctl COMMAND --help, flags of a leaf command with -h.
 Examples: docs/cli.md.
 `, Version)
 }
@@ -86,23 +86,20 @@ func run(args []string) error {
 		usage()
 		return nil
 	}
-	cmd := modules.Aliases[rest[0]]
-	if cmd == "" {
-		cmd = rest[0]
-	}
-	if cmd == "i" {
-		cmd = "issue"
-	}
+	cmd := canonicalCommand(rest[0])
 	rest = rest[1:]
 	if helpWanted(rest) && printCommandHelp(os.Stdout, cmd) {
 		return nil
 	}
 	switch cmd {
 	case "help", "-h", "--help":
-		if len(rest) > 0 && printCommandHelp(os.Stdout, rest[0]) {
+		if len(rest) == 0 || helpWanted(rest[:1]) {
+			usage()
 			return nil
 		}
-		usage()
+		if !printCommandHelp(os.Stdout, rest[0]) {
+			return fmt.Errorf("unknown command %q (see: workctl help)", rest[0])
+		}
 		return nil
 	case "version":
 		fmt.Println(Version)
