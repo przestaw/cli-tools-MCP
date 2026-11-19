@@ -2,10 +2,21 @@
 
 Autor: [przestaw](https://github.com/przestaw)
 
-Status (2026-11-17): częściowo zrobione na gałęzi `feat/simplify-core` (na bazie PR #11, niewypchnięta). Zrobione:
-tabela kind-ów, `FetchRequest`, `DoBody` (bez adaptera `BodyOnly`), wspólny wybór profilu, podział `MatchResource`,
-`StatusOf`/`IsStatus` w obsłudze błędów (csrf, formlogin), `Client.Get` zamiast trzech wrapperów `get`,
-`slices.Sorted(maps.Keys)` i `doctorCheckAPI`; wszystkie z testami. Reszta listy poniżej czeka.
+Status (2026-11-19): częściowo zrobione, na `main` w PR #16. Sześć refaktorów z pierwszej listy: tabela kind-ów (M1),
+`FetchRequest` (Q4), `DoBody` bez adaptera `BodyOnly` (Q5), wspólny wybór profilu (M2), podział `MatchResource` (M3)
+i `StatusOf`/`IsStatus` w obsłudze błędów (M6). Dodatkowo `Client.Get` zamiast trzech wrapperów `get`, pomocnik
+posortowanych kluczy (`slices.Sorted(maps.Keys)`) i podział `doctorCheckAPI`.
+
+Reszta listy, sprawdzona w kodzie 2026-11-19:
+
+- zrobione: Q1 (`cliutil.OpenURL`), Q2 (`cliutil.FirstNonEmpty`), Q3 (`pr.go` ustawia `format` tylko dla `raw`
+  i nie nadpisuje argumentu MCP), Q6 (tabele `toolCalls` w `github` i `gitlab`), M7 (azure i atlassian używają
+  `internal/secret`);
+- otwarte: Q7 (`context.Background()` w wielu komendach), M4 (download i `StreamReader` mają osobne ścieżki),
+  M5 (brak generycznej funkcji stronicowania; pętle w `issue/command.go` i `atlassian/client/search.go`),
+  M8 (`map[string]any` w `github/tools.go`, `gitlab/tools.go`, `pr/pr.go`).
+
+Tekst tabel poniżej jest zapisem z chwili planowania.
 
 Cel: kod prosty, DRY i ze wspólnymi backendami; dobry do nauki zaawansowanego Go, bez frameworków
 „na zapas”. Każda zmiana nie zmienia zachowania i przechodzi `go build`, `go vet`, `go test -race` oraz `golangci-lint`.
