@@ -20,7 +20,8 @@ import (
 	"workctl/internal/prompt"
 )
 
-const usage = `issue commands (alias: i):
+// Usage is the help text of `workctl issue`.
+const Usage = `issue commands (alias: i):
   issue [show] KEY [--include comments,transitions] [--json|--raw]
   issue search|find [--max N] [--start N] [--page-token T] [--json] JQL
   issue update KEY [--transition T] [--resolve] [--resolution R] [--fix V,..] [--assignee U] [--comment TEXT] [--link TYPE=KEY]
@@ -38,7 +39,7 @@ var (
 // Command runs `workctl issue ...`.
 func Command(cfg *config.Config, args []string) (resultErr error) {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
-		_, err := fmt.Fprintln(out, usage)
+		_, err := fmt.Fprintln(out, Usage)
 		return err
 	}
 	sub := args[0]
@@ -63,7 +64,7 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 	)
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
-		return fmt.Errorf("%w\n%s", err, usage)
+		return fmt.Errorf("%w\n%s", err, Usage)
 	}
 	need := func(n int, form string) error {
 		if len(pos) != n {
