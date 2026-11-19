@@ -11,6 +11,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 // confirmServer has one tool that asks the user before it answers "done".
@@ -106,5 +107,29 @@ func TestCancelledCallCannotReuseSessionApproval(t *testing.T) {
 		if err := ConfirmSession(ctx, "Approve?"); !errors.Is(err, context.Canceled) {
 			t.Fatalf("approved=%v: got %v, want cancellation", approved, err)
 		}
+	}
+}
+
+func TestDeclinedAnswerSaysWhatTheClientDid(t *testing.T) {
+	for _, tc := range []struct {
+		answer string
+		want   string
+	}{
+		{`{"action":"decline"}`, "the client declined the prompt"},
+		{`{"action":"cancel"}`, "cancelled the prompt"},
+		{`{"action":"accept"}`, "without the approval field"},
+		{`{"action":"accept","content":{"approve":false}}`, "approval switched off"},
+	} {
+		text, _ := converse(t, true, tc.answer)
+		if !strings.Contains(text, "do not retry without asking") || !strings.Contains(text, tc.want) {
+			t.Errorf("%s: text=%q, want it to name %q and keep the do-not-retry rule", tc.answer, text, tc.want)
+		}
+		if !strings.Contains(text, "no person was asked") {
+			t.Errorf("%s: an instant answer must be flagged as automatic: %q", tc.answer, text)
+		}
+	}
+	slow := declinedBy("decline", true, 3*time.Second)
+	if !errors.Is(slow, ErrDeclined) || strings.Contains(slow.Error(), "no person was asked") {
+		t.Fatalf("a slow answer is a person's: %v", slow)
 	}
 }
