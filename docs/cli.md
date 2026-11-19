@@ -77,7 +77,7 @@ When a command says that several profiles match, run `workctl accounts` and pass
 replaces OAuth client ids, `token_env`, `auth_header` and form-login field values with `***`.
 
 `workctl pr show --include comments,checks NUMBER` (also `mr show`) returns the same parts as the `pr_show` tool:
-`files`, `reviews`, `reviewers`, `comments`, `discussion`, `checks`; `--format raw` gives the provider JSON.
+`files`, `reviews`, `reviewers`, `comments`, `discussion`, `checks`; `--format raw` gives the provider JSON. `pr list|show --format compact` prints the same compact JSON as the MCP tools (the CLI default stays `text`).
 
 ## GitHub
 

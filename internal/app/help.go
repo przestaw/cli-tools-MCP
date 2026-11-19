@@ -65,7 +65,8 @@ For bytes or native document exports use api download. MCP: file.`,
   show  [--repo R] [--project P] [--include PARTS] NUMBER
         PARTS is a comma list of files, reviews, reviewers, comments, discussion, checks (GitHub and GitLab); the output
         is then JSON with the same keys as the pr_show tool.
-  common: --provider github|gitlab|azure  --format text|json  --json  (--format raw: keep the provider details, no projection)
+  common: --provider github|gitlab|azure  --format text|json|compact|raw  --json
+          (default text; compact = the JSON of the pr_list/pr_show tools, details compacted; raw: keep the provider details, no projection)
 
 MCP: pr_list, pr_show.`,
 	"tools": `workctl tools [--all] [NAME]

@@ -41,7 +41,7 @@ first session prompt includes its known writes. A client that cannot ask refuses
 and commands typed in a terminal are not asked about. Only calls known to read skip the question, so a tool is asked
 about until it is classified; the question shows long values shortened, with their full length. A call the client cancels
 (`notifications/cancelled`) stops, also while it waits for the answer. Repository tools answer in a compact shape (the same fields for
-GitHub and GitLab, with the web URL); `format: "raw"` returns the provider JSON. Only the tools above exist: the provider-specific `github_*`, `gitlab_*`,
+GitHub and GitLab, with the web URL); `format: "compact"` is the default (also accepted explicitly) and `format: "raw"` returns the provider JSON. Only the tools above exist: the provider-specific `github_*`, `gitlab_*`,
 `jira_*`, `api_request`, `api_download`, `azure` and `atlassian` tools were removed in 0.4.3.
 `download` follows redirects only to known storage hosts (GitHub Actions logs and artifacts, release assets, user
 attachments) and never sends the credential there; an HTML answer instead of the file is flagged. In `cli`,
