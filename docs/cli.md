@@ -59,7 +59,7 @@ are mutually exclusive. `confirm: true` still requests detailed approval for tha
 
 ```sh
 workctl help                  # all commands
-workctl help api              # also: workctl api --help; topics: api, accounts, pr (mr), tools, config, doctor
+workctl help api              # also: workctl api --help; every command has help (auth, github, mcp, azure, ...); an unknown name fails with exit 1
 workctl api raw -h            # flags of one leaf command (exit code 0)
 workctl accounts              # profiles, kind, account, bound repos; --kind K lists only that kind; --resource owner/repo shows which one serves it
 workctl tools                 # MCP tools of the configured backends with the CLI command that does the same
