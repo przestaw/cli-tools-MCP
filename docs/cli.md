@@ -64,12 +64,20 @@ are mutually exclusive. `confirm: true` still requests detailed approval for tha
 
 ```sh
 workctl help                  # all commands
-workctl help api              # also: workctl api --help; every command has help (auth, github, mcp, azure, ...); an unknown name fails with exit 1
+workctl help api              # also: workctl api --help; every command has help (auth, github, mcp, azure, skills, ...); an unknown name fails with exit 1
 workctl api raw -h            # flags of one leaf command (exit code 0)
 workctl accounts              # profiles, kind, account, bound repos; --kind K lists only that kind; --resource owner/repo shows which one serves it
 workctl tools                 # MCP tools of the configured backends with the CLI command that does the same
 workctl tools --all           # every tool; workctl tools pr_show prints its parameters
+workctl skills status         # are the agent skills installed and current? (CLI only, no MCP tool)
+workctl skills install --target all   # copy the skills embedded in the binary; --with compact-output adds that one
 ```
+
+`workctl skills status|install [--target vscode|claude|codex|all] [--with compact-output] [--dry-run] [--check]` prints one
+line per target and skill (`missing`, `current` or `differs`, and the path). `--check` makes `status` exit 1 when a
+selected skill is missing or differs. `install` writes only the files of the embedded skills (atomically, deleting nothing)
+and leaves current files alone; `--dry-run` writes nothing. Targets: `~/.copilot/skills` (vscode), `~/.claude/skills`
+(claude), `$CODEX_HOME` or `~/.codex`, then `skills` (codex).
 
 When a command says that several profiles match, run `workctl accounts` and pass `--profile NAME`. An explicit
 `--profile` is never replaced by a default: a missing or unusable profile is an error. `workctl doctor` adds a `code`

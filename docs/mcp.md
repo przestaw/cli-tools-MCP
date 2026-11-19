@@ -125,8 +125,17 @@ python3 scripts/install.py --all      # or any of --vscode --claude --codex --gi
 | `--vscode` | server in the user `mcp.json` of VS Code, Insiders and VSCodium; skill in `~/.copilot/skills` |
 | `--claude` | server in Claude Code (user scope); skill in `~/.claude/skills` |
 | `--codex` | server in Codex; skill in `~/.codex/skills` |
+| `--with-compact-output` | also installs the optional `compact-output` skill (with any of the agent flags) |
+| `--skills-only` | only refreshes the skills of the selected agents; uses the `workctl` on `PATH` or in the install directory and builds only when there is none |
 | `--gitkraken` | GitKraken MCP (shipped with GitLens) in Claude Code and Codex, read-only while workctl writes are off; VS Code gets it from GitLens |
 
-It also migrates keyring entries of the v2 release. A server already registered as `workctl` is left as it is. Claude Code
+The skills are copied by the built binary (`workctl skills install --target vscode|claude|codex|all`, see [cli.md](cli.md)):
+only the files of the embedded skills are written, nothing else in the skills directories is touched, and
+`workctl skills status` or `workctl doctor` tell whether an installed copy is current. Do not install the skill both
+through the Claude Code plugin and through the installer: Claude Code would see two skills named `workctl`;
+`workctl skills status` warns when it finds both.
+
+It also migrates keyring entries of the v2 release. A server already registered as `workctl` is left as it is (the
+installer warns when it runs a different binary and prints the command that switches it). Claude Code
 can also install from a clone: `claude plugin marketplace add .` then `claude plugin install workctl@workctl`. Tokens are
 never part of the package: they stay in the keyring or in gh/glab.

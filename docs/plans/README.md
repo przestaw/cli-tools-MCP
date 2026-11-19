@@ -14,6 +14,7 @@ Each file states its status in its first lines.
 | [plan-oauth-sso.md](plan-oauth-sso.md) | OAuth merged (#9); `kind: "google"` in review (#10); Drive operations (2b) done locally; Colab API and GitHub/GitLab OAuth open (Polish) |
 | [plan-luki-cli.md](plan-luki-cli.md) | 9 CLI gaps reported by an agent: implemented in review (#11) (Polish) |
 | [raport-prostota-kodu.md](raport-prostota-kodu.md) | partly done locally (6 refactors in a separate branch), MR after #11 (Polish) |
+| [plan-instalacja-skilli.md](plan-instalacja-skilli.md) | skills embedded in the binary, `workctl skills`, drift check in doctor (Polish) |
 
 ## Not yet planned in detail
 

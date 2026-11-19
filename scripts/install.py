@@ -14,7 +14,14 @@
   --gitkraken  GitKraken MCP (bundled with GitLens) for the Claude Code and Codex found here,
                read-only while workctl writes are off. VS Code gets it from GitLens itself.
 
-A server already registered as "workctl" is left as it is. Building needs Go. The claude, codex and gk
+The skills are embedded in the binary and copied by `workctl skills install` (nothing else in the skills
+directories is touched). Check them later with `workctl skills status` or `workctl doctor`.
+  --with-compact-output   also install the optional compact-output skill
+  --skills-only           only refresh the skills of the selected agents (uses the workctl found on PATH or
+                          in the install directory; builds only when there is none)
+
+A server already registered as "workctl" is left as it is (with a warning when it runs another binary).
+Do not combine this with the Claude Code plugin (two skills named workctl). Building needs Go. The claude, codex and gk
 CLIs are taken from PATH or from the VS Code extensions.
 """
 
@@ -29,7 +36,6 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILL = ROOT / "plugins/workctl/skills/workctl/SKILL.md"
 WIN = sys.platform == "win32"
 EXE = ".exe" if WIN else ""
 HOME = Path.home()
@@ -84,11 +90,20 @@ def ensure_path(dest):
     print(f"added {dest} to the user PATH (open a new terminal)")
 
 
-def copy_skill(skills_dir):
-    target = skills_dir / "workctl"
-    target.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(SKILL, target / "SKILL.md")
-    print(f"skill installed in {target}")
+def install_skills(binary, agent, with_compact):
+    extra = ["--with", "compact-output"] if with_compact else []
+    if run(binary, "skills", "install", "--target", agent, *extra).returncode:
+        print(f"skills for {agent} not installed; run: {binary} skills install --target {agent}")
+
+
+def warn_other_binary(where, command, binary, fix):
+    """One line when the registered server runs another binary than the one just built; the config stays as it is."""
+    if not command:
+        return
+    if str(command) == "workctl":
+        command = shutil.which("workctl") or command
+    if os.path.normcase(os.path.abspath(str(command))) != os.path.normcase(os.path.abspath(str(binary))):
+        print(f"warning: {where} runs {command}, not {binary}; to switch: {fix}")
 
 
 def vscode_user_dirs():
@@ -141,27 +156,34 @@ def register_vscode(binary):
             servers = data.setdefault("servers", {})
             if "workctl" in servers:
                 print(f"{path}: workctl already registered, left as it is")
+                warn_other_binary(path, servers["workctl"].get("command"), binary, f"set its command to {binary}")
                 continue
             servers["workctl"] = server
             path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
             print(f"{path}: workctl added")
-    copy_skill(HOME / ".copilot/skills")
 
 
 def register_claude(cli, binary):
-    if run(cli, "mcp", "get", "workctl", quiet=True).returncode == 0:
+    current = run(cli, "mcp", "get", "workctl", quiet=True)
+    if current.returncode == 0:
         print("Claude Code already has an MCP server named workctl: left as it is")
+        found = re.search(r"^\s*Command:\s*(.+?)\s*$", current.stdout or "", re.M)
+        fix = f"claude mcp remove workctl -s user && claude mcp add --scope user workctl -- {binary} mcp"
+        warn_other_binary("Claude Code", found and found.group(1), binary, fix)
     else:
         must(cli, "mcp", "add", "--scope", "user", "workctl", "--", binary, "mcp")
-    copy_skill(HOME / ".claude/skills")
 
 
 def register_codex(cli, binary):
     if re.search(r"^\s*workctl\s", run(cli, "mcp", "list", quiet=True).stdout or "", re.M):
         print("Codex already lists an MCP server named workctl: left as it is")
+        try:
+            command = json.loads(run(cli, "mcp", "get", "workctl", "--json", quiet=True).stdout)["transport"]["command"]
+        except (ValueError, KeyError, TypeError):
+            command = None
+        warn_other_binary("Codex", command, binary, f"codex mcp remove workctl && codex mcp add workctl -- {binary} mcp")
     else:
         must(cli, "mcp", "add", "workctl", "--", binary, "mcp")
-    copy_skill(Path(os.environ.get("CODEX_HOME", HOME / ".codex")) / "skills")
 
 
 def register_gitkraken(gk, binary, clients):
@@ -182,22 +204,36 @@ def main():
     for agent in ("vscode", "claude", "codex", "gitkraken"):
         ap.add_argument(f"--{agent}", action="store_true")
     ap.add_argument("--all", action="store_true", help="every agent found on this machine")
+    ap.add_argument("--with-compact-output", action="store_true", help="also install the compact-output skill")
+    ap.add_argument("--skills-only", action="store_true", help="only refresh the skills of the selected agents")
     args = ap.parse_args()
 
     dest = Path(os.environ.get("WORKCTL_INSTALL_DIR", HOME / ".local/bin"))
-    binary = build(dest)
-    if run(sys.executable, ROOT / "scripts/migrate.py").returncode:
-        print("keyring migration skipped; run scripts/migrate.py later")
-    ensure_path(dest)
+    binary = shutil.which("workctl") or (dest / ("workctl" + EXE) if (dest / ("workctl" + EXE)).is_file() else None)
+    if not (args.skills_only and binary):
+        binary = build(dest)
+    if not args.skills_only:
+        if run(sys.executable, ROOT / "scripts/migrate.py").returncode:
+            print("keyring migration skipped; run scripts/migrate.py later")
+        ensure_path(dest)
 
     claude, codex, gk = claude_cli(), codex_cli(), find_gk()
-    if (args.vscode or args.all) and vscode_user_dirs():
-        register_vscode(binary)
-    if args.claude or args.all:
-        register_claude(claude, binary) if claude else print("Claude Code not found: skipped")
-    if args.codex or args.all:
-        register_codex(codex, binary) if codex else print("Codex not found: skipped")
-    if args.gitkraken or args.all:
+    agents = {  # name -> (found on this machine, MCP registration, message when missing)
+        "vscode": (bool(vscode_user_dirs()), lambda: register_vscode(binary), None),
+        "claude": (bool(claude), lambda: register_claude(claude, binary), "Claude Code not found: skipped"),
+        "codex": (bool(codex), lambda: register_codex(codex, binary), "Codex not found: skipped"),
+    }
+    for agent, (found, register, missing) in agents.items():
+        if not (getattr(args, agent) or args.all):
+            continue
+        if not found:
+            if missing:
+                print(missing)
+            continue
+        if not args.skills_only:
+            register()
+        install_skills(binary, agent, args.with_compact_output)
+    if (args.gitkraken or args.all) and not args.skills_only:
         if not gk:
             print("GitKraken CLI not found (install GitLens): skipped")
         else:
