@@ -42,7 +42,8 @@ Per-command flags: workctl api raw -h`,
 	"accounts": `workctl accounts [--kind KIND] [--resource RESOURCE]
 
 List the configured profiles: kind, host, account, bound repos/projects, credential state (never a secret).
-With --resource (owner/name, group/project or a Jira key) it shows which profile resolves for it. Use it to pick
+--kind limits the list to profiles of that kind. --resource (owner/name, group/project or a Jira key) shows which
+profile resolves for it (within the kind, if given); it does not filter the list. Use it to pick
 --profile when a command says that several profiles match. MCP: accounts.`,
 	"pr": `workctl [--profile NAME] pr|mr list|show [flags]
 
