@@ -322,6 +322,15 @@ Google preset expansion is runtime-only: saving a loaded configuration preserves
 defaults while retaining explicit edits. Allowed Google API URLs use the same transport for requests, downloads
 and uploads; they are not treated as signed external storage URLs.
 
+### Saving tokens: `compact`, and short PR details
+
+- `request` with `output: "compact"` (CLI `api raw --output compact`) minifies JSON without touching numbers and turns an
+  HTML page into its visible text; XML and other answers are unchanged. The older `compact: true` converts HTML only.
+  An HTML error body in a failed call is shown as text the same way, capped at 1200 bytes. HTML conversion is lossy;
+  see [compaction](compaction.md).
+- `pr_list` and `pr_show` (and `pr list|show --format json`) return the title, description, state, branches and a short
+  `details` (merge state, conflicts, size, labels, reviewers). `format: raw` (CLI `--format raw`) keeps the provider `details`.
+
 ### Anti-CSRF tokens
 
 Some servers refuse a write signed with a password unless it carries a token that a GET handed out

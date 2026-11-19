@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Transport builds an HTTP transport that requires TLS 1.2 or newer. caFile adds an extra trusted CA bundle;
@@ -130,11 +131,23 @@ func ErrorMessage(provider string, status int, message, url string) string {
 	return fmt.Sprintf("%s %d: %s", provider, status, message)
 }
 
-// RawError formats an HTTP error with the method, URL and the first 1200 bytes of the response body.
+// RawError formats an HTTP error with the method, URL and the first 1200 bytes of the response body. An HTML body
+// is shown as its visible text, never as markup.
 func RawError(method, url string, status int, body string) string {
+	if LooksLikeHTML([]byte(body)) {
+		text, err := HTMLToText([]byte(body))
+		if err != nil {
+			text = "(HTML error page not shown)"
+		}
+		body = text
+	}
 	body = strings.TrimSpace(body)
 	if len(body) > 1200 {
-		body = body[:1200] + "..."
+		cut := 1200
+		for cut > 0 && !utf8.RuneStart(body[cut]) {
+			cut-- // never split a multi-byte character
+		}
+		body = body[:cut] + "..."
 	}
 	return fmt.Sprintf("%s %s: HTTP %d: %s", method, url, status, body)
 }

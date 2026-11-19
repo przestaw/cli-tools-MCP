@@ -243,3 +243,17 @@ func TestExplicitProfileIsNeverReplacedByTheDefault(t *testing.T) {
 		t.Fatalf("defaults.api is used without --profile: %v", err)
 	}
 }
+
+func TestRequestCompactTurnsHTMLIntoText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html><head><script>x()</script></head><body><p>Hello <b>there</b></p></body></html>"))
+	}))
+	defer srv.Close()
+	cfg := testConfig(srv.URL)
+	plain, _ := CallTool(context.Background(), cfg, "request", map[string]any{"path": "/p"})
+	compact, err := CallTool(context.Background(), cfg, "request", map[string]any{"path": "/p", "compact": true})
+	if err != nil || string(compact) != "Hello there" || !strings.Contains(string(plain), "<script>") {
+		t.Fatalf("compact = %q (%v), plain = %q", compact, err, plain)
+	}
+}

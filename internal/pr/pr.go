@@ -37,7 +37,7 @@ func Command(cfg *config.Config, args []string) error {
 	project := fs.String("project", "", "project (Azure DevOps or GitLab alias)")
 	state := fs.String("state", "all", "open, closed, merged or all")
 	search := fs.String("search", "", "search text")
-	formatValue := fs.String("format", "text", "text or json; raw (provider JSON) with show --include")
+	formatValue := fs.String("format", "text", "text or json (details compacted); raw: json with the provider details and, with show --include, the provider JSON of each part")
 	include := fs.String("include", "", "show: extra parts, comma separated: files, reviews, reviewers, comments, discussion, checks")
 	jsonOutput := fs.Bool("json", false, "equivalent to --format json")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -70,6 +70,9 @@ func Command(cfg *config.Config, args []string) error {
 		if err != nil {
 			return err
 		}
+		if !rawFormat {
+			compactItems(&res)
+		}
 		return render.PullRequests(os.Stdout, os.Stderr, res, format, false)
 	case "show", "get":
 		if fs.NArg() != 1 {
@@ -95,9 +98,17 @@ func Command(cfg *config.Config, args []string) error {
 		if err != nil {
 			return err
 		}
+		compactItems(&res)
 		return render.PullRequests(os.Stdout, os.Stderr, res, format, true)
 	default:
 		return fmt.Errorf("unknown pr action %q", args[0])
+	}
+}
+
+// compactItems replaces the provider details of every item with the short form; raw output skips it.
+func compactItems(res *vcs.Result) {
+	for i := range res.Items {
+		res.Items[i].Details = compactDetails(res.Items[i].Details)
 	}
 }
 
@@ -179,7 +190,7 @@ func Tools() []mcp.Tool {
 			"project": mcp.StrProp("Project name (required for Azure DevOps unless set in profile)"),
 			"state":   mcp.StrProp("Filter state: open, closed, merged, all"),
 			"search":  mcp.StrProp("Search text (title and description)"),
-			"format":  mcp.StrProp("Output format: json or text (default json)"),
+			"format":  mcp.StrProp("Output format: json (default, details compacted), text, or raw (json with the provider details)"),
 		})},
 		{Name: "pr_show", Description: "Get details and description of a pull request or merge request; include adds files, reviews, reviewers, comments (inline), discussion and checks (GitHub and GitLab).", InputSchema: mcp.ObjSchema(map[string]any{
 			"number":  mcp.IntProp("Pull request or merge request number"),
@@ -220,6 +231,9 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 	res, err := Fetch(ctx, cfg, pName, profile, mcp.ArgString(a, "repo"), mcp.ArgString(a, "project"), mcp.ArgString(a, "search"), mcp.ArgString(a, "state"), id)
 	if err != nil {
 		return nil, err
+	}
+	if !raw {
+		compactItems(&res)
 	}
 	format, err := render.ParseFormat(formatName)
 	if err != nil {
