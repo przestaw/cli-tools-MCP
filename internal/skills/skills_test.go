@@ -6,6 +6,7 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"testing/fstest"
@@ -118,12 +119,13 @@ func TestInstall(t *testing.T) {
 		t.Errorf("not refreshed: %q", got)
 	}
 
-	// No temporary files are left and nothing is world-writable.
+	// No temporary files are left and nothing is world-writable. Windows reports 0666 for every file, so the
+	// permission bits say nothing there.
 	err := filepath.WalkDir(filepath.Join(dir, "workctl"), func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if info, _ := d.Info(); info.Mode().Perm()&0o002 != 0 {
+		if info, _ := d.Info(); runtime.GOOS != "windows" && info.Mode().Perm()&0o002 != 0 {
 			t.Errorf("%s is world-writable", p)
 		}
 		if filepath.Base(p)[0] == '.' {
