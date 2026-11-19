@@ -15,6 +15,17 @@ import (
 // skipTags hold no readable content.
 var skipTags = map[string]bool{"script": true, "style": true, "head": true, "noscript": true, "svg": true, "template": true}
 
+// hasHidden reports whether n has the HTML hidden attribute (any value, including until-found). Only this attribute
+// is honoured: aria-hidden and CSS (style, classes) are not evaluated, so text hidden that way is kept.
+func hasHidden(n *html.Node) bool {
+	for _, a := range n.Attr {
+		if a.Key == "hidden" {
+			return true
+		}
+	}
+	return false
+}
+
 // breakTags end a line of text.
 var breakTags = map[string]bool{"p": true, "div": true, "br": true, "li": true, "tr": true, "h1": true, "h2": true, "h3": true, "h4": true,
 	"h5": true, "h6": true, "pre": true, "table": true, "ul": true, "ol": true, "section": true, "article": true, "blockquote": true}
@@ -67,8 +78,10 @@ func (w *textWriter) text(s string, pre bool) {
 	w.space = strings.TrimRightFunc(s, unicode.IsSpace) != s
 }
 
-// HTMLToText keeps what a reader of the page sees: the visible text with line breaks at block elements, without
-// scripts, styles, markup and attributes (so no hidden inputs, passwords or link targets). <pre> keeps its layout.
+// HTMLToText reduces a page to its text with line breaks at block elements, without scripts, styles, markup and
+// attributes (so link targets, form values and hidden-input values are not in the output). The subtree of an element
+// with the hidden attribute is dropped; text hidden by CSS stays. This shrinks a page, it does not remove secrets from
+// it. <pre> keeps its layout.
 // It fails when the page cannot be parsed (the parser limits nesting depth); the markup is then never passed on.
 func HTMLToText(body []byte) (string, error) {
 	doc, err := html.Parse(bytes.NewReader(body))
@@ -83,7 +96,7 @@ func HTMLToText(body []byte) (string, error) {
 			return
 		}
 		if n.Type == html.ElementNode {
-			if skipTags[n.Data] {
+			if skipTags[n.Data] || hasHidden(n) {
 				return
 			}
 			pre = pre || n.Data == "pre"

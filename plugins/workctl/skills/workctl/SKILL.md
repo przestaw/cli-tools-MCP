@@ -35,7 +35,7 @@ Shorten a response before it reaches the context, when the full one is not neede
 - **Older, server-rendered web applications** (dashboards, ticket or build overviews, login pages): call `request` with `output: compact` (CLI: `api raw --output compact`). A 100 KB page becomes about 5 KB of visible text: line breaks at blocks, ` | ` between table cells, no markup, scripts or attributes.
 - **JSON that a server pretty-prints:** `output: compact` removes the whitespace (about 20%), numbers untouched. Most provider APIs already send minified JSON; there it changes nothing. Prefer `pr_list`, `pr_show` and `ci`, which return a short normalized form (`format: raw` for the provider's full data), or the API's own `fields` parameter.
 
-HTML conversion is lossy: link targets, form values, hidden inputs and tokens are dropped, page navigation stays, and CSS is not applied. XML and binary data are never changed. When markup matters (forms, links, exact layout) read the original response. `output: compact` changes only the presentation of a response already received; never replay a write to reformat it.
+HTML conversion is lossy: attributes are dropped (so link targets, form values and hidden-input values are not in the output), and text of elements with the `hidden` attribute is dropped. Text hidden by CSS stays, and page navigation stays. This is a size reduction, not a way to remove secrets from a page; for sensitive pages use the original response and your own judgement. XML and binary data are never changed. When markup matters (forms, links, exact layout) read the original response. `output: compact` changes only the presentation of a response already received; never replay a write to reformat it.
 
 ## Inspect screenshots and attachments
 

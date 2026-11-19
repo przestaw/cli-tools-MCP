@@ -46,11 +46,15 @@ Kept: text, with a line break at block elements (`p`, `div`, `br`, `li`, `tr`, h
 Whitespace elsewhere collapses to one space and blank lines disappear. Adjacent links, buttons, labels and options
 keep a space between them, so `<a>Name</a><a>log out</a>` reads `Name log out`. Entities are decoded.
 
-Dropped: every attribute, so link targets, image `alt`, `value`, `placeholder`, hidden inputs and CSRF tokens are not in the
-output; comments; `script`, `style`, `head` (title included), `noscript`, `svg`, `template`. Text the page shows only in
-form controls (an `option` label, a `textarea` body) is kept, input values are not. Not kept: links, list bullets,
-emphasis, tables as grids, images, and the effect of CSS (text hidden by CSS stays; the result is not what a browser draws).
-Use the original response when markup matters.
+Dropped: every attribute, so link targets, image `alt`, `value`, `placeholder` and the values of hidden inputs (such as
+CSRF tokens) are not in the output; comments; `script`, `style`, `head` (title included), `noscript`, `svg`, `template`;
+and the whole content of any element with the HTML `hidden` attribute (any value, including `until-found`). Text the page
+shows only in form controls (an `option` label, a `textarea` body) is kept, input values are not. Not kept: links, list
+bullets, emphasis, tables as grids, images.
+
+CSS is not evaluated: text hidden with `style="display:none"` or a class stays, and so does `aria-hidden="true"` text
+(it is visible to sighted users). This is a size reduction, not a way to remove secrets from a page. For sensitive pages
+use the original response and your own judgement. Use the original response also when markup matters.
 
 ## Error bodies
 
