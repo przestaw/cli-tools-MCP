@@ -176,6 +176,60 @@ other writes are never automatically replayed. The next explicit call obtains a 
 token). A 401 invalidates the cached access token and the request is retried once; `invalid_grant` means the
 refresh token is gone, so run `workctl auth login` again (Google apps in "Testing" status expire it after 7 days).
 
+### `kind: "google"` — presets `gdrive`, `gcloud`, `google`
+
+Shorthand for the OAuth profile above: `service` selects a preset, and only `oauth2.client_id` is required.
+Load fills in the endpoints, `auth_params`, base URL and default scopes (all overridable except the host rules).
+
+| `service` | Typical name | Base URL | Token may go to | Default scopes |
+|---|---|---|---|---|
+| `drive` | `gdrive` | `www.googleapis.com/drive/v3` | `www.googleapis.com`, `sheets.googleapis.com`, `docs.googleapis.com` | `drive` |
+| `cloud` | `gcloud` | `cloudresourcemanager.googleapis.com/v1` | `*.googleapis.com` | `cloud-platform` |
+| `all` | `google` | `www.googleapis.com/drive/v3` | `*.googleapis.com` | `drive`, `cloud-platform`, `colaboratory` |
+
+```json
+"google": {"kind": "google", "service": "all", "oauth2": {"client_id": "<DESKTOP_CLIENT_ID>.apps.googleusercontent.com"}}
+```
+
+Relative paths use the base URL; other Google APIs are addressed with an absolute `https://` URL to an allowed host,
+for example `request GET https://colaboratory.googleapis.com/v1beta/runtimes` (read the state of Colab runtimes; use
+the narrower `colaboratory.readonly` scope in `oauth2.scopes` if you want reads only). Any other host is refused, so
+the token cannot leave Google. Writes (`POST`/`DELETE`, e.g. creating a paid Colab runtime) still need
+`policy.allow_write`. Browser Colab does not use workctl. Login: `workctl auth set-token` then `workctl auth login`.
+
+#### Drive, Sheets and Docs through existing tools
+
+No Google-specific tools exist. Everything goes through `request` (MCP) / `api raw|download|upload` (CLI) on a
+`gdrive` or `google` profile. Status: **works today** unless marked *planned*.
+
+| Goal | Call | Write? |
+|---|---|---|
+| List / search files | `GET /files?q=<Drive query>&fields=files(id,name,mimeType)` | no |
+| File metadata | `GET /files/{id}?fields=id,name,mimeType,size,modifiedTime,owners` | no |
+| Download a binary file | `download` (`GET /files/{id}?alt=media`) | no |
+| Export a native file (Doc, Sheet) | `GET /files/{id}/export?mimeType=text/csv` (Sheets: first sheet only; 10 MB limit) | no |
+| Upload | `upload` (refuses to overwrite without `--overwrite`) | yes |
+| Comments: read | `GET /files/{id}/comments?fields=comments(id,content,resolved,author)` | no |
+| Comments: add / reply / resolve | `POST /files/{id}/comments`, `.../replies` | yes |
+| Sheets: structure, titles | `GET https://sheets.googleapis.com/v4/spreadsheets/{id}?fields=properties.title,sheets.properties` | no |
+| Sheets: read cells | `GET https://sheets.googleapis.com/v4/spreadsheets/{id}/values/{A1range}` | no |
+| Sheets: edit cells | `PUT .../values/{A1range}?valueInputOption=USER_ENTERED`, `POST .../values/{range}:append`, `POST .../spreadsheets/{id}:batchUpdate` | yes |
+| Docs: read | `GET https://docs.googleapis.com/v1/documents/{id}` (structured JSON; use export for plain text) | no |
+| Docs: edit | `POST https://docs.googleapis.com/v1/documents/{id}:batchUpdate` | yes |
+
+Rules of thumb:
+
+- Always pass `fields=`; Google returns far more than needed otherwise.
+- Writes need `policy.allow_write` and approval. Editing is the "advanced" path: build the `batchUpdate` body yourself.
+- File names are not unique on Drive. Look up the `id` first and take it from a single unambiguous match.
+- Sheets and Docs accept the `drive` scope, so no re-login is needed. Both APIs must be **enabled in the Google Cloud
+  project of the OAuth client** (Console → APIs & Services → Library). Otherwise Google answers `403 SERVICE_DISABLED`
+  with the activation link. Drive comments need nothing extra.
+- Checked live with a `gdrive` profile: Drive list and comments work; Sheets and Docs reached Google and returned
+  `SERVICE_DISABLED` until enabled in the project.
+- *Planned* (see `docs/plans/plan-oauth-sso.md`, phase 2b): `accounts` with a Drive about/quota check, metadata in the
+  `download` result, `file` for Drive list/search.
+
 ### `read_only` — reads only
 
 Any HTTP profile may set `"read_only": true`: workctl then refuses every method but GET and HEAD
@@ -241,6 +295,10 @@ Binary checks also apply with `response_metadata: true`. CLI `api raw` writes ev
 including valid UTF-8 binary data and JSON, without indentation or an added newline. Full URLs on the configured
 server keep their exact path even when the profile has a base path; only known external storage URLs use the
 credential-free download transport.
+
+Google preset expansion is runtime-only: saving a loaded configuration preserves `kind: google` and implicit
+defaults while retaining explicit edits. Allowed Google API URLs use the same transport for requests, downloads
+and uploads; they are not treated as signed external storage URLs.
 
 ### Anti-CSRF tokens
 

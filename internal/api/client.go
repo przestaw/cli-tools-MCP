@@ -49,6 +49,7 @@ type Client struct {
 	token    *csrfToken     // fetched on the first write; empty header when the server has CSRF protection off
 	form     *formSession   // set for auth "form": logs in before the first request (see formlogin.go)
 	oauth2   *oauth2Session // set for auth "oauth2": exchanges refresh_token for short-lived bearer tokens (see oauth2.go)
+	hosts    []string       // hosts besides baseURL that absolute URLs may address (google profiles)
 	readOnly bool           // refuse everything but GET and HEAD
 	kind     string         // profile kind, for the account check
 	home     string         // the profile's own base URL, where the account check goes
@@ -86,7 +87,7 @@ func newClient(cfg config.Profile, prefix string, timeout time.Duration) (*Clien
 	h := make(http.Header)
 	h.Set("Accept", "application/json")
 	h.Set("User-Agent", "workctl/0.4.6")
-	client := &Client{baseURL: base, prefix: prefix, client: c, headers: h, csrf: cfg.CSRF, readOnly: cfg.ReadOnly}
+	client := &Client{baseURL: base, prefix: prefix, client: c, headers: h, csrf: cfg.CSRF, readOnly: cfg.ReadOnly, hosts: cfg.AbsoluteHosts()}
 	if cfg.CSRF != nil || cfg.FormLogin != nil {
 		// Servers tie the token or the login to the session cookie.
 		c.Jar, _ = cookiejar.New(nil)
@@ -212,7 +213,7 @@ func (c *Client) WithBaseURL(base string) *Client {
 }
 
 // relPath turns a caller's path into the server-relative path of a request: a path that starts with "/" is used as it
-// is, any other one gets the provider prefix. An absolute URL is accepted only for the profile's own server, so a credential cannot leave its host.
+// is, any other one gets the provider prefix. Absolute URLs must name the configured server or an allowed Google host.
 func (c *Client) relPath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -226,6 +227,9 @@ func (c *Client) relPath(path string) (string, error) {
 				}
 				return u.String(), nil
 			}
+			if u.Scheme == "https" && config.HostAllowed(c.hosts, u.Hostname()) {
+				return u.String(), nil
+			}
 		}
 		return "", fmt.Errorf("absolute URLs are not allowed; use a path on the configured server")
 	}
@@ -235,6 +239,7 @@ func (c *Client) relPath(path string) (string, error) {
 	return path, nil
 }
 
+// urlOf is the full URL of a target: an absolute one that relPath allowed, or a path on the base URL.
 func (c *Client) urlOf(target string) string {
 	if strings.HasPrefix(target, "https://") || strings.HasPrefix(target, "http://") {
 		return target
@@ -433,7 +438,7 @@ func (c *Client) StreamReader(ctx context.Context, method, path string, q url.Va
 	if contentType != "" {
 		headers.Set("Content-Type", contentType)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+target, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.urlOf(target), body)
 	if err != nil {
 		return nil, nil, err
 	}

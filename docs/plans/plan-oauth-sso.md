@@ -2,8 +2,10 @@
 
 Autor: [przestaw](https://github.com/przestaw)
 
-Status (2026-11-16): w toku na gałęzi `feat/google-drive-colab`, nic nie zacommitowane. Kod OAuth i uploadu
-do Drive jest napisany, ale niesprawdzony (na tej maszynie nie ma Go).
+Status (2026-11-17): fazy 0 i 1 wdrożone: OAuth, `auth login` i kontrola uploadu są na `main` (PR #9), `kind: "google"`
+(gdrive / gcloud / google) w PR #10. Faza 2b (konto i quota, list/search/metadane, eksport, Sheets i Docs) jest zrobiona
+w lokalnej gałęzi `feat/google-2b`, sprawdzona na prawdziwym Drive oraz odczytami Sheets i Docs; zapisy do Sheets i Docs
+nie były testowane. Fazy 2 (Colab API), 3 i 4 nie są rozpoczęte.
 
 ## Cel
 
@@ -99,6 +101,59 @@ odczytujemy z plików na Drive. API jest w wersji `v1beta`, więc może się zmi
 Przykład: `workctl --profile google request GET https://colaboratory.googleapis.com/v1beta/runtimes`.
 Absolutny URL jest dozwolony tylko dla hostów z tabeli usług danego profilu.
 
+## Drive w istniejących narzędziach (bez nowych narzędzi MCP)
+
+Zasada: **żadnych nowych nazw narzędzi** (agent czyta listę przy każdej rozmowie, a GitLens i GitKraken już ją
+wypełniają). Operacje Dysku trafiają do istniejących narzędzi, wybieranych po profilu (`HasDrive()`), a kod mieści
+się w `internal/google`. Zasady zapisu, lista hostów i klient są wspólne z resztą.
+
+| Potrzeba | Narzędzie | Zmiana |
+| --- | --- | --- |
+| konto i quota | `accounts` | nowy opcjonalny parametr `check`: dla profili `google` i `gdrive` jedno `GET /about?fields=user,storageQuota`, wynik dopisany do wpisu (`user`, `quota_used`, `quota_limit`). Bez `check` bez zmian i bez sieci. Dla `service: cloud` brak `/about`, więc tylko nadane scope'y z odpowiedzi tokenu. |
+| list i search | `file` | profil Dysku: pusty `path` lub ID folderu wypisuje zawartość (`id`, `name`, `mimeType`, `size`, `modifiedTime`, `md5Checksum`); nowe opcjonalne `query` (nazwa zawiera, wstawiana do `q=` z ucieczką apostrofów) i `limit` (domyślnie 30). |
+| metadane pliku | `file` i `download` | `file` z ID pliku zwraca metadane; `download` dopisuje do wyniku blok `drive` (`id`, `name`, `mimeType`, `modifiedTime`, `md5Checksum`, `webViewLink`) i `md5_verified` (zgodność z sumą z Dysku, obok SHA-256, który już jest). |
+| eksport natywnych plików | `download` | opcjonalne `export_mime`. Bez niego: Docs → `text/plain`, Sheets → `text/csv` (**tylko pierwszy arkusz**), Slides → `application/pdf`. Limit eksportu Drive to 10 MB; błąd wypisuje dostępne formaty. |
+| zaawansowane zapytania | `request` | bez zmian (`q`, `fields`, `orderBy` wprost) |
+
+Uwagi:
+
+- Dziś `file` czyta plik z repozytorium (GitHub/GitLab) i **nie szuka**; wyszukiwanie dla tych dostawców jest w innych
+  narzędziach. `query` i `limit` mają więc sens tylko dla Dysku i dla innych profili dają błąd „nie dotyczy”.
+  Opis narzędzia pozostaje krótki: „plik z repozytorium lub z Dysku Google (profil gdrive/google)”.
+- `file` wybiera dostawcę po rodzaju profilu repozytorium (`resolveRepo`), więc trzeba dodać gałąź „profil Dysku”
+  przed tym wyborem. Nazwa zamiast ID: tylko w folderze (`default_project` lub `folder`) i tylko gdy jest
+  jednoznaczna; inaczej błąd z listą kandydatów (nazwy na Dysku się powtarzają).
+- Treść w `file` dla pliku tekstowego mieści się w `max_output_bytes`; większe: tylko metadane i podpowiedź,
+  żeby użyć `download`. **Do decyzji (D6).**
+- CLI: te same funkcje. `workctl accounts --check` (patrz [plan-luki-cli.md](plan-luki-cli.md), punkt 3) oraz
+  `api download --export-mime`. Osobne `drive ls` nie powstaje.
+
+### Sheets i Docs API wprost
+
+`sheets.googleapis.com` i `docs.googleapis.com` przyjmują zakres `drive`, więc dodatkowe zakresy nie są potrzebne.
+Trzeba tylko (a) włączyć te API w projekcie klienta OAuth i (b) pozwolić na hosty.
+
+| Profil | Dziś | Propozycja |
+| --- | --- | --- |
+| `google` (`all`) | `*.googleapis.com`, działa po włączeniu API | bez zmian |
+| `gdrive` (`drive`) | tylko `www.googleapis.com`, Sheets i Docs odrzucone | dodać `sheets.googleapis.com` i `docs.googleapis.com` do hostów presetu `drive` |
+
+Token nadal ma zakres `drive`, więc dodane hosty nie dają nowych uprawnień; zmienia się tylko, dokąd workctl wyśle
+token (nadal tylko API dokumentów Google związanych z Dyskiem). To lekko zmienia obietnicę „gdrive tylko Drive”,
+dlatego jest osobną decyzją (D5). Alternatywa: osobna usługa `service: workspace`, ale to kolejny profil do
+utrzymania, więc nie polecam. Slides i inne API tylko w `google`. Zapisy (np. `values:append`, `documents:batchUpdate`)
+nadal wymagają `policy.allow_write`.
+
+### Dokumentacja (człowiek i agent), razem z kodem
+
+| Odbiorca | Gdzie | Co |
+| --- | --- | --- |
+| człowiek | `docs/services-auth.md` | sekcja `kind: "google"`: parametry, tabela hostów (z Sheets i Docs), włączanie API w Cloud Console, przykłady `accounts check`, listy i eksportu |
+| człowiek | `docs/cli.md` | `accounts --check`, `api download --export-mime` |
+| agent | opisy narzędzi w schemacie MCP (`file`, `download`, `accounts`) | to jedyna dokumentacja, którą agent czyta zawsze; krótko i jednoznacznie |
+| agent | `docs/mcp.md` i `plugins/workctl/skills/workctl/SKILL.md` | tabela parametrów, przepis „znajdź plik na Dysku, sprawdź sumę, pobierz” |
+| agent | skill `colab-compute` (poza repo) | użycie `file` i `download` do monitorowania wyników na Dysku zamiast `api raw` |
+
 ## Kim jest „aplikacja” przy OAuth (GitHub / GitLab)
 
 **Krótko: przy OAuth logujesz się nadal jako ty (`przestaw`, `pstawczyk`, `stawczyk`). Aplikacja tylko
@@ -177,6 +232,7 @@ Do poprawy:
 | **0** | poprawki 1–8 na obecnej gałęzi | logowanie, `doctor`, pobieranie i upload do Drive działają; brak cichego nadpisywania |
 | **1** | `kind: "google"` z tabelą usług, presety OAuth jako dane, lista hostów zamiast heurystyki URL, przeniesienie kodu Drive do `internal/google` | trzy profile działają; `gdrive` odmawia wysłania tokenu poza Drive (test) |
 | **2** | Colab API w profilu `google`: `doctor` pokazuje runtime'y i nadane scope'y, dokumentacja przykładów | `request` na `/v1beta/runtimes` działa; `POST`/`DELETE` blokowane bez `allow_write` |
+| **2b** | Drive w istniejących narzędziach (`accounts check`, `file` list/search/metadane, `download` z metadanymi i eksportem), hosty Sheets i Docs w `gdrive`, dokumentacja | trzy narzędzia działają na profilu Dysku; testy na serwerze `httptest`; bez nowych narzędzi MCP |
 | **3** | wspólny rdzeń OAuth dla kolejnych dostawców: device flow, zapis nowego refresh tokenu z blokadą między procesami | testy każdego flow; dwa procesy naraz nie psują tokenu |
 | **4** | GitHub i GitLab: `auth: "oauth2"` jako opcja; `setup-git` oddaje token OAuth | `pr_list` działa na profilu OAuth; profile PAT i `cli` bez zmian |
 | **5** | dokumentacja (`services-auth.md`, `config.example.json`, konfiguracja Google Cloud Console) | – |
@@ -191,6 +247,8 @@ Faza 0 w trzech commitach: (a) OAuth + `auth` + `doctor`, (b) upload, (c) dokume
 | D2 | Colab w workctl? | **przyjęte:** tylko Colab API (odczyt stanu); przeglądarkowy Colab poza workctl |
 | D3 | Czyj `client_id`? | **do potwierdzenia:** własna aplikacja per host, tylko tokeny użytkownika, w MCP nigdy tokeny bota |
 | D4 | Azure / Entra | **poza zakresem** |
+| D5 | Sheets i Docs w hostach `gdrive`? | **wdrożone (do potwierdzenia):** hosty w presecie `drive`; API trzeba włączyć w projekcie klienta OAuth. Po włączeniu odczyty Sheets i Docs działają na żywo |
+| D6 | `file` zwraca treść pliku tekstowego, czy tylko metadane? | **wdrożone w 2b jako propozycja zawężona (do potwierdzenia):** `file` daje metadane lub listę, treść przez `download` (z `export_mime` dla dokumentów natywnych) |
 
 ## Ryzyka
 
