@@ -45,6 +45,12 @@ attachments) and never sends the credential there; an HTML answer instead of the
 `atlassian attachment download` and `page attachment-download` are reads that save into the downloads directory.
 Each `cli` call runs as a child process of workctl with its own timeout (`timeouts.<module>`, else `modules.timeout_seconds`).
 
+Some clients declare the `elicitation` capability but answer every request at once without showing a prompt (reported
+for Claude Code in the VS Code extension, whose own "Allow" dialogs are separate). The write is then refused with
+`the user declined ... (the client declined the prompt; it answered in 2ms, so no person was asked ...)`. That is the
+client's behaviour, not a decision of the user. With such a client keep `confirm_writes` and `confirm_session_writes`
+off and rely on the client's own permission prompt, or use a second config file for it (`WORKCTL_CONFIG`).
+
 Confirmation defaults to off. For a single high-risk operation pass `confirm: true` to a write or to `batch`; it asks
 for detailed approval even after session approval. `confirm: false` cannot disable policy confirmation. A batch item
 requesting confirmation also asks once for the whole list.

@@ -159,6 +159,7 @@ func Confirm(ctx context.Context, message string) error {
 	if !can {
 		return fmt.Errorf("write confirmation is on but this MCP client cannot ask the user (no elicitation support); stop and report this to the user, do not bypass through CLI or configuration changes")
 	}
+	asked := time.Now()
 	raw, err := sess.request(ctx, "elicitation/create", map[string]any{
 		"message": message,
 		"requestedSchema": map[string]any{
@@ -182,9 +183,33 @@ func Confirm(ctx context.Context, message string) error {
 		return fmt.Errorf("elicitation: %w", err)
 	}
 	if r.Action != "accept" || r.Content.Approve == nil || !*r.Content.Approve {
-		return ErrDeclined
+		return declinedBy(r.Action, r.Content.Approve != nil, time.Since(asked))
 	}
 	return nil
+}
+
+// quickAnswer is faster than a person can read a prompt: such an answer came from the client, not from the user.
+const quickAnswer = 500 * time.Millisecond
+
+// declinedBy wraps ErrDeclined with what the client actually answered, so a user can tell a refusal from a client
+// that never showed the prompt. Every answer but an explicit approval still ends the action.
+func declinedBy(action string, answered bool, took time.Duration) error {
+	what := fmt.Sprintf("the client answered %q", action)
+	switch {
+	case action == "accept" && !answered:
+		what = "the client accepted the form without the approval field"
+	case action == "accept":
+		what = "the client accepted the form with approval switched off"
+	case action == "cancel":
+		what = "the client cancelled the prompt (dismissed, or never shown)"
+	case action == "decline":
+		what = "the client declined the prompt"
+	}
+	hint := ""
+	if took < quickAnswer {
+		hint = "; it answered in " + took.Round(time.Millisecond).String() + ", so no person was asked: this client may answer elicitation requests automatically"
+	}
+	return fmt.Errorf("%w (%s%s)", ErrDeclined, what, hint)
 }
 
 // ConfirmSession asks once per MCP connection. A later explicit Confirm remains a separate detailed approval.
