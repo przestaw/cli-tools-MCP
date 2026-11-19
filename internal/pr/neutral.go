@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"workctl/internal/cliutil"
 	"workctl/internal/config"
@@ -89,11 +90,33 @@ func number(a map[string]any) int {
 // prParts maps pr_show include parts to the provider tools.
 var prParts = map[string][2]string{
 	"files":      {"github_get_pull_request_files", "gitlab_get_merge_request_changes"},
+	"diff":       {"github_get_pull_request_diff", "gitlab_get_merge_request_diff"},
 	"reviews":    {"github_get_pull_request_reviews", "gitlab_get_merge_request_approvals"},
 	"reviewers":  {"github_get_pull_request_reviewers", "gitlab_get_merge_request_approvals"},
 	"comments":   {"github_get_pull_request_comments", "gitlab_get_merge_request_notes"},
 	"discussion": {"github_get_pull_request_discussion", "gitlab_get_merge_request_notes"},
 	"checks":     {"github_get_pull_request_checks", "gitlab_get_merge_request_pipelines"},
+}
+
+// diffCap bounds the diff part: the MCP layer cuts a whole answer in the middle of JSON, so the part is cut here.
+var diffCap = 200000
+
+// capDiff returns the diff as a JSON string, or, when over max bytes, as an object cut at a line boundary.
+func capDiff(text string, max int) json.RawMessage {
+	if len(text) <= max {
+		data, _ := json.Marshal(text)
+		return data
+	}
+	cut := strings.LastIndexByte(text[:max], '\n') + 1
+	if cut == 0 {
+		for cut = max; cut > 0 && !utf8.RuneStart(text[cut]); cut-- {
+		}
+	}
+	data, _ := json.Marshal(map[string]any{
+		"diff": text[:cut], "truncated": true, "bytes_total": len(text), "bytes_returned": cut,
+		"hint": "diff cut at the size cap; read a file at the pull request head ref with the file tool, or the whole diff with the request tool (accept application/vnd.github.diff on GitHub)",
+	})
+	return data
 }
 
 // showParts adds the include parts to the pull request JSON: {"pull_request": ..., "files": ..., ...}.
@@ -108,11 +131,13 @@ func showParts(ctx context.Context, cfg *config.Config, a map[string]any, pullRe
 		part = strings.ToLower(strings.TrimSpace(part))
 		tools, ok := prParts[part]
 		if !ok {
-			return nil, fmt.Errorf("include: unknown part %q (files, reviews, reviewers, comments, discussion, checks)", part)
+			return nil, fmt.Errorf("include: unknown part %q (files, diff, reviews, reviewers, comments, discussion, checks)", part)
 		}
 		data, err := t.call(ctx, cfg, tools[0], tools[1], map[string]any{"number": number(a)})
 		if err != nil {
 			data, _ = json.Marshal(map[string]string{"error": err.Error()})
+		} else if part == "diff" {
+			data = capDiff(string(data), diffCap)
 		} else if !json.Valid(data) {
 			data, _ = json.Marshal(string(data))
 		} else if !raw {
