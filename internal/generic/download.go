@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash"
 	"io"
 	"net/url"
 	"os"
@@ -69,11 +70,16 @@ func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, 
 	if err != nil {
 		return nil, err
 	}
-	hash := md5.New()
-	meta, err := c.Stream(ctx, urlPath, q, io.MultiWriter(f, hash))
+	var dst io.Writer = f
+	var sum hash.Hash
+	if md5Needed(drive, exportMIME) {
+		sum = md5.New()
+		dst = io.MultiWriter(f, sum)
+	}
+	meta, err := c.Stream(ctx, urlPath, q, dst)
 	var verified *bool
-	if err == nil && drive != nil && drive.MD5 != "" && exportMIME == "" {
-		matches := strings.EqualFold(drive.MD5, hex.EncodeToString(hash.Sum(nil)))
+	if err == nil && sum != nil {
+		matches := strings.EqualFold(drive.MD5, hex.EncodeToString(sum.Sum(nil)))
 		verified = &matches
 		if !matches {
 			err = fmt.Errorf("checksum mismatch against Drive MD5; downloaded file removed")
@@ -95,6 +101,11 @@ func download(ctx context.Context, c *api.Client, urlPath string, q url.Values, 
 		}
 	}
 	return json.Marshal(downloaded{Path: final, Streamed: meta, Drive: drive, MD5Verified: verified})
+}
+
+// md5Needed reports whether the bytes are the original Drive file and Drive published a sum to compare.
+func md5Needed(drive *api.DriveFile, exportMIME string) bool {
+	return drive != nil && drive.MD5 != "" && exportMIME == ""
 }
 
 // resolveDrive turns a Drive file ID or file URL into the metadata and the media or export request to stream.
