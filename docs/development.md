@@ -19,8 +19,10 @@ want to be sure nothing touches your real config.
 ## Versioning
 
 `X.Y.Z`, kept equal in `internal/app/app.go`, the User-Agent in `internal/api/client.go` and
-`plugins/workctl/.claude-plugin/plugin.json`:
+`plugins/workctl/.claude-plugin/plugin.json` (`internal/app/plugin_test.go` checks this and the skill front matter):
 
 - `Z`: everything stored in the OS keyring stays readable as it is (backward compatible).
 - `Y`: the keyring layout changes and existing entries need `scripts/migrate.py`.
 - `X`: reserved; stays `0` until the toolset covers what the agents need.
+
+The plugin also ships an optional `compact-output` skill ([rtk.md](rtk.md)); `scripts/install.py` copies only the `workctl` skill.
