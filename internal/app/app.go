@@ -36,8 +36,9 @@ func usage() {
 Usage:
   workctl [--config FILE] init [module...]   guided setup (alias: setup); tokens go to the OS keyring
   workctl [--config FILE] auth login|set-token|status|logout|setup-git   profile credentials; setup-git points git at workctl
-  workctl [--config FILE] doctor         check every profile; failures carry a code (dns, timeout, tls, ...)
-  workctl [--config FILE] config show|path   show prints the config with identifiers redacted
+  workctl [--config FILE] profile add|edit NAME [flags]   write a profile of any kind without editing config.json
+  workctl [--config FILE] doctor         check every profile; failures carry a code (dns, timeout, tls, ...) and a fix hint
+  workctl [--config FILE] config show|path|set|validate   show prints the config with identifiers redacted
   workctl [--config FILE] accounts [--kind K] [--resource R]   profiles and which one serves a resource
   workctl [--config FILE] azure ...      Azure DevOps (alias: ado)
   workctl [--config FILE] atlassian ...  Jira and Confluence Cloud (alias: atl)
@@ -115,6 +116,8 @@ func run(args []string) error {
 		}
 	case "config":
 		return configCommand(*configPath, rest)
+	case "profile":
+		return setup.ProfileCommand(*configPath, rest)
 	}
 	cfg, err := config.LoadOrDefault(*configPath)
 	if err != nil {
@@ -132,7 +135,7 @@ func run(args []string) error {
 func commandHandlers() map[string]func(*config.Config, []string) error {
 	handlers := map[string]func(*config.Config, []string) error{
 		"accounts": auth.AccountsCommand, "skills": skillsCommand, "tools": toolsCommand, "file": pr.FileCommand,
-		"doctor": func(cfg *config.Config, _ []string) error { return doctorCommand(cfg) },
+		"doctor": doctorCommand,
 		"jira":   jira.Command, "gitlab": gitlab.Command, "github": github.Command, "api": generic.Command,
 		"pr": pr.Command, "mr": pr.Command, "task": taskCommand, "issue": issue.Command,
 		"mcp": func(cfg *config.Config, _ []string) error { return runMCP(context.Background(), cfg) },
@@ -171,19 +174,20 @@ func taskCommand(cfg *config.Config, args []string) error {
 
 func configCommand(path string, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: workctl config show|path")
+		return errors.New(configUsage)
 	}
 	switch args[0] {
 	case "path":
-		if path == "" {
-			p, err := config.DefaultPath()
-			if err != nil {
-				return err
-			}
-			path = p
+		p, err := configFile(path)
+		if err != nil {
+			return err
 		}
-		fmt.Println(path)
+		fmt.Println(p)
 		return nil
+	case "set":
+		return configSet(path, args[1:])
+	case "validate":
+		return configValidate(path, args[1:])
 	case "show":
 		cfg, err := config.Load(path)
 		if err != nil {
@@ -192,7 +196,7 @@ func configCommand(path string, args []string) error {
 		b, _ := json.MarshalIndent(cfg.Redacted(), "", "  ")
 		return cliutil.PrintBody(b)
 	default:
-		return fmt.Errorf("usage: workctl config show|path")
+		return errors.New(configUsage)
 	}
 }
 

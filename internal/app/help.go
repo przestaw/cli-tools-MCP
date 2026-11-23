@@ -75,11 +75,34 @@ MCP: pr_list, pr_show.`,
 
 List the MCP tools (the agent's view) with the CLI command that does the same. With NAME: description and
 parameters. Without --all only the tools of configured backends are listed.`,
-	"config": `workctl config show|path
+	"config": `workctl config show|path|set KEY VALUE|validate [--json]
 
-show  print the configuration; identifiers and credential-related values (OAuth client id, token_env, auth_header,
-      form fields) are replaced with "***". Secrets are in the OS keyring, never in the file.
-path  print the path of the configuration file.`,
+show      print the configuration; identifiers and credential-related values (OAuth client id, token_env, auth_header,
+          form fields) are replaced with "***". Secrets are in the OS keyring, never in the file.
+path      print the path of the configuration file.
+set       change one setting and save: policy.allow_write, policy.confirm_writes, policy.confirm_session_writes
+          (true|false; the "policy." prefix is optional), timeout_seconds, timeouts.KIND, mcp.max_output_bytes,
+          modules.timeout_seconds (seconds or bytes), defaults.KIND (a profile name; empty removes the default).
+          The result must validate, or nothing is written. Profiles are changed with workctl profile.
+validate  check the file and print every problem; exit code 1 when there is one. --json: {ok, path, problems}.
+CLI only: an agent cannot change the policy through MCP.`,
+	"profile": `workctl [--config FILE] profile add NAME --kind KIND [flags]
+workctl [--config FILE] profile edit NAME [flags]
+
+Write a profile without editing config.json. KIND: github, gitlab, jira, azure, atlassian, api, google.
+Only the flags that are given change the profile. The token is never a flag: use workctl auth set-token or auth login.
+
+  --host HOST|URL (alias --url)   server; a bare host gets https://   --auth SCHEME   --auth-header NAME
+  --backend native|cli|ssh-tunnel  --ssh-destination HOST   --username U   --token-env VAR   --ca FILE
+  --verify-tls=false   --read-only   --timeout SECONDS
+  --service drive|cloud|all   --client-id ID   --auth-url URL   --token-url URL   --scopes A,B     (OAuth 2.0, google)
+  --repos A,B   --projects A,B   --default-repo R   --default-project P    (comma lists; empty clears)
+  --default   make it the default profile of its kind (the first profile of a kind becomes it anyway)
+  --json      print the saved profile as JSON
+
+add refuses an existing name and edit a missing one; the whole config is validated before it is saved.
+A gh/glab profile: profile add NAME --kind github --backend cli, then auth login --existing --profile NAME.
+CLI only, there is no MCP tool.`,
 	"skills": `workctl skills status|install [--target vscode|claude|codex|all] [--with compact-output] [--dry-run] [--check]
 
 The agent skills are embedded in the binary. Targets: vscode (~/.copilot/skills), claude (~/.claude/skills),
@@ -89,10 +112,12 @@ codex ($CODEX_HOME or ~/.codex, then skills); default all.
   install  copy the workctl skill (plus the ones named in --with); only files of these skills are written, nothing is
            deleted, and files that are already current are left alone. --dry-run writes nothing.
 Optional skills: compact-output. CLI only, there is no MCP tool.`,
-	"doctor": `workctl doctor
+	"doctor": `workctl doctor [--json]
 
-Check every profile (and the azure and atlassian modules). A failed profile carries a "code": dns, timeout, tls,
-refused, unauthorized, forbidden or other, next to the error text. Exit code 1 when a profile failed.
+Check every profile (and the azure and atlassian modules); the answer is one JSON document (--json is accepted, not
+needed). A failed profile carries a "code": dns, timeout, tls, refused, unauthorized, forbidden or other, next to the
+error text, and a "fix": the command to try (workctl auth login|set-token --profile NAME, workctl profile edit NAME ...).
+Exit code 1 when a profile failed.
 The "skills" entry compares installed workctl skills with the embedded ones (code "outdated", with the fix command);
 it is informational and never changes the exit code.`,
 	"init": `workctl [--config FILE] init [module...]   (alias: setup)
@@ -103,11 +128,15 @@ never to the config file. Non-interactive form per endpoint: workctl github|gitl
 [--auth SCHEME] [--user U] [--backend native|cli] [--token-stdin] [--non-interactive].`,
 	"auth": `workctl [--config FILE] auth login|set-token|status|logout|setup-git [flags]
 
-  login      [--profile NAME] [--no-browser]   OAuth 2.0 loopback login, or the gh/glab login of a cli profile
-  set-token  [--profile NAME] [--stdin]        store the token of a profile in the OS keyring
-  status     [--profile NAME]                  credential state of the profiles (never the secret)
-  logout     [--profile NAME]                  remove the stored credential
-  setup-git  [--dry-run]                       point git at workctl as the credential helper for the profile hosts`,
+  login      [--profile NAME] [--no-browser] [--existing] [--json]   OAuth 2.0 loopback login, or the gh/glab login of a cli
+             profile; --existing binds the account gh/glab is already logged in as and never starts a login
+  set-token  [--profile NAME] [--stdin] [--json]   store the token of a profile in the OS keyring
+  status     [--profile NAME] [--json]             credential state of the profiles (never the secret); --json: an array of
+                                                   {name, kind, username, state, source, detail, fix}; state is ok, missing,
+                                                   login_required, not_needed or error
+  logout     [--profile NAME]                      remove the stored credential
+  setup-git  [--dry-run]                           point git at workctl as the credential helper for the profile hosts
+--json prints one document without any secret: {profile, action, username, warning}.`,
 	"jira": `workctl [--profile NAME] jira COMMAND [flags]
 
 Jira Server/Data Center REST: issue, search, comments, transitions, transition, comment, myself, server-info, raw,

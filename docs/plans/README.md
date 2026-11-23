@@ -16,6 +16,7 @@ Each file states its status in its first lines.
 | [raport-prostota-kodu.md](raport-prostota-kodu.md) | partly done: 6 refactors merged (#16); Q7, M4, M5, M8 open (Polish) |
 | [plan-kompresja-odpowiedzi.md](plan-kompresja-odpowiedzi.md) | opt-in compaction merged (#15), RTK companion skill (#12); document mode, TOON, retention, XML not done (Polish) |
 | [plan-instalacja-skilli.md](plan-instalacja-skilli.md) | skills embedded in the binary, `workctl skills`, drift check in doctor (#17) (Polish) |
+| [plan-cli-profile-management.md](plan-cli-profile-management.md) | implemented: CLI-only commands for managing profiles and config (`profile`, `config set|validate`, `auth status --json`, doctor `fix`) |
 
 ## Not yet planned in detail
 
