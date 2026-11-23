@@ -7,6 +7,7 @@ package gitlab
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -33,6 +34,60 @@ func getProject(ctx context.Context, c *api.Client, project string) ([]byte, err
 
 func getMRChanges(ctx context.Context, c *api.Client, project string, iid int) ([]byte, error) {
 	return c.Get(ctx, fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/changes", projectID(project), iid), nil)
+}
+
+// getMRDiff builds a unified diff from the merge request changes; a file the API returns without a diff
+// (binary or too large) gets a one-line note.
+func getMRDiff(ctx context.Context, c *api.Client, project string, iid int) ([]byte, error) {
+	b, err := getMRChanges(ctx, c, project, iid)
+	if err != nil {
+		return nil, err
+	}
+	var mr struct {
+		Changes []struct {
+			OldPath     string `json:"old_path"`
+			NewPath     string `json:"new_path"`
+			AMode       string `json:"a_mode"`
+			BMode       string `json:"b_mode"`
+			NewFile     bool   `json:"new_file"`
+			RenamedFile bool   `json:"renamed_file"`
+			DeletedFile bool   `json:"deleted_file"`
+			Diff        string `json:"diff"`
+		} `json:"changes"`
+	}
+	if err := json.Unmarshal(b, &mr); err != nil {
+		return nil, fmt.Errorf("merge request changes: %w", err)
+	}
+	var out strings.Builder
+	for _, ch := range mr.Changes {
+		fmt.Fprintf(&out, "diff --git a/%s b/%s\n", ch.OldPath, ch.NewPath)
+		oldName, newName := "a/"+ch.OldPath, "b/"+ch.NewPath
+		modeChanged := !ch.NewFile && !ch.DeletedFile && ch.AMode != ch.BMode
+		// The extended header lines in the order git writes them.
+		switch {
+		case ch.NewFile:
+			fmt.Fprintf(&out, "new file mode %s\n", ch.BMode)
+			oldName = "/dev/null"
+		case ch.DeletedFile:
+			fmt.Fprintf(&out, "deleted file mode %s\n", ch.AMode)
+			newName = "/dev/null"
+		case modeChanged:
+			fmt.Fprintf(&out, "old mode %s\nnew mode %s\n", ch.AMode, ch.BMode)
+		}
+		if ch.RenamedFile {
+			fmt.Fprintf(&out, "rename from %s\nrename to %s\n", ch.OldPath, ch.NewPath)
+		}
+		switch {
+		case ch.Diff != "":
+			fmt.Fprintf(&out, "--- %s\n+++ %s\n%s", oldName, newName, ch.Diff)
+			if !strings.HasSuffix(ch.Diff, "\n") {
+				out.WriteString("\n")
+			}
+		case !ch.RenamedFile && !modeChanged: // a pure rename or mode change has no content diff
+			out.WriteString("# diff not available (binary or too large file)\n")
+		}
+	}
+	return []byte(out.String()), nil
 }
 
 func getMRNotes(ctx context.Context, c *api.Client, project string, iid int) ([]byte, error) {

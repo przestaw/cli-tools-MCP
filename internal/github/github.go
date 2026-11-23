@@ -59,6 +59,11 @@ func prFiles(ctx context.Context, c *api.Client, repo string, n int) ([]byte, er
 	return c.GetAllPages(ctx, prPath(repo, n, "/files"), nil, maxPages)
 }
 
+// prDiff returns the unified diff of the pull request as text.
+func prDiff(ctx context.Context, c *api.Client, repo string, n int) ([]byte, error) {
+	return c.WithAccept("application/vnd.github.diff").Get(ctx, prPath(repo, n, ""), nil)
+}
+
 func prReviews(ctx context.Context, c *api.Client, repo string, n int) ([]byte, error) {
 	return c.GetAllPages(ctx, prPath(repo, n, "/reviews"), nil, maxPages)
 }
@@ -351,6 +356,7 @@ type prRead struct {
 var prReads = map[string]prRead{
 	"get":        {"github_get_pull_request", getPR},
 	"files":      {"github_get_pull_request_files", prFiles},
+	"diff":       {"github_get_pull_request_diff", prDiff},
 	"reviews":    {"github_get_pull_request_reviews", prReviews},
 	"reviewers":  {"github_get_pull_request_reviewers", prRequestedReviewers},
 	"comments":   {"github_get_pull_request_comments", prComments},
@@ -360,7 +366,7 @@ var prReads = map[string]prRead{
 
 func prCommand(ctx context.Context, c *api.Client, cfg *config.Config, args []string, idCommand func(string, []string, func(string, int) ([]byte, error)) error) error {
 	if len(args) == 0 {
-		return fmt.Errorf("pr actions: get, files, reviews, reviewers, comments, discussion, checks, list, comment, create, edit")
+		return fmt.Errorf("pr actions: get, files, diff, reviews, reviewers, comments, discussion, checks, list, comment, create, edit")
 	}
 	action, rest := args[0], args[1:]
 	if entry, ok := prReads[action]; ok {

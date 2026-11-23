@@ -28,6 +28,9 @@ var toolCalls = map[string]toolCall{
 	"gitlab_get_merge_request_changes": {run: func(ctx context.Context, c *api.Client, p string, a map[string]any) ([]byte, error) {
 		return getMRChanges(ctx, c, p, mcp.ArgInt(a, "iid", 0))
 	}},
+	"gitlab_get_merge_request_diff": {run: func(ctx context.Context, c *api.Client, p string, a map[string]any) ([]byte, error) {
+		return getMRDiff(ctx, c, p, mcp.ArgInt(a, "iid", 0))
+	}},
 	"gitlab_get_merge_request_notes": {run: func(ctx context.Context, c *api.Client, p string, a map[string]any) ([]byte, error) {
 		return getMRNotes(ctx, c, p, mcp.ArgInt(a, "iid", 0))
 	}},
