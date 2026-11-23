@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
+// This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
+
 package pr
 
 import (
@@ -44,6 +47,18 @@ func TestFormatCompactIsTheDefault(t *testing.T) {
 					}
 				}
 			})
+		}
+	}
+}
+
+// The JSON-only tools share the format parsing: compact and json are the default, text and unknown values are
+// refused before anything is called.
+func TestJSONOnlyToolsRejectTextAndUnknownFormats(t *testing.T) {
+	cfg := gitlabConfig(t)
+	for _, format := range []string{"text", "bogus"} {
+		_, err := CallTool(context.Background(), cfg, "ci", map[string]any{"profile": "gl", "run": 1, "format": format})
+		if err == nil || !strings.Contains(err.Error(), "compact") {
+			t.Errorf("ci format %s: %v", format, err)
 		}
 	}
 }
