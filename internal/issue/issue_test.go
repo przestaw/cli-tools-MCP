@@ -75,8 +75,7 @@ func (f *fakeJira) server(t *testing.T, cloud bool) *httptest.Server {
 			if !f.legacy || r.URL.Query().Get("projectKeys") != "ABC" {
 				t.Errorf("unexpected legacy createmeta %s", r.URL)
 			}
-			// A localised server: built-in types keep their ids but not their English names.
-			_, _ = io.WriteString(w, `{"projects":[{"key":"ABC","issuetypes":[{"id":"1","name":"Błąd w programie"},{"id":"5","name":"Podzadanie"}]}]}`)
+			_, _ = io.WriteString(w, `{"projects":[{"key":"ABC","issuetypes":[{"id":"1","name":"Bug"},{"id":"5","name":"Sub-task"}]}]}`)
 		case "/rest/api/2/issue/ABC-1":
 			_, _ = io.WriteString(w, strings.Replace(strings.Replace(issueJSON, "%s", desc, 1), "%s", cbody, 1))
 		case "/rest/api/2/issue/ABC-1/transitions":
