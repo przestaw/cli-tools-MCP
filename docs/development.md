@@ -25,4 +25,4 @@ want to be sure nothing touches your real config.
 - `Y`: the keyring layout changes and existing entries need `scripts/migrate.py`.
 - `X`: reserved; stays `0` until the toolset covers what the agents need.
 
-The plugin also ships an optional `compact-output` skill ([rtk.md](rtk.md)); `scripts/install.py` copies only the `workctl` skill.
+The plugin also ships an optional `compact-output` skill ([rtk.md](rtk.md)); `workctl skills install` (used by `scripts/install.py`) installs only the `workctl` skill unless `--with compact-output` is given. The skills are embedded from `plugins/workctl/skills` (`plugins/embed.go`), so a new skill directory needs no other change.

@@ -15,6 +15,7 @@ Each file states its status in its first lines.
 | [plan-luki-cli.md](plan-luki-cli.md) | 9 CLI gaps reported by an agent: implemented and merged (#8, #11) (Polish) |
 | [raport-prostota-kodu.md](raport-prostota-kodu.md) | partly done: 6 refactors merged (#16); Q7, M4, M5, M8 open (Polish) |
 | [plan-kompresja-odpowiedzi.md](plan-kompresja-odpowiedzi.md) | opt-in compaction merged (#15), RTK companion skill (#12); document mode, TOON, retention, XML not done (Polish) |
+| [plan-instalacja-skilli.md](plan-instalacja-skilli.md) | skills embedded in the binary, `workctl skills`, drift check in doctor (#17) (Polish) |
 
 ## Not yet planned in detail
 
