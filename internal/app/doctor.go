@@ -79,7 +79,7 @@ func classifyError(err error) string {
 }
 
 // doctorCommand prints one JSON document with a check per profile and module. --json is accepted so that scripts
-// and the GUI can say what they expect; the output is JSON either way.
+// and other programs can say what they expect; the output is JSON either way.
 func doctorCommand(cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.Bool("json", true, "print the result as JSON (always on)")

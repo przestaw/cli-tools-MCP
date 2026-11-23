@@ -90,7 +90,7 @@ returned as `{diff, truncated, bytes_total, bytes_returned, hint}` (read the res
 
 ## Profiles, config and credentials (CLI only)
 
-These commands let a script or a desktop GUI do what used to need hand-editing `config.json`. None of them is an MCP
+These commands let a script or another program do what used to need hand-editing `config.json`. None of them is an MCP
 tool: an agent cannot change profiles, the write policy or credentials. Output is JSON with `--json`; a secret is never
 printed.
 

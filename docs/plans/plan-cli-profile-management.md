@@ -1,10 +1,10 @@
-# CLI for a desktop GUI
+# CLI for managing profiles and config
 
 Author: [przestaw](https://github.com/przestaw)
 
 Status: implemented. Usage: [cli.md](../cli.md#profiles-config-and-credentials-cli-only).
 
-A GUI should drive workctl through its CLI, not by editing `config.json`. Everything below is CLI only; no MCP tool
+A script or another program should drive workctl through its CLI, not by editing `config.json`. Everything below is CLI only; no MCP tool
 is added, so an agent still cannot change profiles, the write policy or credentials.
 
 | Need | Command |
