@@ -325,7 +325,29 @@ func (c *Config) Save() error {
 		return err
 	}
 	b = append(b, '\n')
-	return os.WriteFile(c.path, b, 0o600)
+	return writeFileAtomic(c.path, b, 0o600)
+}
+
+// writeFileAtomic writes to a temp file next to path and renames it over path, so a process killed mid-write
+// leaves the old file intact instead of an empty or half-written one.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }() // fails harmlessly after a successful rename
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // NormalizeBaseURL expands environment variables, trims spaces and drops trailing slashes.
