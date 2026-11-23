@@ -331,6 +331,35 @@ func TestBindNeedsAllowWriteAndKeepsTheFileChangedMeanwhile(t *testing.T) {
 	}
 }
 
+// The bind result comes from the saved file: a profile that was removed from the file meanwhile cannot block it.
+func TestBindUsesTheFileNotTheStaleCopy(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.Default()
+	cfg.Policy.AllowWrite = true
+	cfg.Profiles = map[string]config.Profile{
+		"gh":    {Kind: "github", URL: "https://api.github.com", VerifyTLS: true},
+		"other": {Kind: "github", URL: "https://api.github.com", VerifyTLS: true, Repos: []string{"o/*"}},
+	}
+	cfg.SetPath(cfgPath)
+	onDisk := config.Default()
+	onDisk.Policy.AllowWrite = true
+	onDisk.Profiles = map[string]config.Profile{"gh": cfg.Profiles["gh"]}
+	onDisk.SetPath(cfgPath)
+	if err := onDisk.Save(); err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]any{"bind_profile": "gh", "bind_repo": "o/*"}
+	if _, err := CallTool(context.Background(), cfg, "accounts", args); err != nil {
+		t.Fatalf("bind blocked by a profile that is no longer in the file: %v", err)
+	}
+	if saved, _ := config.Load(cfgPath); len(saved.Profiles["gh"].Repos) != 1 {
+		t.Fatal("the bind was not saved")
+	}
+	if len(cfg.Profiles["gh"].Repos) != 1 {
+		t.Fatal("the in-memory profile was not updated")
+	}
+}
+
 func TestSetTokenKeepsTheOldTokenWhenTheNewOneIsAnotherAccounts(t *testing.T) {
 	keyring.MockInit()
 	t.Setenv("TEST_BIND_OVERRIDE", "personal-token")

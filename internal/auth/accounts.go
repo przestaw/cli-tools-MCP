@@ -284,7 +284,9 @@ func bindResource(cfg *config.Config, profileName, repoPattern, projectPattern s
 	if err := fresh.Save(); err != nil {
 		return err
 	}
-	return addBinding(cfg, profileName, repoPattern, projectPattern)
+	// The file is saved: take the result from it, not from a second run on the possibly stale copy in memory.
+	cfg.Profiles[profileName] = fresh.Profiles[profileName]
+	return nil
 }
 
 // addBinding adds the repository or project pattern to the profile in memory, refusing one another profile owns.
