@@ -98,6 +98,19 @@ var endpointSpecs = map[string]endpointSpec{
 	},
 }
 
+// blankProfile is the starting point of a new profile of a kind: the defaults of its endpoint wizard, if it has one.
+func blankProfile(cfg *config.Config, kind string) config.Profile {
+	p := config.Profile{Kind: kind, VerifyTLS: true}
+	if s, ok := endpointSpecs[kind]; ok {
+		p.URL, p.Auth = s.defaultURL, s.auths[0]
+		if !cfg.Has(kind) {
+			// A second profile of the same kind must not share the first one's variable.
+			p.TokenEnv = "WORKCTL_" + strings.ToUpper(kind) + "_TOKEN"
+		}
+	}
+	return p
+}
+
 // EndpointInit is `workctl jira|gitlab|github init`: write the profile (never the token), keep the token in the
 // keyring and check the connection.
 func EndpointInit(path, module string, args []string, r *bufio.Reader) error {
@@ -127,11 +140,7 @@ func EndpointInit(path, module string, args []string, r *bufio.Reader) error {
 	name := cliutil.FirstNonEmpty(*profileFlag, cfg.Defaults[module], module)
 	p, ok := cfg.Profiles[name]
 	if !ok {
-		p = config.Profile{Kind: module, URL: s.defaultURL, Auth: s.auths[0], VerifyTLS: true}
-		if !cfg.Has(module) {
-			// A second profile of the same kind must not share the first one's variable.
-			p.TokenEnv = "WORKCTL_" + strings.ToUpper(module) + "_TOKEN"
-		}
+		p = blankProfile(cfg, module)
 	}
 	if p.Kind != module {
 		return fmt.Errorf("profile %q is %s, not %s", name, p.Kind, module)

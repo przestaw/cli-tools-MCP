@@ -8,6 +8,7 @@ package auth
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -53,11 +54,39 @@ func Command(configPath, profile string, args []string) error {
 	}
 }
 
+// result is what `auth login` and `auth set-token` report. With --json it is the only output; it holds no secret.
+type result struct {
+	Profile  string `json:"profile"`
+	Action   string `json:"action"` // token_stored, oauth_stored or bound
+	Username string `json:"username,omitempty"`
+	Warning  string `json:"warning,omitempty"`
+	lines    []string
+}
+
+func (r *result) say(format string, a ...any) { r.lines = append(r.lines, fmt.Sprintf(format, a...)) }
+
+func (r *result) print(asJSON bool) error {
+	if asJSON {
+		b, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		return cliutil.PrintBody(b)
+	}
+	for _, line := range r.lines {
+		fmt.Println(line)
+	}
+	return nil
+}
+
 // loginCommand logs a cli profile in through gh or glab (see api.BindCLI), or runs an OAuth 2.0 loopback login.
+// --existing binds a cli profile to the account gh or glab is already logged in as, without starting a login.
 func loginCommand(cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("auth login", flag.ContinueOnError)
 	profileName := fs.String("profile", "", "profile name")
 	noBrowser := fs.Bool("no-browser", false, "print the OAuth2 authorization URL without opening a browser")
+	existing := fs.Bool("existing", false, "gh/glab profile: bind to the current gh/glab login, never start a login")
+	asJSON := fs.Bool("json", false, "print the result as one JSON document")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -70,12 +99,12 @@ func loginCommand(cfg *config.Config, args []string) error {
 		return fmt.Errorf("profile %q not found in config", name)
 	}
 	if strings.EqualFold(profile.Auth, "oauth2") {
-		return loginOAuth2Profile(cfg, name, profile, !*noBrowser)
+		return loginOAuth2Profile(cfg, name, profile, !*noBrowser, *asJSON)
 	}
 	if !profile.UsesCLI() {
 		return fmt.Errorf("profile %q keeps a token in the keyring: use `workctl auth set-token --profile %s`", name, name)
 	}
-	profile, err := api.BindCLI(cfg, name, profile, true)
+	profile, err := api.BindCLI(cfg, name, profile, !*existing)
 	if err != nil {
 		return err
 	}
@@ -83,13 +112,19 @@ func loginCommand(cfg *config.Config, args []string) error {
 	if err := cfg.Save(); err != nil {
 		return err
 	}
-	fmt.Printf("profile %s is bound to %s\n", name, profile.Username)
-	return nil
+	res := &result{Profile: name, Action: "bound", Username: profile.Username}
+	res.say("profile %s is bound to %s", name, profile.Username)
+	return res.print(*asJSON)
 }
 
-func loginOAuth2Profile(cfg *config.Config, name string, profile config.Profile, openBrowser bool) error {
+func loginOAuth2Profile(cfg *config.Config, name string, profile config.Profile, openBrowser, asJSON bool) error {
 	if err := config.ValidateProfile(name, profile); err != nil {
 		return err
+	}
+	// With --json stdout carries only the result, so the URL goes to stderr.
+	urlOut := io.Writer(os.Stdout)
+	if asJSON {
+		urlOut = os.Stderr
 	}
 	account := secret.Account(profile.Kind, name)
 	var existing api.OAuth2Credential
@@ -110,7 +145,7 @@ func loginOAuth2Profile(cfg *config.Config, name string, profile config.Profile,
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cred, err := api.LoginOAuth2(ctx, cfg, name, profile, existing, func(authURL string) {
-		fmt.Printf("Open this URL to authorize profile %s:\n%s\n", name, authURL)
+		fmt.Fprintf(urlOut, "Open this URL to authorize profile %s:\n%s\n", name, authURL)
 		if openBrowser {
 			if err := cliutil.OpenURL(authURL); err != nil {
 				fmt.Fprintf(os.Stderr, "could not open a browser (%v); open the URL above by hand\n", err)
@@ -127,14 +162,16 @@ func loginOAuth2Profile(cfg *config.Config, name string, profile config.Profile,
 	if err := config.TokenStore.Set(account, encoded); err != nil {
 		return err
 	}
-	fmt.Printf("OAuth2 refresh token stored in keyring for profile %s (%s)\n", name, account)
-	return nil
+	res := &result{Profile: name, Action: "oauth_stored"}
+	res.say("OAuth2 refresh token stored in keyring for profile %s (%s)", name, account)
+	return res.print(asJSON)
 }
 
 func setTokenCommand(cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("auth set-token", flag.ContinueOnError)
 	profileName := fs.String("profile", "", "profile name")
 	fromStdin := fs.Bool("stdin", false, "read token from stdin")
+	asJSON := fs.Bool("json", false, "print the result as one JSON document")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -180,28 +217,40 @@ func setTokenCommand(cfg *config.Config, args []string) error {
 	if _, forgetErr := api.ForgetOAuth2Token(name, profile); forgetErr != nil {
 		return forgetErr
 	}
-	fmt.Printf("token stored in keyring for profile %s (%s)\n", name, account)
+	res := &result{Profile: name, Action: "token_stored", Username: profile.Username}
+	res.say("token stored in keyring for profile %s (%s)", name, account)
 	if err != nil {
-		fmt.Printf("account not checked: %v\n", err)
-		return nil
+		res.Warning = fmt.Sprintf("account not checked: %v", err)
+		res.say("%s", res.Warning)
+		return res.print(*asJSON)
 	}
+	res.Username = bound.Username
 	if bound.Username != profile.Username {
 		cfg.Profiles[name] = bound
 		if err := cfg.Save(); err != nil {
 			return err
 		}
-		fmt.Printf("profile %s is bound to %s\n", name, bound.Username)
+		res.say("profile %s is bound to %s", name, bound.Username)
 	}
-	return nil
+	return res.print(*asJSON)
+}
+
+// statusEntry is one profile of `auth status --json`.
+type statusEntry struct {
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Username string `json:"username,omitempty"`
+	Credential
 }
 
 func statusCommand(cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("auth status", flag.ContinueOnError)
 	profileName := fs.String("profile", "", "profile name")
+	asJSON := fs.Bool("json", false, "print one JSON array with the state of each profile")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if len(cfg.Profiles) == 0 {
+	if len(cfg.Profiles) == 0 && !*asJSON {
 		fmt.Println("no profiles configured")
 		return nil
 	}
@@ -216,23 +265,22 @@ func statusCommand(cfg *config.Config, args []string) error {
 		names = slices.Sorted(maps.Keys(cfg.Profiles))
 	}
 
+	entries := []statusEntry{}
 	for _, n := range names {
 		prof := cfg.Profiles[n]
-		fmt.Printf("%s (%s): %s\n", n, prof.Kind, CredentialStatus(cfg, n, prof))
+		entries = append(entries, statusEntry{Name: n, Kind: prof.Kind, Username: prof.Username, Credential: ProfileCredential(cfg, n, prof)})
+	}
+	if *asJSON {
+		b, err := json.Marshal(entries)
+		if err != nil {
+			return err
+		}
+		return cliutil.PrintBody(b)
+	}
+	for _, e := range entries {
+		fmt.Printf("%s (%s): %s\n", e.Name, e.Kind, e.Detail)
 	}
 	return nil
-}
-
-// cliStatus says which account the CLI of a cli profile is logged in as.
-func cliStatus(cfg *config.Config, prof config.Profile) string {
-	tool, who, err := api.CLIWhoami(cfg, prof)
-	if err != nil {
-		if tool == "" {
-			return err.Error()
-		}
-		return "not logged in: " + err.Error()
-	}
-	return fmt.Sprintf("logged in as %s via %s", who, tool)
 }
 
 func logoutCommand(cfg *config.Config, args []string) error {

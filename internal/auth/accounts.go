@@ -6,11 +6,9 @@ package auth
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"net/url"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -19,7 +17,6 @@ import (
 	"workctl/internal/cliutil"
 	"workctl/internal/config"
 	"workctl/internal/mcp"
-	"workctl/internal/secret"
 )
 
 // AccountEntry is one profile's non-secret summary returned by the accounts MCP tool.
@@ -50,38 +47,6 @@ type AccountsReport struct {
 	AllowWrite      bool              `json:"allow_write"`
 	ResolvedProfile string            `json:"resolved_profile,omitempty"`
 	ResolutionError string            `json:"resolution_error,omitempty"`
-}
-
-// CredentialStatus reports whether a profile's credential is present without revealing any secret.
-func CredentialStatus(cfg *config.Config, name string, prof config.Profile) string {
-	if prof.UsesCLI() {
-		return cliStatus(cfg, prof)
-	}
-	if err := config.NoTokenError(name, prof); err != nil {
-		return err.Error()
-	}
-	if prof.TokenEnv != "" && os.Getenv(prof.TokenEnv) != "" {
-		if strings.EqualFold(prof.Auth, "oauth2") {
-			if api.ParseOAuth2Credential(os.Getenv(prof.TokenEnv)).RefreshToken == "" {
-				return fmt.Sprintf("client_secret in %s; run `workctl auth login --profile %s` for refresh token", prof.TokenEnv, name)
-			}
-		}
-		return fmt.Sprintf("set via environment variable %s", prof.TokenEnv)
-	}
-	account := secret.Account(prof.Kind, name)
-	val, err := config.TokenStore.Get(account)
-	if err == nil && val != "" {
-		if strings.EqualFold(prof.Auth, "oauth2") {
-			if api.ParseOAuth2Credential(val).RefreshToken == "" {
-				return fmt.Sprintf("client_secret stored; run `workctl auth login --profile %s`", name)
-			}
-		}
-		return "stored in keyring"
-	}
-	if err != nil && !errors.Is(err, secret.ErrNotFound) {
-		return fmt.Sprintf("keyring error: %v", err)
-	}
-	return "missing"
 }
 
 // Tools returns the MCP tools of the auth package.

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -266,7 +267,7 @@ func Load(path string) (*Config, error) {
 	}
 	for name, p := range cfg.Profiles {
 		if strings.EqualFold(p.Kind, GoogleKind) {
-			expanded, err := expandGoogle(name, p)
+			expanded, err := ExpandGoogle(name, p)
 			if err != nil {
 				return nil, err
 			}
@@ -663,34 +664,44 @@ func (c *Config) ResolveFor(kind, resource string) (string, Profile, error) {
 	return c.resolveByResource("", "", resource, func(Profile) bool { return true })
 }
 
-// Validate checks every profile, and that each default points to an existing profile of the right kind.
+// Validate checks the policy, the timeouts, every profile, and that each default points to an existing profile of
+// the right kind. It reports every problem, not only the first: the error wraps them all (see Problems).
 func (c *Config) Validate() error {
-	if err := c.Policy.validate(); err != nil {
-		return err
-	}
-	for kind, seconds := range c.Timeouts {
-		if seconds < 0 {
-			return fmt.Errorf("timeouts.%s cannot be negative", kind)
+	var problems []error
+	problems = append(problems, c.Policy.validate())
+	for _, kind := range slices.Sorted(maps.Keys(c.Timeouts)) {
+		if c.Timeouts[kind] < 0 {
+			problems = append(problems, fmt.Errorf("timeouts.%s cannot be negative", kind))
 		}
 	}
-	for name, profile := range c.Profiles {
+	for _, name := range slices.Sorted(maps.Keys(c.Profiles)) {
 		if strings.TrimSpace(name) == "" {
-			return fmt.Errorf("profile name cannot be empty")
+			problems = append(problems, fmt.Errorf("profile name cannot be empty"))
 		}
-		if err := ValidateProfile(name, profile); err != nil {
-			return err
-		}
+		problems = append(problems, ValidateProfile(name, c.Profiles[name]))
 	}
-	for kind, name := range c.Defaults {
+	for _, kind := range slices.Sorted(maps.Keys(c.Defaults)) {
+		name := c.Defaults[kind]
 		profile, ok := c.Profiles[name]
-		if !ok {
-			return fmt.Errorf("defaults.%s references unknown profile %q", kind, name)
-		}
-		if profile.Kind != kind {
-			return fmt.Errorf("defaults.%s references profile %q of kind %q", kind, name, profile.Kind)
+		switch {
+		case !ok:
+			problems = append(problems, fmt.Errorf("defaults.%s references unknown profile %q", kind, name))
+		case profile.Kind != kind:
+			problems = append(problems, fmt.Errorf("defaults.%s references profile %q of kind %q", kind, name, profile.Kind))
 		}
 	}
-	return nil
+	return errors.Join(problems...)
+}
+
+// Problems lists the errors that an error from Validate (or Load) joins.
+func Problems(err error) []error {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		return joined.Unwrap()
+	}
+	if err == nil {
+		return nil
+	}
+	return []error{err}
 }
 
 func (p PolicyConfig) validate() error {

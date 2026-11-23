@@ -85,6 +85,22 @@ func forwardStdio(addr string) {
 	_, _ = io.Copy(os.Stdout, conn)
 }
 
+// CaptureStdout runs fn and returns what it wrote to os.Stdout.
+func CaptureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+	fn()
+	_ = w.Close()
+	b, _ := io.ReadAll(r)
+	return string(b)
+}
+
 // FakeCLI makes proc.Command start the test binary as the fake CLI in the given mode and records every call
 // (executable name first). The calling package must declare TestCLIHelperProcess (see CLIHelperProcess).
 func FakeCLI(t *testing.T, mode string) *[][]string {
