@@ -168,11 +168,6 @@ func SetToken(profile, email, token string) error {
 	return store.Set(keyringAccount(profile), token)
 }
 
-// DeleteToken removes a stored API token from the keyring.
-func DeleteToken(profile, email string) error {
-	return store.Delete(keyringAccount(profile))
-}
-
 // ResolveToken returns the API token for a profile.
 // Precedence: ATL_API_TOKEN env > keyring. Returns ErrNoToken if neither set.
 func ResolveToken(profile, email string) (string, error) {
