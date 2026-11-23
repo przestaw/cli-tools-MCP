@@ -200,7 +200,7 @@ func ValidateWrite(cfg *config.Config, name string, a map[string]any) error {
 			if profile.UsesSSHExec() {
 				return fmt.Errorf("profile %q runs remote commands over ssh: upload needs an HTTP api profile", pName)
 			}
-			if !generic.IsGoogleDriveProfile(profile) && strings.TrimSpace(mcp.ArgString(a, "target")) == "" {
+			if !profile.HasDrive() && strings.TrimSpace(mcp.ArgString(a, "target")) == "" {
 				return fmt.Errorf("target upload path is required for non-Google-Drive api profiles")
 			}
 			return generic.CheckUploadFile(mcp.ArgString(a, "path"))
