@@ -12,7 +12,7 @@ from workctl_gui import actions
 from workctl_gui.cli import Workctl, WorkctlError
 from workctl_gui.models import ConfigConflict, ConfigDocument, NewProfile, parse_accounts, parse_doctor
 
-SECRET = "ghp_TOPSECRET123"
+SECRET = "sentinel-not-a-real-token-123"
 
 
 def test_run_captures_output_and_passes_config(workctl: Workctl, calls) -> None:
