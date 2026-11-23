@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"golang.org/x/term"
@@ -71,6 +72,9 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return fmt.Errorf("%w\n%s", err, Usage)
+	}
+	if err := checkFlags(fs, sub); err != nil {
+		return err
 	}
 	need := func(n int, form string) error {
 		if len(pos) != n {
@@ -208,18 +212,21 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 	} else if steps, err = b.Plan(ctx, key, u); err != nil {
 		return err
 	}
-	if *dryRun || !*yes {
-		for _, s := range steps {
-			fmt.Fprintf(out, "  %s\n", s.Describe)
-		}
-	}
 	if *dryRun {
+		if *jsonOut { // the same shapes as the dry_run answers of the MCP tools, and nothing else on stdout
+			if sub == "create" {
+				return printJSON(&Created{DryRun: true, Step: steps[0].Describe, Body: steps[0].body})
+			}
+			return printJSON(&UpdateResult{DryRun: true, Steps: describe(steps)})
+		}
+		printSteps(steps)
 		if sub == "create" {
 			return printJSON(steps[0].body)
 		}
 		return nil
 	}
 	if !*yes {
+		printSteps(steps)
 		if !isTerminal() {
 			return fmt.Errorf("not a terminal: pass --yes to apply")
 		}
@@ -249,6 +256,48 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 		return printJSON(is)
 	}
 	printIssue(is)
+	return nil
+}
+
+// printSteps shows the planned requests of a write.
+func printSteps(steps []Step) {
+	for _, s := range steps {
+		fmt.Fprintf(out, "  %s\n", s.Describe)
+	}
+}
+
+// The subcommands share one flag set; subFlags names the flags each one reads. Any other flag is refused before
+// anything is sent, so a write never silently drops part of what was asked (update --priority, create --comment).
+// A flag that a positional argument replaces (move's transition, comment's text, dup's link) is not listed.
+const (
+	writeFlags = "dry-run yes json"
+	editFlags  = "resolve resolution fix summary description labels assignee " + writeFlags
+)
+
+var subFlags = map[string]string{
+	"show":    "include raw json",
+	"search":  "max start page-token json",
+	"find":    "max start page-token json",
+	"update":  "transition comment link " + editFlags,
+	"move":    "comment link " + editFlags,
+	"link":    "transition comment " + editFlags,
+	"comment": "transition link " + editFlags,
+	"close":   "as transition comment link " + editFlags,
+	"dup":     "as transition comment " + editFlags,
+	"create":  "type summary description labels assignee priority parent fields " + writeFlags,
+}
+
+func checkFlags(fs *flag.FlagSet, sub string) error {
+	allowed := strings.Fields(subFlags[sub])
+	var unused []string
+	fs.Visit(func(f *flag.Flag) {
+		if !slices.Contains(allowed, f.Name) {
+			unused = append(unused, "--"+f.Name)
+		}
+	})
+	if len(unused) > 0 {
+		return fmt.Errorf("issue %s does not use %s", sub, strings.Join(unused, ", "))
+	}
 	return nil
 }
 

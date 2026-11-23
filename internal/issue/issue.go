@@ -475,15 +475,16 @@ func (b *Backend) PlanCreate(ctx context.Context, n NewIssue) (Step, error) {
 		method: http.MethodPost, path: "/rest/api/2/issue", body: map[string]any{"fields": fields}}, nil
 }
 
-// Create runs the step of PlanCreate and returns the new issue.
+// Create runs the step of PlanCreate and returns the new issue. The request has gone out once it returns an
+// answer, so an answer without key and id is an error that warns against a blind retry.
 func (b *Backend) Create(ctx context.Context, s Step) (*Created, error) {
 	data, err := b.call(ctx, s.method, s.path, nil, s.body)
 	if err != nil {
 		return nil, err
 	}
 	var c Created
-	if err := json.Unmarshal(data, &c); err != nil {
-		return nil, err
+	if json.Unmarshal(data, &c) != nil || c.Key == "" || c.ID == "" {
+		return nil, fmt.Errorf("create request sent, but its result could not be confirmed (answer: %.200s); check the project before retrying", data)
 	}
 	c.URL = b.base + "/browse/" + c.Key
 	return &c, nil

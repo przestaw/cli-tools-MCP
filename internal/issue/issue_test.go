@@ -13,15 +13,18 @@ import (
 	"strings"
 	"testing"
 
+	"workctl/internal/cliutil"
 	"workctl/internal/config"
 )
 
 // fakeJira answers the endpoints the issue layer uses, with a localised resolution list, and records writes.
-// legacy makes it a Jira older than 8.4, without createmeta/{project}/issuetypes.
+// legacy makes it a Jira older than 8.4, without createmeta/{project}/issuetypes. created replaces the answer to
+// an issue create.
 type fakeJira struct {
-	writes []string // "METHOD path body"
-	reads  []string
-	legacy bool
+	writes  []string // "METHOD path body"
+	reads   []string
+	legacy  bool
+	created string
 }
 
 const issueJSON = `{"key":"ABC-1","fields":{
@@ -47,7 +50,7 @@ func (f *fakeJira) server(t *testing.T, cloud bool) *httptest.Server {
 			f.writes = append(f.writes, r.Method+" "+r.URL.Path+" "+string(body))
 			if r.URL.Path == "/rest/api/2/issue" {
 				w.WriteHeader(http.StatusCreated)
-				_, _ = io.WriteString(w, `{"id":"10100","key":"ABC-24","self":"x"}`)
+				_, _ = io.WriteString(w, cliutil.FirstNonEmpty(f.created, `{"id":"10100","key":"ABC-24","self":"x"}`))
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -75,7 +78,8 @@ func (f *fakeJira) server(t *testing.T, cloud bool) *httptest.Server {
 			if !f.legacy || r.URL.Query().Get("projectKeys") != "ABC" {
 				t.Errorf("unexpected legacy createmeta %s", r.URL)
 			}
-			_, _ = io.WriteString(w, `{"projects":[{"key":"ABC","issuetypes":[{"id":"1","name":"Bug"},{"id":"5","name":"Sub-task"}]}]}`)
+			// Id 3 is Task on a default install; here it was renamed, so Task must not resolve to it.
+			_, _ = io.WriteString(w, `{"projects":[{"key":"ABC","issuetypes":[{"id":"1","name":"Bug"},{"id":"3","name":"Incident"},{"id":"5","name":"Sub-task"}]}]}`)
 		case "/rest/api/2/issue/ABC-1":
 			_, _ = io.WriteString(w, strings.Replace(strings.Replace(issueJSON, "%s", desc, 1), "%s", cbody, 1))
 		case "/rest/api/2/issue/ABC-1/transitions":
@@ -329,6 +333,57 @@ func TestUpdateEditsSummaryDescriptionAndLabels(t *testing.T) {
 	want := `PUT /rest/api/2/issue/ABC-1 {"fields":{"description":"d","labels":[],"summary":"s"}}`
 	if len(f.writes) != 1 || f.writes[0] != want {
 		t.Fatalf("writes = %v\nwant %s", f.writes, want)
+	}
+}
+
+// Review regressions: each case below would end with a write that is not what was asked, so none may send one.
+func TestCreateAndUpdateRefuseWhatTheyCannotDoExactly(t *testing.T) {
+	cfg, f := setup(t, "jira")
+	f.legacy = true
+	cfg.Policy.AllowWrite = true
+	// Id 3 is Task on a default install but Incident here: the type is never guessed by id.
+	_, err := CallTool(context.Background(), cfg, "issue_create", map[string]any{"project": "ABC", "type": "Task", "summary": "s"})
+	if err == nil || !strings.Contains(err.Error(), "Incident") {
+		t.Errorf("Task on a server without it: %v", err)
+	}
+	// A flag the subcommand does not read is refused, not ignored.
+	for _, args := range [][]string{
+		{"update", "ABC-1", "--summary", "New", "--priority", "High", "--yes"},
+		{"create", "ABC", "--type", "Bug", "--summary", "s", "--comment", "c", "--yes"},
+		{"comment", "ABC-1", "text", "--comment", "other", "--yes"},
+	} {
+		if _, err := runCLI(t, cfg, false, "", args...); err == nil || !strings.Contains(err.Error(), "does not use") {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	if len(f.writes) != 0 {
+		t.Fatalf("writes = %v", f.writes)
+	}
+}
+
+// With --json a dry run prints one JSON document and nothing else, so it can be piped to jq.
+func TestDryRunJSONIsOneDocument(t *testing.T) {
+	cfg, _ := setup(t, "jira")
+	text, err := runCLI(t, cfg, false, "", "create", "ABC", "--type", "Task", "--summary", "s", "--dry-run", "--json")
+	var created Created
+	if err != nil || json.Unmarshal([]byte(text), &created) != nil || !created.DryRun || !strings.Contains(created.Step, "create Task") {
+		t.Fatalf("create: %q %v", text, err)
+	}
+	text, err = runCLI(t, cfg, false, "", "update", "ABC-1", "--summary", "s", "--dry-run", "--json")
+	var updated UpdateResult
+	if err != nil || json.Unmarshal([]byte(text), &updated) != nil || !updated.DryRun || len(updated.Steps) != 1 {
+		t.Fatalf("update: %q %v", text, err)
+	}
+}
+
+// An answer without key and id after the POST is not a success: the issue may exist, so the error says so.
+func TestCreateUnconfirmedAnswerIsAnError(t *testing.T) {
+	cfg, f := setup(t, "jira")
+	cfg.Policy.AllowWrite = true
+	f.created = "{}"
+	_, err := CallTool(context.Background(), cfg, "issue_create", map[string]any{"project": "ABC", "type": "Task", "summary": "s"})
+	if err == nil || !strings.Contains(err.Error(), "could not be confirmed") || len(f.writes) != 1 {
+		t.Fatalf("err = %v, writes = %v", err, f.writes)
 	}
 }
 
