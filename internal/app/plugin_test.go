@@ -104,6 +104,31 @@ func TestSkillNamesOnlyExistingMCPTools(t *testing.T) {
 	}
 }
 
+func TestSkillHasNoOverlappingSections(t *testing.T) {
+	root := testutil.RepoRoot(t)
+	b, err := os.ReadFile(filepath.Join(root, "plugins/workctl/skills/workctl/SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		// The first two words name the topic: "## Google Drive, Sheets" and "## Google drive notes" overlap.
+		words := strings.Fields(strings.ToLower(strings.TrimPrefix(line, "## ")))
+		words = words[:min(2, len(words))]
+		for i, w := range words {
+			words[i] = strings.TrimRight(w, ",.:;")
+		}
+		key := strings.Join(words, " ")
+		if first, ok := seen[key]; ok {
+			t.Errorf("sections %q and %q overlap; merge them", first, line)
+		}
+		seen[key] = line
+	}
+}
+
 func TestInstallerUsesTheEmbeddedSkills(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(testutil.RepoRoot(t), "scripts/install.py"))
 	if err != nil {

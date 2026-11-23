@@ -2,10 +2,11 @@
 
 Autor: [przestaw](https://github.com/przestaw)
 
-Status (2026-11-17): fazy 0 i 1 wdrożone: OAuth, `auth login` i kontrola uploadu są na `main` (PR #9), `kind: "google"`
-(gdrive / gcloud / google) w PR #10. Faza 2b (konto i quota, list/search/metadane, eksport, Sheets i Docs) jest zrobiona
-w lokalnej gałęzi `feat/google-2b`, sprawdzona na prawdziwym Drive oraz odczytami Sheets i Docs; zapisy do Sheets i Docs
-nie były testowane. Fazy 2 (Colab API), 3 i 4 nie są rozpoczęte.
+Status (2026-11-19, wersja 0.4.7): fazy 0, 1 i 2b są na `main`: OAuth, `auth login` i kontrola uploadu (PR #9),
+`kind: "google"` (gdrive / gcloud / google) z hostami Sheets i Docs (PR #10), Drive w istniejących narzędziach (PR #14).
+Faza 2b była sprawdzona na prawdziwym Drive oraz odczytami Sheets i Docs i jednym cofniętym zapisem komórki A1; inne
+zapisy do Sheets i Docs oraz komentarze na Dysku nie były testowane. Otwarte: faza 2 (Colab API), 3 (device flow,
+blokada tokenu) i 4 (OAuth dla GitHuba i GitLaba). Decyzja D3 nie jest potwierdzona.
 
 ## Cel
 
@@ -31,8 +32,8 @@ workctl ma być czytelnym przykładem zaawansowanego Go, a nie zbiorem wyjątkó
 - **Jeden kind `google`**, a w nim **tabela usług**. Trzy profile różnią się jednym polem `service`, nie kodem.
 - **Bez nowych narzędzi MCP.** Wystarczą istniejące `request`, `download` i `upload`.
 - **Bez heurystyk po URL-u** (dziś Drive jest rozpoznawany po końcówce `/drive/v3` w trzech miejscach).
-- Kod specyficzny dla Drive (upload resumable, `/about`) przenosimy z `generic` do `internal/google`.
-  `generic` znów jest generyczny.
+- Kod specyficzny dla Drive (upload resumable, `/about`) miał przejść z `generic` do `internal/google`.
+  **Jeszcze nie zrobione:** na `main` ten kod nadal jest w `internal/generic` (`upload.go`, `download.go`).
 
 Szkic tabeli (jedyne miejsce, które wie, czym różnią się profile Google):
 
@@ -104,8 +105,8 @@ Absolutny URL jest dozwolony tylko dla hostów z tabeli usług danego profilu.
 ## Drive w istniejących narzędziach (bez nowych narzędzi MCP)
 
 Zasada: **żadnych nowych nazw narzędzi** (agent czyta listę przy każdej rozmowie, a GitLens i GitKraken już ją
-wypełniają). Operacje Dysku trafiają do istniejących narzędzi, wybieranych po profilu (`HasDrive()`), a kod mieści
-się w `internal/google`. Zasady zapisu, lista hostów i klient są wspólne z resztą.
+wypełniają). Operacje Dysku trafiają do istniejących narzędzi, wybieranych po profilu (`HasDrive()`); ich kod jest
+dziś w `internal/generic`. Zasady zapisu, lista hostów i klient są wspólne z resztą.
 
 | Potrzeba | Narzędzie | Zmiana |
 | --- | --- | --- |
@@ -203,13 +204,12 @@ w „Authorized applications”. Ryzyko po stronie MCP jest takie samo jak przy 
 **Homepage „na początek dnia”** (pipeline'y, MR-y, Jira, OTRS) to ten sam model: CLI z tokenami użytkownika
 i scope'ami tylko do odczytu, osobne profile `*-ro` z `read_only: true`.
 
-## Co jest na gałęzi i co trzeba poprawić
+## Poprawki fazy 0 (wdrożone w PR #9)
 
-Już jest: `auth: "oauth2"` (dziś dla `kind: "api"`), logowanie loopback + PKCE, odświeżanie i cache tokenu,
-`auth status`, `logout`, `doctor`, upload resumable do Drive, link do Colaba dla notebooków. Testy napisane,
-ale nieuruchomione.
+Lista poniżej to zakres fazy 0 z chwili planowania. Zakres wszedł na `main` w PR #9; w kodzie sprawdzone są punkty 1
+(`--overwrite` w uploadzie) i 3 (ponowna próba po 401). Pozostałych punktów nie sprawdzano osobno przy tej aktualizacji.
 
-Blokuje merge:
+Blokowało merge:
 
 1. Upload pliku o nazwie, która już jest w folderze, **nadpisuje go bez pytania**. Bez `--overwrite` ma się nie udać.
 2. Uruchomić build, testy i lint.
@@ -228,14 +228,14 @@ Do poprawy:
 
 | Faza | Co | Kiedy gotowe |
 | --- | --- | --- |
-| **MR uproszczeń** | osobny MR według [raport-prostota-kodu.md](raport-prostota-kodu.md), szybkie poprawki przed fazą 1 | build, testy i lint zielone; zachowanie bez zmian |
-| **0** | poprawki 1–8 na obecnej gałęzi | logowanie, `doctor`, pobieranie i upload do Drive działają; brak cichego nadpisywania |
-| **1** | `kind: "google"` z tabelą usług, presety OAuth jako dane, lista hostów zamiast heurystyki URL, przeniesienie kodu Drive do `internal/google` | trzy profile działają; `gdrive` odmawia wysłania tokenu poza Drive (test) |
-| **2** | Colab API w profilu `google`: `doctor` pokazuje runtime'y i nadane scope'y, dokumentacja przykładów | `request` na `/v1beta/runtimes` działa; `POST`/`DELETE` blokowane bez `allow_write` |
-| **2b** | Drive w istniejących narzędziach (`accounts check`, `file` list/search/metadane, `download` z metadanymi i eksportem), hosty Sheets i Docs w `gdrive`, dokumentacja | trzy narzędzia działają na profilu Dysku; testy na serwerze `httptest`; bez nowych narzędzi MCP |
-| **3** | wspólny rdzeń OAuth dla kolejnych dostawców: device flow, zapis nowego refresh tokenu z blokadą między procesami | testy każdego flow; dwa procesy naraz nie psują tokenu |
-| **4** | GitHub i GitLab: `auth: "oauth2"` jako opcja; `setup-git` oddaje token OAuth | `pr_list` działa na profilu OAuth; profile PAT i `cli` bez zmian |
-| **5** | dokumentacja (`services-auth.md`, `config.example.json`, konfiguracja Google Cloud Console) | – |
+| **MR uproszczeń** | (**zrobione**, PR #16) osobny MR według [raport-prostota-kodu.md](raport-prostota-kodu.md), szybkie poprawki przed fazą 1 | build, testy i lint zielone; zachowanie bez zmian |
+| **0** | poprawki 1–8 (**zrobione**, PR #9) | logowanie, `doctor`, pobieranie i upload do Drive działają; brak cichego nadpisywania |
+| **1** | (**zrobione**, PR #10) `kind: "google"` z tabelą usług, presety OAuth jako dane, lista hostów zamiast heurystyki URL; przeniesienie kodu Drive do `internal/google` **odłożone** (kod jest w `internal/generic`) | trzy profile działają; `gdrive` odmawia wysłania tokenu poza Drive (test) |
+| **2** | (**otwarte**) Colab API w profilu `google`: `doctor` pokazuje runtime'y i nadane scope'y, dokumentacja przykładów | `request` na `/v1beta/runtimes` działa; `POST`/`DELETE` blokowane bez `allow_write` |
+| **2b** | (**zrobione**, PR #14) Drive w istniejących narzędziach (`accounts check`, `file` list/search/metadane, `download` z metadanymi i eksportem), hosty Sheets i Docs w `gdrive`, dokumentacja | trzy narzędzia działają na profilu Dysku; testy na serwerze `httptest`; bez nowych narzędzi MCP |
+| **3** | (**otwarte**) wspólny rdzeń OAuth dla kolejnych dostawców: device flow, zapis nowego refresh tokenu z blokadą między procesami | testy każdego flow; dwa procesy naraz nie psują tokenu |
+| **4** | (**otwarte**) GitHub i GitLab: `auth: "oauth2"` jako opcja; `setup-git` oddaje token OAuth | `pr_list` działa na profilu OAuth; profile PAT i `cli` bez zmian |
+| **5** | dokumentacja (`services-auth.md`, `config.example.json`, konfiguracja Google Cloud Console) | częściowo w PR #9, #10 i #14 |
 
 Faza 0 w trzech commitach: (a) OAuth + `auth` + `doctor`, (b) upload, (c) dokumentacja.
 
@@ -247,8 +247,8 @@ Faza 0 w trzech commitach: (a) OAuth + `auth` + `doctor`, (b) upload, (c) dokume
 | D2 | Colab w workctl? | **przyjęte:** tylko Colab API (odczyt stanu); przeglądarkowy Colab poza workctl |
 | D3 | Czyj `client_id`? | **do potwierdzenia:** własna aplikacja per host, tylko tokeny użytkownika, w MCP nigdy tokeny bota |
 | D4 | Azure / Entra | **poza zakresem** |
-| D5 | Sheets i Docs w hostach `gdrive`? | **wdrożone (do potwierdzenia):** hosty w presecie `drive`; API trzeba włączyć w projekcie klienta OAuth. Po włączeniu odczyty Sheets i Docs działają na żywo |
-| D6 | `file` zwraca treść pliku tekstowego, czy tylko metadane? | **wdrożone w 2b jako propozycja zawężona (do potwierdzenia):** `file` daje metadane lub listę, treść przez `download` (z `export_mime` dla dokumentów natywnych) |
+| D5 | Sheets i Docs w hostach `gdrive`? | **wdrożone (PR #10):** hosty w presecie `drive`; API trzeba włączyć w projekcie klienta OAuth. Sprawdzone odczytami na żywo i jednym cofniętym zapisem komórki A1; inne zapisy nie były testowane |
+| D6 | `file` zwraca treść pliku tekstowego, czy tylko metadane? | **wdrożone (PR #14) w wariancie zawężonym:** `file` daje metadane lub listę, treść przez `download` (z `export_mime` dla dokumentów natywnych) |
 
 ## Ryzyka
 
