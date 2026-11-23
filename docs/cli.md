@@ -106,7 +106,8 @@ workctl issue close ABC-1 --as Done --comment "Released"
 or the older `createmeta` on Jira before 8.4) and fails with the available names; on a localised server use the
 name it lists (for example `Zadanie`) or the id, as the type is never guessed. `--fields` adds raw fields, which the
 named flags override. `--assignee` is the user name on Jira Server and the account id on Jira Cloud. `update --labels`
-replaces the labels. A flag the subcommand does not use (for example `update --priority`) is refused before anything
+replaces the labels, and `update --labels ""` clears them (the same as `labels: []` in the MCP tool; leaving the flag
+out changes nothing). A flag the subcommand does not use (for example `update --priority`) is refused before anything
 is sent. Writes need `allow_write`, print their steps and ask before applying (`--yes` skips the question,
 `--dry-run` only prints them; for `create` also the request body; with `--json` only one JSON document, the same as
 the MCP `dry_run` answer). An answer to `create` without key and id is an error: the issue may exist, check before
