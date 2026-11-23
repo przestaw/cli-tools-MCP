@@ -6,6 +6,7 @@ package pr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -149,8 +150,14 @@ func showParts(ctx context.Context, cfg *config.Config, a map[string]any, pullRe
 	return json.MarshalIndent(out, "", "  ")
 }
 
-// isRaw reports whether the call asked for the provider JSON instead of the compact shape.
-func isRaw(a map[string]any) bool { return strings.EqualFold(mcp.ArgString(a, "format"), "raw") }
+// jsonOnlyFormat is resolveFormat for the tools that answer only in JSON: text is refused, raw keeps the provider JSON.
+func jsonOnlyFormat(a map[string]any) (raw bool, err error) {
+	name, raw, err := resolveFormat(mcp.ArgString(a, "format"))
+	if err == nil && name == "text" {
+		err = errors.New("format text is only for pr_list and pr_show; use compact or raw")
+	}
+	return raw, err
+}
 
 // neutralTools are the repository tools next to pr_list and pr_show. Write tools are always listed and refused
 // without policy.allow_write.
@@ -216,6 +223,11 @@ func ValidateWrite(cfg *config.Config, name string, a map[string]any) error {
 }
 
 func callNeutral(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
+	// Checked first, so a bad format never follows a write that already happened.
+	raw, err := jsonOnlyFormat(a)
+	if err != nil {
+		return nil, err
+	}
 	if name == "file" {
 		profileName := cliutil.FirstNonEmpty(mcp.ArgString(a, "profile"), cfg.ProfileName())
 		if p, ok := cfg.Profiles[profileName]; ok && p.HasDrive() {
@@ -245,7 +257,7 @@ func callNeutral(ctx context.Context, cfg *config.Config, name string, a map[str
 		return nil, err
 	}
 	out, err := runNeutral(ctx, cfg, t, name, a)
-	if err != nil || isRaw(a) {
+	if err != nil || raw {
 		return out, err
 	}
 	switch name {

@@ -67,7 +67,8 @@ For bytes or native document exports use api download. MCP: file.`,
         is then JSON with the same keys as the pr_show tool.
         diff is the unified diff as a string; over the cap named in 'workctl tools pr_show' it is an object with
         truncated, bytes_total, bytes_returned, hint.
-  common: --provider github|gitlab|azure  --format text|json  --json  (--format raw: keep the provider details, no projection)
+  common: --provider github|gitlab|azure  --format text|json|compact|raw  --json
+          (default text; compact = the JSON of the pr_list/pr_show tools, details compacted; raw: keep the provider details, no projection)
 
 MCP: pr_list, pr_show.`,
 	"tools": `workctl tools [--all] [NAME]

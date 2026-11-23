@@ -85,7 +85,7 @@ When a command says that several profiles match, run `workctl accounts` and pass
 replaces OAuth client ids, `token_env`, `auth_header` and form-login field values with `***`.
 
 `workctl pr show --include comments,checks NUMBER` (also `mr show`) returns the same parts as the `pr_show` tool:
-`files`, `diff`, `reviews`, `reviewers`, `comments`, `discussion`, `checks`; `--format raw` gives the provider JSON. `diff` is the unified diff as a string; above the size cap (see [mcp.md](mcp.md)) it is cut at a line boundary and
+`files`, `diff`, `reviews`, `reviewers`, `comments`, `discussion`, `checks`; `--format raw` gives the provider JSON. `pr list|show --format compact` prints the same compact JSON as the MCP tools (the CLI default stays `text`). `diff` is the unified diff as a string; above the size cap (see [mcp.md](mcp.md)) it is cut at a line boundary and
 returned as `{diff, truncated, bytes_total, bytes_returned, hint}` (read the rest with `file` at the head ref or `request` with `accept`).
 
 ## GitHub

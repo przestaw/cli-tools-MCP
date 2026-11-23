@@ -37,7 +37,7 @@ func Command(cfg *config.Config, args []string) error {
 	project := fs.String("project", "", "project (Azure DevOps or GitLab alias)")
 	state := fs.String("state", "all", "open, closed, merged or all")
 	search := fs.String("search", "", "search text")
-	formatValue := fs.String("format", "text", "text or json (details compacted); raw: json with the provider details and, with show --include, the provider JSON of each part")
+	formatValue := fs.String("format", "text", "text, json or compact (json, details compacted); raw: json with the provider details and, with show --include, the provider JSON of each part")
 	include := fs.String("include", "", "show: extra parts, comma separated: files, diff, reviews, reviewers, comments, discussion, checks")
 	jsonOutput := fs.Bool("json", false, "equivalent to --format json")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -46,11 +46,11 @@ func Command(cfg *config.Config, args []string) error {
 	if *jsonOutput {
 		*formatValue = "json"
 	}
-	rawFormat := *formatValue == "raw"
-	if rawFormat {
-		*formatValue = "json"
+	formatName, rawFormat, err := resolveFormat(*formatValue)
+	if err != nil {
+		return err
 	}
-	format, err := render.ParseFormat(*formatValue)
+	format, err := render.ParseFormat(formatName)
 	if err != nil {
 		return err
 	}
@@ -103,6 +103,20 @@ func Command(cfg *config.Config, args []string) error {
 	default:
 		return fmt.Errorf("unknown pr action %q", args[0])
 	}
+}
+
+// resolveFormat maps a --format / format value to the render format name and whether the provider data is kept:
+// compact is the JSON output with the compact details (the tool default), raw is the same JSON without the projection.
+func resolveFormat(value string) (name string, raw bool, err error) {
+	switch v := strings.ToLower(strings.TrimSpace(value)); v {
+	case "", "json", "text":
+		return v, false, nil
+	case "compact":
+		return "json", false, nil
+	case "raw":
+		return "json", true, nil
+	}
+	return "", false, fmt.Errorf("unsupported format %q (use compact, raw, json or text)", value)
 }
 
 // compactItems replaces the provider details of every item with the short form; raw output skips it.
@@ -196,7 +210,7 @@ func Tools() []mcp.Tool {
 			"project": mcp.StrProp("Project name (required for Azure DevOps unless set in profile)"),
 			"state":   mcp.StrProp("Filter state: open, closed, merged, all"),
 			"search":  mcp.StrProp("Search text (title and description)"),
-			"format":  mcp.StrProp("Output format: json (default, details compacted), text, or raw (json with the provider details)"),
+			"format":  mcp.StrProp("compact (default, same as json: details compacted), text, or raw (json with the provider details)"),
 		})},
 		{Name: "pr_show", Description: fmt.Sprintf("Get details and description of a pull request or merge request; include adds files, diff (unified diff text, capped at %d bytes), reviews, reviewers, comments (inline), discussion and checks (GitHub and GitLab).", diffCap), InputSchema: mcp.ObjSchema(map[string]any{
 			"number":  mcp.IntProp("Pull request or merge request number"),
@@ -205,7 +219,7 @@ func Tools() []mcp.Tool {
 			"profile": mcp.StrProp("Profile name (optional if default profile exists)"),
 			"repo":    mcp.StrProp("Repository name or path (optional if default_repo is set)"),
 			"project": mcp.StrProp("Project name (required for Azure DevOps unless set in profile)"),
-			"format":  mcp.StrProp("json (default), text, or raw: with include, parts are compact (the same fields for GitHub and GitLab) unless format is raw"),
+			"format":  mcp.StrProp("compact (default, same as json), text, or raw: with include, parts are compact (the same fields for GitHub and GitLab) unless format is raw"),
 		})},
 	}, neutralTools()...)
 }
@@ -225,9 +239,11 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 			return nil, fmt.Errorf("number must be a positive integer")
 		}
 	}
-	raw := isRaw(a)
-	formatName := cliutil.FirstNonEmpty(mcp.ArgString(a, "format"), "json")
-	if raw || len(include) > 0 {
+	formatName, raw, err := resolveFormat(mcp.ArgString(a, "format"))
+	if err != nil {
+		return nil, err
+	}
+	if formatName == "" || len(include) > 0 {
 		formatName = "json"
 	}
 	pName, profile, err := cfg.PRProfileFor(mcp.ArgString(a, "profile"), "", cliutil.FirstNonEmpty(mcp.ArgString(a, "repo"), mcp.ArgString(a, "project")))
