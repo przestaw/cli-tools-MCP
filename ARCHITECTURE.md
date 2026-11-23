@@ -21,6 +21,7 @@ internal/
   mcp/              MCP protocol: JSON-RPC loop, Tool type, schema and argument helpers
   github/ gitlab/ jira/   REST providers: API calls, CLI commands, MCP tools
   generic/          kind "api" profiles: `api raw` / `api_request` over HTTP, `api exec` / `api_exec` over ssh
+  google/           Google Drive side of generic upload/download: resumable upload, file id resolution, MD5 check
   pr/               provider-neutral `pr` / `mr` command and pr_list / pr_show tools
   vcs/              provider-neutral pull request model and JSON normalisation
   modules/          embeds the azure and atlassian CLIs and decides which of their commands may run
@@ -36,6 +37,7 @@ Dependencies point one way only. Only `app` knows all providers; nothing imports
 
 ```
 cmd/workctl -> app -> github, gitlab, jira, generic, pr, modules, auth, setup
+                      -> google (from generic, only for Drive profiles)
                       -> api, mcp, vcs -> config, cliutil, httpx, secret, proc
 ```
 

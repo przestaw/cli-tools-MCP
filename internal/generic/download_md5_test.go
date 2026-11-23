@@ -15,24 +15,6 @@ import (
 	"workctl/internal/config"
 )
 
-func TestMD5Needed(t *testing.T) {
-	for name, tc := range map[string]struct {
-		drive  *api.DriveFile
-		export string
-		want   bool
-	}{
-		"drive file with md5":       {&api.DriveFile{MD5: "abc"}, "", true},
-		"drive file without md5":    {&api.DriveFile{}, "", false},
-		"native document, exported": {&api.DriveFile{}, "text/plain", false},
-		"export ignores md5":        {&api.DriveFile{MD5: "abc"}, "text/plain", false},
-		"not a drive download":      {nil, "", false},
-	} {
-		if got := md5Needed(tc.drive, tc.export); got != tc.want {
-			t.Errorf("%s: md5Needed = %v, want %v", name, got, tc.want)
-		}
-	}
-}
-
 func TestDownloadMD5Outcomes(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
