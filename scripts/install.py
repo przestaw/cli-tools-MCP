@@ -17,8 +17,9 @@
 The skills are embedded in the binary and copied by `workctl skills install` (nothing else in the skills
 directories is touched). Check them later with `workctl skills status` or `workctl doctor`.
   --with-compact-output   also install the optional compact-output skill
-  --skills-only           only refresh the skills of the selected agents (uses the workctl found on PATH or
-                          in the install directory; builds only when there is none)
+  --skills-only           only rebuild the binary from this clone and refresh the skills of the selected agents
+                          (no MCP registration, no keyring migration; an explicitly named agent gets its skill
+                          even when its CLI is not found)
 
 A server already registered as "workctl" is left as it is (with a warning when it runs another binary).
 Do not combine this with the Claude Code plugin (two skills named workctl). Building needs Go. The claude, codex and gk
@@ -209,9 +210,9 @@ def main():
     args = ap.parse_args()
 
     dest = Path(os.environ.get("WORKCTL_INSTALL_DIR", HOME / ".local/bin"))
-    binary = shutil.which("workctl") or (dest / ("workctl" + EXE) if (dest / ("workctl" + EXE)).is_file() else None)
-    if not (args.skills_only and binary):
-        binary = build(dest)
+    # Always build: the skills are embedded, so an older workctl on PATH would install (and report as current)
+    # its own older copies.
+    binary = build(dest)
     if not args.skills_only:
         if run(sys.executable, ROOT / "scripts/migrate.py").returncode:
             print("keyring migration skipped; run scripts/migrate.py later")
@@ -224,14 +225,19 @@ def main():
         "codex": (bool(codex), lambda: register_codex(codex, binary), "Codex not found: skipped"),
     }
     for agent, (found, register, missing) in agents.items():
-        if not (getattr(args, agent) or args.all):
+        named = getattr(args, agent)
+        if not (named or args.all):
+            continue
+        if args.skills_only:
+            # Copying a skill needs only its directory, not the agent's CLI; --all still skips absent agents.
+            if found or named:
+                install_skills(binary, agent, args.with_compact_output)
             continue
         if not found:
             if missing:
                 print(missing)
             continue
-        if not args.skills_only:
-            register()
+        register()
         install_skills(binary, agent, args.with_compact_output)
     if (args.gitkraken or args.all) and not args.skills_only:
         if not gk:

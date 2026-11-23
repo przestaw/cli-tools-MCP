@@ -1,6 +1,6 @@
 # Plan: instalacja i aktualizacja skilli agentów
 
-Status: zaimplementowane lokalnie (gałąź feat/install-skills), do przeglądu. Autor: [przestaw](https://github.com/przestaw)
+Status: PR #17 (gałąź feat/install-skills-pr), do przeglądu. Autor: [przestaw](https://github.com/przestaw)
 
 ## Problemy
 

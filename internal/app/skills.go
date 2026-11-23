@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
+	"workctl/internal/cliutil"
 	"workctl/internal/config"
 	"workctl/internal/skills"
 )
@@ -40,12 +40,12 @@ func runSkills(out, errOut io.Writer, args []string) error {
 	if fs.NArg() > 0 || (action == "status" && *dryRun) || (action == "install" && *check) {
 		return errors.New(skillsUsage)
 	}
-	targets, err := skills.Targets(strings.Split(*target, ","))
+	targets, err := skills.Targets(cliutil.SplitCommaList(*target))
 	if err != nil {
 		return err
 	}
 	src := skills.Embedded()
-	selected, err := skills.Select(src, splitList(*with))
+	selected, err := skills.Select(src, cliutil.SplitCommaList(*with))
 	if err != nil {
 		return err
 	}
@@ -85,21 +85,11 @@ func runSkills(out, errOut io.Writer, args []string) error {
 // warnPluginDuplicate points out two skills named workctl in Claude Code: one from the plugin, one copied by us.
 func warnPluginDuplicate(w io.Writer, targets []skills.Target) {
 	for _, t := range targets {
-		if t.Name != "claude" || !skills.ClaudePluginInstalled() {
+		if t.Name != "claude" || !skills.ClaudePluginInstalled(filepath.Dir(t.Dir)) {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(t.Dir, "workctl")); err == nil {
 			fmt.Fprintf(w, "warning: Claude Code has the workctl plugin and the copied skill %s: two skills named workctl; keep one (remove the directory, or `claude plugin uninstall workctl@workctl`)\n", filepath.Join(t.Dir, "workctl"))
 		}
 	}
-}
-
-func splitList(s string) []string {
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }

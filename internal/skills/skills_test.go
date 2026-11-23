@@ -188,19 +188,17 @@ func TestTargets(t *testing.T) {
 }
 
 func TestClaudePluginInstalled(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	if ClaudePluginInstalled() {
+	dir := t.TempDir()
+	if ClaudePluginInstalled(dir) {
 		t.Fatal("reported without a file")
 	}
-	file := filepath.Join(home, ".claude/plugins/installed_plugins.json")
+	file := filepath.Join(dir, "plugins/installed_plugins.json")
 	write(t, file, `{"version":2,"plugins":{"other@market":[{}]}}`)
-	if ClaudePluginInstalled() {
+	if ClaudePluginInstalled(dir) {
 		t.Error("other plugin counted")
 	}
 	write(t, file, `{"version":2,"plugins":{"workctl@workctl":[{}]}}`)
-	if !ClaudePluginInstalled() {
+	if !ClaudePluginInstalled(dir) {
 		t.Error("workctl plugin not detected")
 	}
 }

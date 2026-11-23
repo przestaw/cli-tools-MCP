@@ -7,7 +7,7 @@
 package skills
 
 import (
-	"crypto/sha256"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -147,7 +147,7 @@ func stale(src fs.FS, name, dir string) ([]string, error) {
 			return nil, err
 		}
 		got, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(f)))
-		if err != nil || sha256.Sum256(got) != sha256.Sum256(want) {
+		if err != nil || !bytes.Equal(got, want) {
 			out = append(out, f)
 		}
 	}
@@ -231,14 +231,11 @@ func writeAtomic(path string, data []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// ClaudePluginInstalled reports whether Claude Code lists the workctl plugin as installed. It reads
-// ~/.claude/plugins/installed_plugins.json, whose "plugins" keys look like "workctl@marketplace".
-func ClaudePluginInstalled() bool {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false
-	}
-	b, err := os.ReadFile(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"))
+// ClaudePluginInstalled reports whether Claude Code lists the workctl plugin as installed. claudeDir is the
+// Claude Code directory (~/.claude, the parent of the claude target); the "plugins" keys of
+// plugins/installed_plugins.json look like "workctl@marketplace".
+func ClaudePluginInstalled(claudeDir string) bool {
+	b, err := os.ReadFile(filepath.Join(claudeDir, "plugins", "installed_plugins.json"))
 	if err != nil {
 		return false
 	}

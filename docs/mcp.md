@@ -126,7 +126,7 @@ python3 scripts/install.py --all      # or any of --vscode --claude --codex --gi
 | `--claude` | server in Claude Code (user scope); skill in `~/.claude/skills` |
 | `--codex` | server in Codex; skill in `~/.codex/skills` |
 | `--with-compact-output` | also installs the optional `compact-output` skill (with any of the agent flags) |
-| `--skills-only` | only refreshes the skills of the selected agents; uses the `workctl` on `PATH` or in the install directory and builds only when there is none |
+| `--skills-only` | rebuilds the binary from the clone and refreshes the skills of the selected agents, without MCP registration or keyring migration (an older `workctl` on `PATH` would install its own older skills); an explicitly named agent gets its skill even when its CLI is not found |
 | `--gitkraken` | GitKraken MCP (shipped with GitLens) in Claude Code and Codex, read-only while workctl writes are off; VS Code gets it from GitLens |
 
 The skills are copied by the built binary (`workctl skills install --target vscode|claude|codex|all`, see [cli.md](cli.md)):

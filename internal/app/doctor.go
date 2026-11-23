@@ -97,7 +97,7 @@ func doctorCommand(cfg *config.Config) error {
 	return nil
 }
 
-// doctorSkills compares the installed workctl skill with the embedded one. Agents without an installed copy are
+// doctorSkills compares the installed default skills with the embedded ones. Agents without an installed copy are
 // skipped: the user may use the plugin or no skill at all.
 func doctorSkills() doctorCheck {
 	targets, err := skills.Targets([]string{"all"})
@@ -113,7 +113,7 @@ func doctorSkills() doctorCheck {
 		}
 		for _, e := range entries {
 			switch {
-			case e.Skill != "workctl" || e.State == skills.Missing:
+			case !slices.Contains(skills.DefaultSkills, e.Skill) || e.State == skills.Missing:
 			case e.State == skills.Differs:
 				outdated = append(outdated, t.Name)
 			default:

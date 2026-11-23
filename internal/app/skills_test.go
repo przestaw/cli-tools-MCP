@@ -46,6 +46,10 @@ func TestSkillsCommand(t *testing.T) {
 	if _, err := os.Stat(claudeSkill); err == nil {
 		t.Fatal("--dry-run wrote a file")
 	}
+	// A list typed with spaces after the commas, as people write it.
+	if out, _, err := runSkillsCmd("status", "--target", "vscode, claude"); err != nil || !strings.Contains(out, "vscode") || !strings.Contains(out, "claude") {
+		t.Errorf("--target with spaces: %q %v", out, err)
+	}
 
 	if _, _, err := runSkillsCmd("install", "--target", "all"); err != nil {
 		t.Fatal(err)
