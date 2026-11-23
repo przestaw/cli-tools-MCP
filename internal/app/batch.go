@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"workctl/internal/cliutil"
 	"workctl/internal/config"
 	"workctl/internal/generic"
 	"workctl/internal/issue"
@@ -157,8 +158,8 @@ func validateBatchCall(cfg *config.Config, tool mcp.Tool, args map[string]any) e
 		return generic.ValidateRequest(cfg, args)
 	case "pr_create", "pr_edit", "comment", "upload":
 		return pr.ValidateWrite(cfg, tool.Name, args)
-	case "issue_update":
-		_, _, err := issue.ResolveProfile(cfg, mcp.ArgString(args, "profile"), mcp.ArgString(args, "key"))
+	case "issue_update", "issue_create":
+		_, _, err := issue.ResolveProfile(cfg, mcp.ArgString(args, "profile"), cliutil.FirstNonEmpty(mcp.ArgString(args, "key"), mcp.ArgString(args, "project")))
 		return err
 	}
 	return nil

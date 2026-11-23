@@ -193,7 +193,7 @@ te narzędzia w hoście. Po odmowie agent powinien się zatrzymać, a nie zmieni
 |---|---|
 | Konta i wybór profilu | `accounts` |
 | Pull/merge requesty | `pr_list`, `pr_show`, `pr_create`, `pr_edit` |
-| Zgłoszenia | `issue_show`, `issue_search`, `issue_update`, `task_get_context` |
+| Zgłoszenia | `issue_show`, `issue_search`, `issue_create`, `issue_update`, `task_get_context` |
 | CI i pliki źródłowe | `ci`, `file` |
 | Komentarze i multimedia | `comment`, `upload`, `download` |
 | Grupowanie zapisów | `batch` |

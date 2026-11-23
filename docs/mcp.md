@@ -27,7 +27,7 @@ omission keeps the response as received. XML stays unchanged. See [compaction an
 | `comment` | comment on a pull/merge request (`repo` + `number`) or an issue (`issue`) (write) |
 | `upload` | one local image or video (png, jpg, gif, webp, mp4, mov, webm; up to 100 MB) for a pull request (`repo`, GitHub user attachment on github.com or GitLab upload) or an issue (`issue`, Jira attachment); returns `url` and `markdown` (write) |
 | `batch` | `calls: [{tool, description?, args}, ...]`, 1 to 20 writes run in order; optional per-call explanations in the approval prompt; listed only with `allow_write` |
-| `issue_show`, `issue_search`, `issue_update` | Jira Server and Cloud issues in one shape (see below) |
+| `issue_show`, `issue_search`, `issue_create`, `issue_update` | Jira Server and Cloud issues in one shape (see below); `issue_create` resolves the issue type name to its id and returns `key`, `id`, `url`; both writes accept `dry_run` |
 | `request`, `download` | any endpoint or file of any HTTP profile (github, gitlab, jira, atlassian, api) |
 | `api_exec` | allow-listed remote commands of ssh-exec profiles |
 | `task_get_context` | a Jira issue with its branches and merge requests |

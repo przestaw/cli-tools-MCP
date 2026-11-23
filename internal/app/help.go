@@ -147,7 +147,7 @@ var cliEquivalent = map[string]string{
 	"file":     "file",
 	"accounts": "accounts", "request": "api raw", "download": "api download", "upload": "api upload", "api_exec": "api exec",
 	"pr_list": "pr list", "pr_show": "pr show", "task_get_context": "task KEY",
-	"issue_show": "issue show", "issue_update": "issue update|move|close|dup|link", "issue_search": "issue search",
+	"issue_show": "issue show", "issue_update": "issue update|move|close|dup|link", "issue_search": "issue search", "issue_create": "issue create",
 	"comment": "issue comment (issues only)",
 }
 

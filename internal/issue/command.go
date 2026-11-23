@@ -6,11 +6,13 @@ package issue
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"golang.org/x/term"
@@ -24,7 +26,10 @@ import (
 const Usage = `issue commands (alias: i):
   issue [show] KEY [--include comments,transitions] [--json|--raw]
   issue search|find [--max N] [--start N] [--page-token T] [--json] JQL
-  issue update KEY [--transition T] [--resolve] [--resolution R] [--fix V,..] [--assignee U] [--comment TEXT] [--link TYPE=KEY]
+  issue update KEY [--transition T] [--resolve] [--resolution R] [--fix V,..] [--summary S] [--description D] [--labels L,..]
+               [--assignee U] [--comment TEXT] [--link TYPE=KEY]
+  issue create PROJECT --type T --summary S [--description D] [--labels L,..] [--assignee U] [--priority P]
+               [--parent KEY] [--fields JSON]
   issue move KEY TRANSITION      issue close KEY [--as RESOLUTION]      issue dup KEY OTHER
   issue link KEY TYPE OTHER      issue comment KEY TEXT
 writes accept --dry-run (show the steps) and --yes (no confirmation); --json prints the common JSON shape`
@@ -44,7 +49,7 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 	}
 	sub := args[0]
 	switch sub {
-	case "show", "search", "find", "update", "move", "close", "dup", "link", "comment":
+	case "show", "search", "find", "update", "create", "move", "close", "dup", "link", "comment":
 		args = args[1:]
 	default:
 		sub = "show"
@@ -60,11 +65,16 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 		pageToken                                      = fs.String("page-token", "", "")
 		transition, resolution, fix, assignee, comment = fs.String("transition", "", ""), fs.String("resolution", "", ""), fs.String("fix", "", ""), fs.String("assignee", "", ""), fs.String("comment", "", "")
 		as, link                                       = fs.String("as", "", ""), fs.String("link", "", "")
+		summary, description, labels                   = fs.String("summary", "", ""), fs.String("description", "", ""), fs.String("labels", "", "")
+		issueType, priority, parent, fields            = fs.String("type", "", ""), fs.String("priority", "", ""), fs.String("parent", "", ""), fs.String("fields", "", "")
 		resolve, dryRun, yes                           = fs.Bool("resolve", false, ""), fs.Bool("dry-run", false, ""), fs.Bool("yes", false, "")
 	)
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return fmt.Errorf("%w\n%s", err, Usage)
+	}
+	if err := checkFlags(fs, sub); err != nil {
+		return err
 	}
 	need := func(n int, form string) error {
 		if len(pos) != n {
@@ -97,13 +107,20 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 
 	var key string
 	u := Update{Transition: *transition, Resolve: *resolve, Resolution: *resolution, FixVersions: cliutil.SplitCommaList(*fix),
-		Assignee: *assignee, Comment: *comment}
+		Summary: *summary, Description: *description, Labels: cliutil.SplitCommaList(*labels), Assignee: *assignee, Comment: *comment}
 	if *link != "" {
 		t, k, ok := strings.Cut(*link, "=")
 		if !ok {
 			return fmt.Errorf("--link wants TYPE=KEY, for example duplicates=ABC-1")
 		}
 		u.Link = &LinkSpec{Type: t, Key: k}
+	}
+	n := NewIssue{Type: *issueType, Fields: Fields{Summary: *summary, Description: *description, Labels: cliutil.SplitCommaList(*labels),
+		Assignee: *assignee, Priority: *priority, Parent: *parent}}
+	if *fields != "" {
+		if err := json.Unmarshal([]byte(*fields), &n.Extra); err != nil {
+			return fmt.Errorf("--fields wants a JSON object: %w", err)
+		}
 	}
 	switch sub {
 	case "show":
@@ -116,6 +133,11 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 			return err
 		}
 		key = pos[0]
+	case "create":
+		if err := need(1, "create PROJECT --type T --summary S [flags]"); err != nil {
+			return err
+		}
+		key, n.Project = pos[0], pos[0]
 	case "move":
 		if err := need(2, "move KEY TRANSITION"); err != nil {
 			return err
@@ -180,25 +202,48 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 			return err
 		}
 	}
-	steps, err := b.Plan(ctx, key, u)
-	if err != nil {
+	var steps []Step
+	if sub == "create" {
+		s, err := b.PlanCreate(ctx, n)
+		if err != nil {
+			return err
+		}
+		steps = []Step{s}
+	} else if steps, err = b.Plan(ctx, key, u); err != nil {
 		return err
 	}
-	if *dryRun || !*yes {
-		for _, s := range steps {
-			fmt.Fprintf(out, "  %s\n", s.Describe)
-		}
-	}
 	if *dryRun {
+		if *jsonOut { // the same shapes as the dry_run answers of the MCP tools, and nothing else on stdout
+			if sub == "create" {
+				return printJSON(&Created{DryRun: true, Step: steps[0].Describe, Body: steps[0].body})
+			}
+			return printJSON(&UpdateResult{DryRun: true, Steps: describe(steps)})
+		}
+		printSteps(steps)
+		if sub == "create" {
+			return printJSON(steps[0].body)
+		}
 		return nil
 	}
 	if !*yes {
+		printSteps(steps)
 		if !isTerminal() {
 			return fmt.Errorf("not a terminal: pass --yes to apply")
 		}
 		if !prompt.AskBool(bufio.NewReader(in), "Apply to "+key+"?", false) {
 			return fmt.Errorf("cancelled")
 		}
+	}
+	if sub == "create" {
+		c, err := b.Create(ctx, steps[0])
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return printJSON(c)
+		}
+		_, err = fmt.Fprintf(out, "%s\n%s\n", c.Key, c.URL)
+		return err
 	}
 	if _, err := b.Apply(ctx, steps); err != nil {
 		return err
@@ -211,6 +256,48 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 		return printJSON(is)
 	}
 	printIssue(is)
+	return nil
+}
+
+// printSteps shows the planned requests of a write.
+func printSteps(steps []Step) {
+	for _, s := range steps {
+		fmt.Fprintf(out, "  %s\n", s.Describe)
+	}
+}
+
+// The subcommands share one flag set; subFlags names the flags each one reads. Any other flag is refused before
+// anything is sent, so a write never silently drops part of what was asked (update --priority, create --comment).
+// A flag that a positional argument replaces (move's transition, comment's text, dup's link) is not listed.
+const (
+	writeFlags = "dry-run yes json"
+	editFlags  = "resolve resolution fix summary description labels assignee " + writeFlags
+)
+
+var subFlags = map[string]string{
+	"show":    "include raw json",
+	"search":  "max start page-token json",
+	"find":    "max start page-token json",
+	"update":  "transition comment link " + editFlags,
+	"move":    "comment link " + editFlags,
+	"link":    "transition comment " + editFlags,
+	"comment": "transition link " + editFlags,
+	"close":   "as transition comment link " + editFlags,
+	"dup":     "as transition comment " + editFlags,
+	"create":  "type summary description labels assignee priority parent fields " + writeFlags,
+}
+
+func checkFlags(fs *flag.FlagSet, sub string) error {
+	allowed := strings.Fields(subFlags[sub])
+	var unused []string
+	fs.Visit(func(f *flag.Flag) {
+		if !slices.Contains(allowed, f.Name) {
+			unused = append(unused, "--"+f.Name)
+		}
+	})
+	if len(unused) > 0 {
+		return fmt.Errorf("issue %s does not use %s", sub, strings.Join(unused, ", "))
+	}
 	return nil
 }
 

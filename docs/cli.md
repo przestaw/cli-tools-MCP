@@ -88,6 +88,30 @@ replaces OAuth client ids, `token_env`, `auth_header` and form-login field value
 `files`, `diff`, `reviews`, `reviewers`, `comments`, `discussion`, `checks`; `--format raw` gives the provider JSON. `pr list|show --format compact` prints the same compact JSON as the MCP tools (the CLI default stays `text`). `diff` is the unified diff as a string; above the size cap (see [mcp.md](mcp.md)) it is cut at a line boundary and
 returned as `{diff, truncated, bytes_total, bytes_returned, hint}` (read the rest with `file` at the head ref or `request` with `accept`).
 
+## Issues
+
+`workctl issue` (alias `i`) serves Jira Server/Data Center (`jira` profiles) and Jira Cloud (`atlassian` profiles) through
+REST v2, like the `issue_*` tools; `workctl help issue` lists every form.
+
+```sh
+workctl issue ABC-1 --include comments,transitions
+workctl issue search "project = ABC AND resolution = Unresolved"
+workctl issue create ABC --type Task --summary "Title" --description "Text" --labels a,b --assignee jdoe --dry-run
+workctl issue create ABC --type Sub-task --parent ABC-1 --summary "Step" --fields '{"customfield_10010": 42}' --yes
+workctl issue update ABC-1 --summary "New title" --labels a,b --transition "In Progress" --yes
+workctl issue close ABC-1 --as Done --comment "Released"
+```
+
+`create` resolves the issue type name to its id from the project's create metadata (`createmeta/{project}/issuetypes`,
+or the older `createmeta` on Jira before 8.4) and fails with the available names; on a localised server use the
+name it lists (for example `Zadanie`) or the id, as the type is never guessed. `--fields` adds raw fields, which the
+named flags override. `--assignee` is the user name on Jira Server and the account id on Jira Cloud. `update --labels`
+replaces the labels. A flag the subcommand does not use (for example `update --priority`) is refused before anything
+is sent. Writes need `allow_write`, print their steps and ask before applying (`--yes` skips the question,
+`--dry-run` only prints them; for `create` also the request body; with `--json` only one JSON document, the same as
+the MCP `dry_run` answer). An answer to `create` without key and id is an error: the issue may exist, check before
+retrying. `workctl jira raw` stays for anything else.
+
 ## GitHub
 
 ```powershell

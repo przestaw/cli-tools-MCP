@@ -13,13 +13,18 @@ import (
 	"strings"
 	"testing"
 
+	"workctl/internal/cliutil"
 	"workctl/internal/config"
 )
 
 // fakeJira answers the endpoints the issue layer uses, with a localised resolution list, and records writes.
+// legacy makes it a Jira older than 8.4, without createmeta/{project}/issuetypes. created replaces the answer to
+// an issue create.
 type fakeJira struct {
-	writes []string // "METHOD path body"
-	reads  []string
+	writes  []string // "METHOD path body"
+	reads   []string
+	legacy  bool
+	created string
 }
 
 const issueJSON = `{"key":"ABC-1","fields":{
@@ -43,6 +48,11 @@ func (f *fakeJira) server(t *testing.T, cloud bool) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method != http.MethodGet && !strings.Contains(r.URL.Path, "/search") {
 			f.writes = append(f.writes, r.Method+" "+r.URL.Path+" "+string(body))
+			if r.URL.Path == "/rest/api/2/issue" {
+				w.WriteHeader(http.StatusCreated)
+				_, _ = io.WriteString(w, cliutil.FirstNonEmpty(f.created, `{"id":"10100","key":"ABC-24","self":"x"}`))
+				return
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -52,6 +62,24 @@ func (f *fakeJira) server(t *testing.T, cloud bool) *httptest.Server {
 			desc = `{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"adf text"}]}]}`
 		}
 		switch r.URL.Path {
+		case "/rest/api/2/issue/createmeta/ABC/issuetypes":
+			if f.legacy {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			// Two pages; Server names the list "values", Cloud "issueTypes".
+			list := map[bool]string{false: "values", true: "issueTypes"}[cloud]
+			page := `{"id":"10002","name":"Task"}`
+			if r.URL.Query().Get("startAt") == "1" {
+				page = `{"id":"10003","name":"Sub-task"}`
+			}
+			_, _ = io.WriteString(w, `{"total":2,"`+list+`":[`+page+`]}`)
+		case "/rest/api/2/issue/createmeta":
+			if !f.legacy || r.URL.Query().Get("projectKeys") != "ABC" {
+				t.Errorf("unexpected legacy createmeta %s", r.URL)
+			}
+			// Id 3 is Task on a default install; here it was renamed, so Task must not resolve to it.
+			_, _ = io.WriteString(w, `{"projects":[{"key":"ABC","issuetypes":[{"id":"1","name":"Bug"},{"id":"3","name":"Incident"},{"id":"5","name":"Sub-task"}]}]}`)
 		case "/rest/api/2/issue/ABC-1":
 			_, _ = io.WriteString(w, strings.Replace(strings.Replace(issueJSON, "%s", desc, 1), "%s", cbody, 1))
 		case "/rest/api/2/issue/ABC-1/transitions":
@@ -231,6 +259,131 @@ func TestUpdateToolNeedsAllowWriteUnlessDryRun(t *testing.T) {
 	out, err = CallTool(context.Background(), cfg, "issue_show", map[string]any{"key": "ABC-1", "format": "raw"})
 	if err != nil || !strings.Contains(string(out), `"issuelinks"`) {
 		t.Fatalf("raw: %s %v", out, err)
+	}
+}
+
+func TestCreateResolvesIssueTypeOnOldAndNewServers(t *testing.T) {
+	cases := []struct {
+		name, kind string
+		legacy     bool
+		typeID     string
+		user       string
+	}{
+		{"server before 8.4", "jira", true, "5", `"assignee":{"name":"u1"}`},
+		{"data center 9", "jira", false, "10003", `"assignee":{"name":"u1"}`},
+		{"cloud", "atlassian", false, "10003", `"assignee":{"accountId":"u1"}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg, f := setup(t, c.kind)
+			f.legacy = c.legacy
+			cfg.Policy.AllowWrite = true
+			args := map[string]any{"project": "ABC", "type": "sub-task", "summary": "named", "assignee": "u1", "labels": []any{"x"},
+				"parent": "ABC-1", "fields": map[string]any{"customfield_10010": "sprint", "summary": "loses"}}
+			out, err := CallTool(context.Background(), cfg, "issue_create", args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got Created
+			if err := json.Unmarshal(out, &got); err != nil || got.Key != "ABC-24" || got.ID != "10100" || !strings.HasSuffix(got.URL, "/browse/ABC-24") {
+				t.Fatalf("result = %s %v", out, err)
+			}
+			if len(f.writes) != 1 || !strings.HasPrefix(f.writes[0], "POST /rest/api/2/issue ") {
+				t.Fatalf("writes = %v", f.writes)
+			}
+			for _, want := range []string{`"issuetype":{"id":"` + c.typeID + `"}`, c.user, `"customfield_10010":"sprint"`, `"summary":"named"`,
+				`"project":{"key":"ABC"}`, `"parent":{"key":"ABC-1"}`, `"labels":["x"]`} {
+				if !strings.Contains(f.writes[0], want) {
+					t.Errorf("body lacks %s: %s", want, f.writes[0])
+				}
+			}
+		})
+	}
+}
+
+func TestCreateDryRunUnknownTypeAndPolicy(t *testing.T) {
+	cfg, f := setup(t, "jira")
+	args := map[string]any{"project": "ABC", "type": "Task", "summary": "s"}
+	if _, err := CallTool(context.Background(), cfg, "issue_create", args); err == nil || !strings.Contains(err.Error(), "allow_write") || len(f.reads) != 0 {
+		t.Fatalf("policy: %v reads=%v", err, f.reads)
+	}
+	args["dry_run"] = true
+	out, err := CallTool(context.Background(), cfg, "issue_create", args)
+	if err != nil || !strings.Contains(string(out), `"dry_run": true`) || !strings.Contains(string(out), `"id": "10002"`) || len(f.writes) != 0 {
+		t.Fatalf("dry run: %s %v writes=%v", out, err, f.writes)
+	}
+	args["type"] = "Epic"
+	if _, err := CallTool(context.Background(), cfg, "issue_create", args); err == nil || !strings.Contains(err.Error(), "Task, Sub-task") {
+		t.Fatalf("unknown type: %v", err)
+	}
+	cfg.Policy.AllowWrite = true
+	text, err := runCLI(t, cfg, false, "", "create", "ABC", "--type", "task", "--summary", "s", "--fields", `{"customfield_1":2}`, "--dry-run")
+	if err != nil || !strings.Contains(text, "create Task (10002) in ABC") || !strings.Contains(text, `"customfield_1": 2`) || len(f.writes) != 0 {
+		t.Fatalf("cli dry run: %q %v writes=%v", text, err, f.writes)
+	}
+}
+
+func TestUpdateEditsSummaryDescriptionAndLabels(t *testing.T) {
+	cfg, f := setup(t, "jira")
+	cfg.Policy.AllowWrite = true
+	args := map[string]any{"key": "ABC-1", "summary": "s", "description": "d", "labels": []any{}}
+	if _, err := CallTool(context.Background(), cfg, "issue_update", args); err != nil {
+		t.Fatal(err)
+	}
+	want := `PUT /rest/api/2/issue/ABC-1 {"fields":{"description":"d","labels":[],"summary":"s"}}`
+	if len(f.writes) != 1 || f.writes[0] != want {
+		t.Fatalf("writes = %v\nwant %s", f.writes, want)
+	}
+}
+
+// Review regressions: each case below would end with a write that is not what was asked, so none may send one.
+func TestCreateAndUpdateRefuseWhatTheyCannotDoExactly(t *testing.T) {
+	cfg, f := setup(t, "jira")
+	f.legacy = true
+	cfg.Policy.AllowWrite = true
+	// Id 3 is Task on a default install but Incident here: the type is never guessed by id.
+	_, err := CallTool(context.Background(), cfg, "issue_create", map[string]any{"project": "ABC", "type": "Task", "summary": "s"})
+	if err == nil || !strings.Contains(err.Error(), "Incident") {
+		t.Errorf("Task on a server without it: %v", err)
+	}
+	// A flag the subcommand does not read is refused, not ignored.
+	for _, args := range [][]string{
+		{"update", "ABC-1", "--summary", "New", "--priority", "High", "--yes"},
+		{"create", "ABC", "--type", "Bug", "--summary", "s", "--comment", "c", "--yes"},
+		{"comment", "ABC-1", "text", "--comment", "other", "--yes"},
+	} {
+		if _, err := runCLI(t, cfg, false, "", args...); err == nil || !strings.Contains(err.Error(), "does not use") {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	if len(f.writes) != 0 {
+		t.Fatalf("writes = %v", f.writes)
+	}
+}
+
+// With --json a dry run prints one JSON document and nothing else, so it can be piped to jq.
+func TestDryRunJSONIsOneDocument(t *testing.T) {
+	cfg, _ := setup(t, "jira")
+	text, err := runCLI(t, cfg, false, "", "create", "ABC", "--type", "Task", "--summary", "s", "--dry-run", "--json")
+	var created Created
+	if err != nil || json.Unmarshal([]byte(text), &created) != nil || !created.DryRun || !strings.Contains(created.Step, "create Task") {
+		t.Fatalf("create: %q %v", text, err)
+	}
+	text, err = runCLI(t, cfg, false, "", "update", "ABC-1", "--summary", "s", "--dry-run", "--json")
+	var updated UpdateResult
+	if err != nil || json.Unmarshal([]byte(text), &updated) != nil || !updated.DryRun || len(updated.Steps) != 1 {
+		t.Fatalf("update: %q %v", text, err)
+	}
+}
+
+// An answer without key and id after the POST is not a success: the issue may exist, so the error says so.
+func TestCreateUnconfirmedAnswerIsAnError(t *testing.T) {
+	cfg, f := setup(t, "jira")
+	cfg.Policy.AllowWrite = true
+	f.created = "{}"
+	_, err := CallTool(context.Background(), cfg, "issue_create", map[string]any{"project": "ABC", "type": "Task", "summary": "s"})
+	if err == nil || !strings.Contains(err.Error(), "could not be confirmed") || len(f.writes) != 1 {
+		t.Fatalf("err = %v, writes = %v", err, f.writes)
 	}
 }
 

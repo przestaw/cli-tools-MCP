@@ -22,7 +22,7 @@ When unsure which account serves a resource, call `accounts` first: it lists the
 
 - Pull/merge requests (GitHub, GitLab; Azure DevOps for list/show): `pr_list`, `pr_show` with `include: [files, diff, reviews, reviewers, comments, discussion, checks]` (`comments` = inline review threads, `discussion` = conversation; `diff` = unified diff to read the actual changes, size-capped: when cut it is an object with `truncated`, read the rest via `file` at the head ref). Accounts: `accounts` (read-only unless asked to bind).
 - CI: `ci` lists runs/pipelines for a `ref`, shows one `run` (with `include: [jobs]`) or the log of one `job` (GitHub logs arrive as a downloaded file). Files: `file` with `path` and optional `ref`.
-- Issues (Jira Server and Cloud): `issue_show` (with `include: [comments, transitions]`), `issue_search` (JQL). `task_get_context` joins an issue with its branches and merge requests.
+- Issues (Jira Server and Cloud): `issue_show` (with `include: [comments, transitions]`), `issue_search` (JQL); writes: `issue_create`, `issue_update` (both take `dry_run`). `task_get_context` joins an issue with its branches and merge requests.
 - `cli` runs a module command line (`module`: azure, atlassian, jira; `args` as an array) for anything the tools above do not cover. Consult its help and use only read operations for an inspection; the wrapper is not permission to change configuration or policy.
 - Anything else: `request` (one HTTP request) and `download` (one file to the downloads directory) work with every HTTP profile (github, gitlab, jira, atlassian, api). Relative paths use the API base; full URLs must name the configured server or an allowed Google host. `download` additionally accepts known signed storage URLs without sending profile credentials. `api_exec` runs allow-listed remote commands of ssh-exec profiles. Do not create a new profile or relax host restrictions as a workaround.
 
@@ -78,7 +78,7 @@ A decline, cancellation, policy refusal or missing client confirmation support m
 
 1. Read the existing discussion to avoid duplicate comments.
 2. Show the exact proposed text and obtain approval before posting.
-3. Post with `comment` (`repo` + `number` for a pull/merge request, `issue` for an issue); other writes: `pr_create`, `pr_edit`, `issue_update`, `upload` (an image or video, then paste the returned `markdown`).
+3. Post with `comment` (`repo` + `number` for a pull/merge request, `issue` for an issue); other writes: `pr_create`, `pr_edit`, `issue_create`, `issue_update`, `upload` (an image or video, then paste the returned `markdown`).
 4. Verify the result and report the resulting reference. Do not blindly retry a write with an uncertain outcome.
 
 Several writes for one user goal (for example stopping 14 known builds of a Jenkins pipeline) go into one `batch`. If confirmation is requested, ask once for the exact list, not once per HTTP request. Do discovery and verification with reads. For independent stops use `stop_on_error: false` and report each result; default true skips remaining writes after a failure. Never silently add newly discovered targets or retry a write with an uncertain result. Nothing that already ran is undone.

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Przemysław Stawczyk (https://github.com/przestaw). All rights reserved.
 // This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
 
-// Package issue is the provider-neutral issue layer: the same show, search and update operations and one output
+// Package issue is the provider-neutral issue layer: the same show, search, create and update operations and one output
 // shape for Jira Server/Data Center (profile kind jira) and Jira Cloud (profile kind atlassian). Both speak REST
 // API v2 through the workctl api client; they differ only in search pagination and how a user is addressed.
 package issue
@@ -10,8 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -366,12 +368,16 @@ func (b *Backend) normalize(r rawIssue) Issue {
 }
 
 // Update is one change of an issue: optional link, transition (with resolution, fix versions and comment when
-// the transition screen has them), fix version edit, assignee and comment, applied in that order.
+// the transition screen has them), field edit (summary, description, labels), fix version edit, assignee and
+// comment, applied in that order.
 type Update struct {
 	Transition  string    `json:"transition,omitempty"` // id, name or target status
 	Resolve     bool      `json:"resolve,omitempty"`    // pick the first transition that sets a resolution
 	Resolution  string    `json:"resolution,omitempty"` // name or id
 	FixVersions []string  `json:"fix_versions,omitempty"`
+	Summary     string    `json:"summary,omitempty"`
+	Description string    `json:"description,omitempty"`
+	Labels      []string  `json:"labels,omitempty"`   // replace the labels; nil leaves them, empty clears them
 	Assignee    string    `json:"assignee,omitempty"` // user name (Server) or account id (Cloud)
 	Comment     string    `json:"comment,omitempty"`
 	Link        *LinkSpec `json:"link,omitempty"`
@@ -386,7 +392,157 @@ type LinkSpec struct {
 // Empty reports whether the update changes nothing.
 func (u Update) Empty() bool {
 	return u.Transition == "" && !u.Resolve && u.Resolution == "" && len(u.FixVersions) == 0 && u.Assignee == "" &&
-		u.Comment == "" && u.Link == nil
+		u.Comment == "" && u.Link == nil && u.Summary == "" && u.Description == "" && u.Labels == nil
+}
+
+// Fields are the plain fields an issue is created or edited with; empty ones are left out.
+type Fields struct {
+	Summary     string
+	Description string
+	Labels      []string // nil leaves the labels, empty clears them
+	Assignee    string   // user name (Server) or account id (Cloud)
+	Priority    string   // name
+	Parent      string   // key of the parent, for a sub-task
+	Extra       map[string]any
+}
+
+// fieldMap is the "fields" object of a create or edit request. Extra goes in first, so a named field wins over it.
+// Jira Cloud still takes a plain-text description through v2, so no ADF is needed.
+func (b *Backend) fieldMap(f Fields) map[string]any {
+	m := maps.Clone(f.Extra)
+	if m == nil {
+		m = map[string]any{}
+	}
+	if f.Summary != "" {
+		m["summary"] = f.Summary
+	}
+	if f.Description != "" {
+		m["description"] = f.Description
+	}
+	if f.Labels != nil {
+		m["labels"] = f.Labels
+	}
+	if f.Assignee != "" {
+		m["assignee"] = b.user(f.Assignee)
+	}
+	if f.Priority != "" {
+		m["priority"] = map[string]string{"name": f.Priority}
+	}
+	if f.Parent != "" {
+		m["parent"] = map[string]string{"key": f.Parent}
+	}
+	return m
+}
+
+// user addresses a user: Jira Server by name, Jira Cloud by account id.
+func (b *Backend) user(id string) map[string]string {
+	if b.Provider == "atlassian" {
+		return map[string]string{"accountId": id}
+	}
+	return map[string]string{"name": id}
+}
+
+// NewIssue is an issue to create: project key, issue type name or id, and its fields.
+type NewIssue struct {
+	Project string
+	Type    string
+	Fields
+}
+
+// Created is a created issue, or with dry_run the request that would create it.
+type Created struct {
+	Key    string `json:"key,omitempty"`
+	ID     string `json:"id,omitempty"`
+	URL    string `json:"url,omitempty"`
+	DryRun bool   `json:"dry_run,omitempty"`
+	Step   string `json:"step,omitempty"`
+	Body   any    `json:"body,omitempty"`
+}
+
+// PlanCreate resolves the issue type and returns the request that creates the issue, without changing anything.
+func (b *Backend) PlanCreate(ctx context.Context, n NewIssue) (Step, error) {
+	if n.Project == "" || n.Type == "" || n.Summary == "" {
+		return Step{}, fmt.Errorf("creating an issue needs project, type and summary")
+	}
+	t, err := b.issueType(ctx, n.Project, n.Type)
+	if err != nil {
+		return Step{}, err
+	}
+	fields := b.fieldMap(n.Fields)
+	fields["project"] = map[string]string{"key": n.Project}
+	fields["issuetype"] = map[string]string{"id": t.ID}
+	return Step{Describe: fmt.Sprintf("create %s (%s) in %s: %s", t.Name, t.ID, n.Project, n.Summary),
+		method: http.MethodPost, path: "/rest/api/2/issue", body: map[string]any{"fields": fields}}, nil
+}
+
+// Create runs the step of PlanCreate and returns the new issue. The request has gone out once it returns an
+// answer, so an answer without key and id is an error that warns against a blind retry.
+func (b *Backend) Create(ctx context.Context, s Step) (*Created, error) {
+	data, err := b.call(ctx, s.method, s.path, nil, s.body)
+	if err != nil {
+		return nil, err
+	}
+	var c Created
+	if json.Unmarshal(data, &c) != nil || c.Key == "" || c.ID == "" {
+		return nil, fmt.Errorf("create request sent, but its result could not be confirmed (answer: %.200s); check the project before retrying", data)
+	}
+	c.URL = b.base + "/browse/" + c.Key
+	return &c, nil
+}
+
+// issueType resolves an issue type name or id of a project. The id gives a clear error here instead of Jira's
+// generic one for an unknown {"name": ...}.
+func (b *Backend) issueType(ctx context.Context, project, want string) (named, error) {
+	types, err := b.issueTypes(ctx, project)
+	if err != nil {
+		return named{}, err
+	}
+	if t, ok := matchValue(types, want); ok {
+		return t, nil
+	}
+	return named{}, fmt.Errorf("project %s has no issue type %q; available: %s", project, want, describeValues(types, want))
+}
+
+// issueTypes lists the issue types a project can create. Jira 8.4+, Data Center 9 and Cloud page them under
+// createmeta/{project}/issuetypes ("values" on Server, "issueTypes" on Cloud); older servers only have the
+// createmeta that Jira 9 removed.
+func (b *Backend) issueTypes(ctx context.Context, project string) ([]named, error) {
+	var types []named
+	for {
+		var page struct {
+			Total      int     `json:"total"`
+			Values     []named `json:"values"`
+			IssueTypes []named `json:"issueTypes"`
+		}
+		q := url.Values{"startAt": {strconv.Itoa(len(types))}}
+		err := b.getJSON(ctx, "/rest/api/2/issue/createmeta/"+url.PathEscape(project)+"/issuetypes", q, &page)
+		if len(types) == 0 && api.IsStatus(err, http.StatusNotFound) {
+			return b.legacyIssueTypes(ctx, project)
+		}
+		if err != nil {
+			return nil, err
+		}
+		got := slices.Concat(page.Values, page.IssueTypes)
+		types = append(types, got...)
+		if len(got) == 0 || len(types) >= page.Total {
+			return types, nil
+		}
+	}
+}
+
+func (b *Backend) legacyIssueTypes(ctx context.Context, project string) ([]named, error) {
+	var r struct {
+		Projects []struct {
+			IssueTypes []named `json:"issuetypes"`
+		} `json:"projects"`
+	}
+	if err := b.getJSON(ctx, "/rest/api/2/issue/createmeta", url.Values{"projectKeys": {project}}, &r); err != nil {
+		return nil, err
+	}
+	if len(r.Projects) == 0 {
+		return nil, fmt.Errorf("project %s not found or not open for creating issues", project)
+	}
+	return r.Projects[0].IssueTypes, nil
 }
 
 // Step is one request of a plan with a human description.
@@ -453,6 +609,10 @@ func (b *Backend) Plan(ctx context.Context, key string, u Update) ([]Step, error
 	} else if u.Resolution != "" {
 		return nil, fmt.Errorf("a resolution is set by a transition: add transition or resolve")
 	}
+	if fields := b.fieldMap(Fields{Summary: u.Summary, Description: u.Description, Labels: u.Labels}); len(fields) > 0 {
+		steps = append(steps, Step{Describe: "set " + strings.Join(slices.Sorted(maps.Keys(fields)), ", "),
+			method: http.MethodPut, path: issuePath(key), body: map[string]any{"fields": fields}})
+	}
 	if len(u.FixVersions) > 0 {
 		s, err := b.editFixVersions(ctx, key, u.FixVersions)
 		if err != nil {
@@ -461,11 +621,7 @@ func (b *Backend) Plan(ctx context.Context, key string, u Update) ([]Step, error
 		steps = append(steps, s)
 	}
 	if u.Assignee != "" {
-		body := map[string]string{"name": u.Assignee}
-		if b.Provider == "atlassian" {
-			body = map[string]string{"accountId": u.Assignee}
-		}
-		steps = append(steps, Step{Describe: "assign to " + u.Assignee, method: http.MethodPut, path: issuePath(key, "/assignee"), body: body})
+		steps = append(steps, Step{Describe: "assign to " + u.Assignee, method: http.MethodPut, path: issuePath(key, "/assignee"), body: b.user(u.Assignee)})
 	}
 	if u.Comment != "" && !commentDone {
 		steps = append(steps, Step{Describe: "comment", method: http.MethodPost, path: issuePath(key, "/comment"), body: map[string]string{"body": u.Comment}})

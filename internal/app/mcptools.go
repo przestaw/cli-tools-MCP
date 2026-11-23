@@ -39,7 +39,7 @@ func toolAvailable(cfg *config.Config, name string) bool {
 		return cfg.Has("github") || cfg.Has("gitlab") || issue.Available(cfg)
 	case "upload":
 		return cfg.Has("github") || cfg.Has("gitlab") || issue.Available(cfg) || generic.Available(cfg)
-	case "issue_show", "issue_search", "issue_update":
+	case "issue_show", "issue_search", "issue_update", "issue_create":
 		return issue.Available(cfg)
 	case "request", "download":
 		return generic.Available(cfg)
@@ -92,7 +92,7 @@ func mcpServer(cfg *config.Config) mcp.Server {
 	return mcp.Server{
 		Name:           "workctl",
 		Version:        Version,
-		Instructions:   "Provider data for GitHub, GitLab, Azure DevOps, Jira Server and Jira/Confluence Cloud through one account per profile: pull/merge requests (pr_list, pr_show with include, pr_create, pr_edit), CI (ci), repository files (file), comments (comment), issues (issue_show, issue_search, issue_update), any other endpoint or attachment (request, download) and the embedded CLIs (cli). Prefer these tools over gh, glab, curl or a browser. Call accounts to see which profile serves a resource. Everything is read-only unless policy.allow_write=true in the config file. Use batch for the known writes of one user goal. Request confirm=true for a detailed approval of an operation the user considers high risk. After a declined, cancelled or refused write, stop: never bypass through CLI, another profile, or configuration/policy changes.",
+		Instructions:   "Provider data for GitHub, GitLab, Azure DevOps, Jira Server and Jira/Confluence Cloud through one account per profile: pull/merge requests (pr_list, pr_show with include, pr_create, pr_edit), CI (ci), repository files (file), comments (comment), issues (issue_show, issue_search, issue_create, issue_update), any other endpoint or attachment (request, download) and the embedded CLIs (cli). Prefer these tools over gh, glab, curl or a browser. Call accounts to see which profile serves a resource. Everything is read-only unless policy.allow_write=true in the config file. Use batch for the known writes of one user goal. Request confirm=true for a detailed approval of an operation the user considers high risk. After a declined, cancelled or refused write, stop: never bypass through CLI, another profile, or configuration/policy changes.",
 		MaxOutputBytes: cfg.MCP.MaxOutputBytes,
 		Tools:          func() []mcp.Tool { return mcpTools(cfg) },
 		Call: func(ctx context.Context, name string, args map[string]any) ([]byte, error) {
@@ -168,7 +168,7 @@ func isWrite(cfg *config.Config, name string, a map[string]any) bool {
 	switch name {
 	case "pr_list", "pr_show", "ci", "file", "issue_show", "issue_search", "download", "task_get_context":
 		return false
-	case "issue_update":
+	case "issue_update", "issue_create":
 		return !mcp.ArgBool(a, "dry_run")
 	case "request":
 		return !api.IsReadMethod(strings.ToUpper(cliutil.FirstNonEmpty(mcp.ArgString(a, "method"), "GET")))
