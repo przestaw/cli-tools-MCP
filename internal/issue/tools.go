@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 
+	"workctl/internal/cliutil"
 	"workctl/internal/config"
 	"workctl/internal/mcp"
 )
@@ -17,8 +18,8 @@ import (
 // Available reports whether any profile serves issues.
 func Available(cfg *config.Config) bool { return cfg.Has("jira") || cfg.Has("atlassian") }
 
-// Tools are the issue_* MCP tools. issue_update is always listed and refused without policy.allow_write unless
-// dry_run is set.
+// Tools are the issue_* MCP tools. issue_update and issue_create are always listed and refused without
+// policy.allow_write unless dry_run is set.
 func Tools() []mcp.Tool {
 	profile := mcp.StrProp("jira or atlassian profile (account); omit to resolve by the issue's project and defaults")
 	update := mcp.ObjSchema(map[string]any{
@@ -27,6 +28,9 @@ func Tools() []mcp.Tool {
 		"resolve":      mcp.BoolProp("Use the first transition that sets a resolution (when transition is omitted)"),
 		"resolution":   mcp.StrProp("Resolution name or id, set with the transition; English built-in names also work on localised servers"),
 		"fix_versions": mcp.ArrProp("Fix version names or ids (replace the current ones)"),
+		"summary":      mcp.StrProp("New title"),
+		"description":  mcp.StrProp("New description (plain text or wiki markup)"),
+		"labels":       mcp.ArrProp("Labels (replace the current ones; an empty array clears them)"),
 		"assignee":     mcp.StrProp("User name (Jira Server) or account id (Jira Cloud)"),
 		"comment":      mcp.StrProp("Comment to add (with the transition when there is one)"),
 		"link_type":    mcp.StrProp("Link type name or phrase as seen from this issue, e.g. duplicates, blocks, relates to"),
@@ -34,6 +38,19 @@ func Tools() []mcp.Tool {
 		"dry_run":      mcp.BoolProp("Only resolve and return the steps; changes nothing"),
 		"profile":      profile,
 	}, "key")
+	create := mcp.ObjSchema(map[string]any{
+		"project":     mcp.StrProp("Project key, e.g. ABC"),
+		"type":        mcp.StrProp("Issue type name or id, e.g. Task, Bug, Sub-task"),
+		"summary":     mcp.StrProp("Title"),
+		"description": mcp.StrProp("Description (plain text or wiki markup)"),
+		"labels":      mcp.ArrProp("Labels"),
+		"assignee":    mcp.StrProp("User name (Jira Server) or account id (Jira Cloud)"),
+		"priority":    mcp.StrProp("Priority name"),
+		"parent":      mcp.StrProp("Parent issue key, for a sub-task"),
+		"fields":      map[string]any{"type": "object", "description": "Other fields sent as-is, e.g. {\"customfield_10010\": \"x\"}; the named arguments win"},
+		"dry_run":     mcp.BoolProp("Only resolve the issue type and return the request body; creates nothing"),
+		"profile":     profile,
+	}, "project", "type", "summary")
 	return []mcp.Tool{
 		{Name: "issue_show", Description: "Get an issue (Jira Server or Cloud) in a common shape: status, resolution, fix versions, links; optionally comments and transitions. format raw returns the provider JSON.", InputSchema: mcp.ObjSchema(map[string]any{
 			"key":     mcp.StrProp("Issue key, e.g. ABC-123"),
@@ -48,19 +65,20 @@ func Tools() []mcp.Tool {
 			"next_page_token": mcp.StrProp("Next page (Jira Cloud)"),
 			"profile":         profile,
 		}, "query")},
-		{Name: "issue_update", Description: "Change an issue in one call: link, transition with resolution/fix versions/comment, fix versions, assignee, comment. Names are resolved to ids from the issue's own metadata. Refused without policy.allow_write unless dry_run.", InputSchema: update},
+		{Name: "issue_update", Description: "Change an issue in one call: link, transition with resolution/fix versions/comment, summary, description, labels, fix versions, assignee, comment. Names are resolved to ids from the issue's own metadata. Refused without policy.allow_write unless dry_run.", InputSchema: update},
+		{Name: "issue_create", Description: "Create an issue (Jira Server or Cloud); the issue type name is resolved to its id from the project's create metadata. Returns key, id and url. Refused without policy.allow_write unless dry_run.", InputSchema: create},
 	}
 }
 
 // CallTool runs one issue_* tool.
 func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string]any) (out []byte, resultErr error) {
 	key := mcp.ArgString(a, "key")
-	if name == "issue_update" && !mcp.ArgBool(a, "dry_run") {
+	if (name == "issue_update" || name == "issue_create") && !mcp.ArgBool(a, "dry_run") {
 		if err := cfg.RequireWrite(); err != nil {
 			return nil, err
 		}
 	}
-	b, err := Open(cfg, mcp.ArgString(a, "profile"), key)
+	b, err := Open(cfg, mcp.ArgString(a, "profile"), cliutil.FirstNonEmpty(key, mcp.ArgString(a, "project")))
 	if err != nil {
 		return nil, err
 	}
@@ -87,8 +105,36 @@ func CallTool(ctx context.Context, cfg *config.Config, name string, a map[string
 			return nil, err
 		}
 		return runUpdate(ctx, b, key, u, mcp.ArgBool(a, "dry_run"))
+	case "issue_create":
+		n, err := createArgs(a)
+		if err != nil {
+			return nil, err
+		}
+		s, err := b.PlanCreate(ctx, n)
+		if err != nil {
+			return nil, err
+		}
+		if mcp.ArgBool(a, "dry_run") {
+			return marshal(&Created{DryRun: true, Step: s.Describe, Body: s.body}, nil)
+		}
+		return marshal(b.Create(ctx, s))
 	}
 	return nil, fmt.Errorf("unknown tool %q", name)
+}
+
+func createArgs(a map[string]any) (NewIssue, error) {
+	labels, err := mcp.ArgStrings(a, "labels")
+	if err != nil {
+		return NewIssue{}, err
+	}
+	extra, ok := a["fields"].(map[string]any)
+	if !ok && a["fields"] != nil {
+		return NewIssue{}, fmt.Errorf("fields must be an object")
+	}
+	return NewIssue{Project: mcp.ArgString(a, "project"), Type: mcp.ArgString(a, "type"), Fields: Fields{
+		Summary: mcp.ArgString(a, "summary"), Description: mcp.ArgString(a, "description"), Labels: labels,
+		Assignee: mcp.ArgString(a, "assignee"), Priority: mcp.ArgString(a, "priority"), Parent: mcp.ArgString(a, "parent"), Extra: extra,
+	}}, nil
 }
 
 func updateArgs(a map[string]any) (Update, error) {
@@ -96,9 +142,14 @@ func updateArgs(a map[string]any) (Update, error) {
 	if err != nil {
 		return Update{}, err
 	}
+	labels, err := mcp.ArgStrings(a, "labels")
+	if err != nil {
+		return Update{}, err
+	}
 	u := Update{
 		Transition: mcp.ArgString(a, "transition"), Resolve: mcp.ArgBool(a, "resolve"), Resolution: mcp.ArgString(a, "resolution"),
-		FixVersions: fix, Assignee: mcp.ArgString(a, "assignee"), Comment: mcp.ArgString(a, "comment"),
+		FixVersions: fix, Summary: mcp.ArgString(a, "summary"), Description: mcp.ArgString(a, "description"), Labels: labels,
+		Assignee: mcp.ArgString(a, "assignee"), Comment: mcp.ArgString(a, "comment"),
 	}
 	if lt, lk := mcp.ArgString(a, "link_type"), mcp.ArgString(a, "link_key"); lt != "" || lk != "" {
 		u.Link = &LinkSpec{Type: lt, Key: lk}

@@ -31,6 +31,8 @@ func TestIsWriteClassifiesEveryWritingCall(t *testing.T) {
 		{"comment", map[string]any{"body": "x"}, true},
 		{"issue_update", map[string]any{"key": "A-1"}, true},
 		{"issue_update", map[string]any{"key": "A-1", "dry_run": true}, false},
+		{"issue_create", map[string]any{"project": "A"}, true},
+		{"issue_create", map[string]any{"project": "A", "dry_run": true}, false},
 		{"request", map[string]any{"path": "/x"}, false},
 		{"request", map[string]any{"path": "/x", "method": "head"}, false},
 		{"request", map[string]any{"path": "/job/x/build", "method": "post"}, true},
