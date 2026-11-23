@@ -48,13 +48,26 @@ var attachmentListCmd = &cobra.Command{
 	},
 }
 
-// outputPath is the -o value, or else the server's name for the file reduced to a plain file name in the current
-// directory: the server must not choose where the file lands.
-func outputPath(flag, serverName string) string {
+// saveDownload writes a downloaded file to the -o path, or else to the server's name for it reduced to a plain file
+// name in the current directory: the server must not choose where the file lands, and a name it chose never replaces
+// an existing file. It returns the path written.
+func saveDownload(flag, serverName string, data []byte) (string, error) {
 	if flag != "" {
-		return flag
+		return flag, os.WriteFile(flag, data, 0o644)
 	}
-	return filepath.Base(serverName)
+	name := filepath.Base(serverName)
+	if name == "." || name == ".." || name == string(filepath.Separator) {
+		return "", fmt.Errorf("the server gave no usable file name (%q): use -o", serverName)
+	}
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return "", fmt.Errorf("%w (an existing file is not replaced; use -o to choose the path)", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return "", err
+	}
+	return name, f.Close()
 }
 
 var attachmentDownloadCmd = &cobra.Command{
@@ -76,8 +89,8 @@ var attachmentDownloadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		out := outputPath(attachmentOut, meta.Filename)
-		if err := os.WriteFile(out, data, 0o644); err != nil {
+		out, err := saveDownload(attachmentOut, meta.Filename, data)
+		if err != nil {
 			return err
 		}
 		printer().Msg("wrote %s (%d bytes)", out, len(data))
