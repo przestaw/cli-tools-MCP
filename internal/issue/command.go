@@ -26,7 +26,7 @@ import (
 const Usage = `issue commands (alias: i):
   issue [show] KEY [--include comments,transitions] [--json|--raw]
   issue search|find [--max N] [--start N] [--page-token T] [--json] JQL
-  issue update KEY [--transition T] [--resolve] [--resolution R] [--fix V,..] [--summary S] [--description D] [--labels L,..]
+  issue update KEY [--transition T] [--resolve] [--resolution R] [--fix V,..] [--summary S] [--description D] [--labels L,..|""]
                [--assignee U] [--comment TEXT] [--link TYPE=KEY]
   issue create PROJECT --type T --summary S [--description D] [--labels L,..] [--assignee U] [--priority P]
                [--parent KEY] [--fields JSON]
@@ -106,8 +106,14 @@ func Command(cfg *config.Config, args []string) (resultErr error) {
 	}
 
 	var key string
+	updateLabels := cliutil.SplitCommaList(*labels)
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "labels" && updateLabels == nil {
+			updateLabels = []string{} // an explicit empty value clears, like labels: [] in the MCP tool
+		}
+	})
 	u := Update{Transition: *transition, Resolve: *resolve, Resolution: *resolution, FixVersions: cliutil.SplitCommaList(*fix),
-		Summary: *summary, Description: *description, Labels: cliutil.SplitCommaList(*labels), Assignee: *assignee, Comment: *comment}
+		Summary: *summary, Description: *description, Labels: updateLabels, Assignee: *assignee, Comment: *comment}
 	if *link != "" {
 		t, k, ok := strings.Cut(*link, "=")
 		if !ok {
