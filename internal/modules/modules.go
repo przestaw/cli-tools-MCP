@@ -136,24 +136,12 @@ func (m *cliModule) downloadDir(args []string) (string, error) {
 	return generic.DownloadsDir()
 }
 
-func hasHelpFlag(args []string) bool {
-	for _, a := range args {
-		if a == "-h" || a == "--help" {
-			return true
-		}
-	}
-	return false
-}
-
 // classify says what running args on the module means. write is true when the command changes something, which
 // needs policy.allow_write. strict is the agent surface (MCP): it also refuses the credential, profile and shell
 // commands, `open` (it starts a browser) and the flags that point the CLI at another config file or switch TLS
 // verification off. Commands are matched by the canonical command the CLI itself resolves, so aliases and flags
 // before the command (`-p X pr list`) are handled. Anything not on the read list counts as a write.
 func (m *cliModule) classify(args []string, strict bool) (write bool, err error) {
-	if hasHelpFlag(args) {
-		return false, nil // prints help and nothing else
-	}
 	if strict {
 		for _, a := range args {
 			flag, _, _ := strings.Cut(a, "=")

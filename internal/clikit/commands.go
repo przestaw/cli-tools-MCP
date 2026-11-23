@@ -33,7 +33,8 @@ func initBuiltins(root *cobra.Command) {
 }
 
 // Resolve finds the command the arguments select, without running it: its canonical path (aliases resolved),
-// whether it is only a group of subcommands, and the arguments left over.
+// whether it only prints help (a group of subcommands, or cobra parsed -h/--help as a flag, not as a flag value),
+// and the arguments left over.
 func Resolve(root *cobra.Command, args []string) (path []string, group bool, rest []string, err error) {
 	initBuiltins(root)
 	cmd, rest, err := root.Find(args)
@@ -43,7 +44,13 @@ func Resolve(root *cobra.Command, args []string) (path []string, group bool, res
 	for current := cmd; current != nil && current.HasParent(); current = current.Parent() {
 		path = append([]string{current.Name()}, path...)
 	}
-	return path, cmd.HasSubCommands() && !cmd.Runnable(), rest, nil
+	cmd.InitDefaultHelpFlag()
+	help := false
+	if cmd.ParseFlags(rest) == nil {
+		help, _ = cmd.Flags().GetBool("help")
+		_ = cmd.Flags().Set("help", "false") // the command tree is shared, so the next Resolve must not see this one
+	}
+	return path, help || cmd.HasSubCommands() && !cmd.Runnable(), rest, nil
 }
 
 // Leaves lists every runnable command as a path of words, including cobra's built-in help and completion.
