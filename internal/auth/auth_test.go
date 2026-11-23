@@ -240,6 +240,7 @@ func TestAccountsMCPToolListsResolvesAndBinds(t *testing.T) {
 		"jira-ir":  {Kind: "jira", URL: "https://jira.example", Projects: []string{"IR"}, VerifyTLS: true},
 	}
 	cfg.Defaults["github"] = "work"
+	cfg.Policy.AllowWrite = true
 	cfg.SetPath(cfgPath)
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
@@ -288,6 +289,74 @@ func TestAccountsMCPToolListsResolvesAndBinds(t *testing.T) {
 	_ = json.Unmarshal(out, &report)
 	if report.ResolvedProfile != "jira-ir" {
 		t.Fatalf("jira resolved_profile = %q, want jira-ir", report.ResolvedProfile)
+	}
+}
+
+func TestBindNeedsAllowWriteAndKeepsTheFileChangedMeanwhile(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.Default()
+	cfg.Profiles = map[string]config.Profile{"gh": {Kind: "github", URL: "https://api.github.com", VerifyTLS: true}}
+	cfg.SetPath(cfgPath)
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]any{"bind_profile": "gh", "bind_repo": "o/*"}
+	if _, err := CallTool(context.Background(), cfg, "accounts", args); err == nil || !strings.Contains(err.Error(), "allow_write") {
+		t.Fatalf("bind with allow_write off: %v", err)
+	}
+	if saved, _ := config.Load(cfgPath); len(saved.Profiles["gh"].Repos) != 0 {
+		t.Fatal("a refused bind changed the file")
+	}
+
+	// the owner turns allow_write on and adds a profile in the file after this process started
+	cfg.Policy.AllowWrite = true
+	edited, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited.Policy.AllowWrite = true
+	edited.Profiles["extra"] = config.Profile{Kind: "gitlab", URL: "https://gitlab.example", VerifyTLS: true}
+	if err := edited.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CallTool(context.Background(), cfg, "accounts", args); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := config.Load(cfgPath)
+	if err != nil || !saved.Policy.AllowWrite || saved.Profiles["extra"].Kind != "gitlab" || len(saved.Profiles["gh"].Repos) != 1 {
+		t.Fatalf("saved = %+v, err = %v", saved, err)
+	}
+	if len(cfg.Profiles["gh"].Repos) != 1 {
+		t.Fatal("the in-memory profile was not updated")
+	}
+}
+
+// The bind result comes from the saved file: a profile that was removed from the file meanwhile cannot block it.
+func TestBindUsesTheFileNotTheStaleCopy(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	cfg := config.Default()
+	cfg.Policy.AllowWrite = true
+	cfg.Profiles = map[string]config.Profile{
+		"gh":    {Kind: "github", URL: "https://api.github.com", VerifyTLS: true},
+		"other": {Kind: "github", URL: "https://api.github.com", VerifyTLS: true, Repos: []string{"o/*"}},
+	}
+	cfg.SetPath(cfgPath)
+	onDisk := config.Default()
+	onDisk.Policy.AllowWrite = true
+	onDisk.Profiles = map[string]config.Profile{"gh": cfg.Profiles["gh"]}
+	onDisk.SetPath(cfgPath)
+	if err := onDisk.Save(); err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]any{"bind_profile": "gh", "bind_repo": "o/*"}
+	if _, err := CallTool(context.Background(), cfg, "accounts", args); err != nil {
+		t.Fatalf("bind blocked by a profile that is no longer in the file: %v", err)
+	}
+	if saved, _ := config.Load(cfgPath); len(saved.Profiles["gh"].Repos) != 1 {
+		t.Fatal("the bind was not saved")
+	}
+	if len(cfg.Profiles["gh"].Repos) != 1 {
+		t.Fatal("the in-memory profile was not updated")
 	}
 }
 

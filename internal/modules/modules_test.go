@@ -108,6 +108,14 @@ func TestHelpIsAlwaysRead(t *testing.T) {
 	}
 }
 
+func TestHelpAsFlagValueIsNotHelp(t *testing.T) {
+	// cobra takes -h here as the value of --title, so the command runs and creates a PR
+	write, err := cliModules["azure"].classify([]string{"pr", "create", "--title", "-h"}, true)
+	if err != nil || !write {
+		t.Errorf("write=%v err=%v, want write", write, err)
+	}
+}
+
 func TestStrictSurfaceRefusesCredentialsShellAndRedirectingFlags(t *testing.T) {
 	ado := cliModules["azure"]
 	refused := [][]string{
