@@ -130,6 +130,18 @@ func TestServeUsesTheInjectedTools(t *testing.T) {
 	}
 }
 
+func TestTruncationKeepsMultiByteCharactersWhole(t *testing.T) {
+	server := Server{
+		MaxOutputBytes: 2,
+		Tools:          func() []Tool { return nil },
+		Call:           func(context.Context, string, map[string]any) ([]byte, error) { return []byte("xąą"), nil },
+	}
+	got := serveLines(t, server, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"t"}}`)
+	if text, _ := toolText(t, got[0]); !strings.HasPrefix(text, "x\n") {
+		t.Errorf("cut inside a character: %q", text)
+	}
+}
+
 func TestEmptyResourcesAndPrompts(t *testing.T) {
 	got := serveLines(t, Server{Tools: func() []Tool { return nil }},
 		`{"jsonrpc":"2.0","id":1,"method":"resources/list"}`,

@@ -113,10 +113,7 @@ var pageAttachmentDownloadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		out := pageAttachmentOut
-		if out == "" {
-			out = match.Title
-		}
+		out := outputPath(pageAttachmentOut, match.Title)
 		if err := os.WriteFile(out, data, 0o644); err != nil {
 			return err
 		}

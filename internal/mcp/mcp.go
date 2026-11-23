@@ -14,6 +14,7 @@ import (
 	"io"
 	"strconv"
 	"sync"
+	"unicode/utf8"
 )
 
 type rpcRequest struct {
@@ -289,6 +290,9 @@ func (s Server) callToolRPC(ctx context.Context, params json.RawMessage) (any, e
 		return map[string]any{"content": []any{map[string]any{"type": "text", "text": err.Error()}}, "isError": true}, nil
 	}
 	if max := s.MaxOutputBytes; max > 0 && len(data) > max {
+		for max > 0 && !utf8.RuneStart(data[max]) {
+			max-- // never cut a multi-byte character in half
+		}
 		data = append(data[:max], []byte("\n... [workctl MCP output truncated; use CLI for full output]")...)
 	}
 	return map[string]any{"content": []any{map[string]any{"type": "text", "text": string(data)}}}, nil

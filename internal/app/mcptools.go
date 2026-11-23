@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"workctl/internal/api"
 	"workctl/internal/auth"
@@ -53,8 +54,15 @@ func toolAvailable(cfg *config.Config, name string) bool {
 	return true
 }
 
+// cfgMu guards cfg.Profiles: tool calls run concurrently and `accounts` with bind_profile adds a pattern to a profile.
+var cfgMu sync.RWMutex
+
 // mcpTools composes the MCP tools of the configured backends.
-func mcpTools(cfg *config.Config) []mcp.Tool { return toolList(cfg, true) }
+func mcpTools(cfg *config.Config) []mcp.Tool {
+	cfgMu.RLock()
+	defer cfgMu.RUnlock()
+	return toolList(cfg, true)
+}
 
 // toolList is mcpTools, or with onlyConfigured false every tool, whatever is configured (the `workctl tools --all` list).
 func toolList(cfg *config.Config, onlyConfigured bool) []mcp.Tool {
@@ -143,6 +151,13 @@ func findTool(cfg *config.Config, name string) (mcp.Tool, bool) {
 
 // dispatch runs one tool without asking: callMCPTool and callBatch ask first.
 func dispatch(ctx context.Context, cfg *config.Config, name string, a map[string]any) ([]byte, error) {
+	if name == "accounts" && mcp.ArgString(a, "bind_profile") != "" {
+		cfgMu.Lock()
+		defer cfgMu.Unlock()
+	} else {
+		cfgMu.RLock()
+		defer cfgMu.RUnlock()
+	}
 	switch {
 	case strings.HasPrefix(name, "issue_"):
 		return issue.CallTool(ctx, cfg, name, a)
@@ -165,6 +180,8 @@ func dispatch(ctx context.Context, cfg *config.Config, name string, a map[string
 // isWrite reports whether one tool call changes something on a server or in the configuration. Only the calls listed
 // here as reads skip the question, so a tool added later is asked about until it is classified.
 func isWrite(cfg *config.Config, name string, a map[string]any) bool {
+	cfgMu.RLock()
+	defer cfgMu.RUnlock()
 	switch name {
 	case "pr_list", "pr_show", "ci", "file", "issue_show", "issue_search", "download", "task_get_context":
 		return false

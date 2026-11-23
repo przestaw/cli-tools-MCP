@@ -229,6 +229,31 @@ func bindResource(cfg *config.Config, profileName, repoPattern, projectPattern s
 	if profileName == "" {
 		return fmt.Errorf("bind_profile is required when bind_repo or bind_project is set")
 	}
+	if err := cfg.RequireWrite(); err != nil {
+		return err
+	}
+	if cfg.Path() == "" {
+		return addBinding(cfg, profileName, repoPattern, projectPattern)
+	}
+	// Save the file as it is now, with only the new pattern added: the copy loaded at start may be stale.
+	fresh, err := config.Load(cfg.Path())
+	if err != nil {
+		return err
+	}
+	if err := fresh.RequireWrite(); err != nil {
+		return err
+	}
+	if err := addBinding(fresh, profileName, repoPattern, projectPattern); err != nil {
+		return err
+	}
+	if err := fresh.Save(); err != nil {
+		return err
+	}
+	return addBinding(cfg, profileName, repoPattern, projectPattern)
+}
+
+// addBinding adds the repository or project pattern to the profile in memory, refusing one another profile owns.
+func addBinding(cfg *config.Config, profileName, repoPattern, projectPattern string) error {
 	prof, ok := cfg.Profiles[profileName]
 	if !ok {
 		return fmt.Errorf("profile %q is not configured", profileName)
@@ -278,8 +303,5 @@ func bindResource(cfg *config.Config, profileName, repoPattern, projectPattern s
 	}
 
 	cfg.Profiles[profileName] = prof
-	if cfg.Path() != "" {
-		return cfg.Save()
-	}
 	return nil
 }

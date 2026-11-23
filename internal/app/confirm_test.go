@@ -9,9 +9,13 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/zalando/go-keyring"
 
 	"workctl/internal/config"
 	"workctl/internal/mcp"
@@ -182,4 +186,33 @@ func TestSessionApprovalStillHonorsExplicitConfirmation(t *testing.T) {
 	if len(*seen) != 2 || strings.Count(asked, "Approve") != 2 {
 		t.Fatalf("asked=%q requests=%v", asked, *seen)
 	}
+}
+
+func TestBindWhileOtherCallsRunDoesNotRace(t *testing.T) {
+	keyring.MockInit()
+	cfg := config.Default()
+	cfg.Policy.AllowWrite = true
+	cfg.Profiles = map[string]config.Profile{"gh": {Kind: "github", URL: "https://api.github.com", VerifyTLS: true}}
+	cfg.SetPath(filepath.Join(t.TempDir(), "config.json"))
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, err := callMCPTool(context.Background(), cfg, "accounts", map[string]any{"bind_profile": "gh", "bind_repo": "o/r" + strconv.Itoa(i)})
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if _, err := callMCPTool(context.Background(), cfg, "accounts", map[string]any{"resource": "o/x"}); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
 }

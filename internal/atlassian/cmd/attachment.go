@@ -48,6 +48,15 @@ var attachmentListCmd = &cobra.Command{
 	},
 }
 
+// outputPath is the -o value, or else the server's name for the file reduced to a plain file name in the current
+// directory: the server must not choose where the file lands.
+func outputPath(flag, serverName string) string {
+	if flag != "" {
+		return flag
+	}
+	return filepath.Base(serverName)
+}
+
 var attachmentDownloadCmd = &cobra.Command{
 	Use:   "download <attachmentId>",
 	Short: "Download an attachment",
@@ -67,10 +76,7 @@ var attachmentDownloadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		out := attachmentOut
-		if out == "" {
-			out = meta.Filename
-		}
+		out := outputPath(attachmentOut, meta.Filename)
 		if err := os.WriteFile(out, data, 0o644); err != nil {
 			return err
 		}
