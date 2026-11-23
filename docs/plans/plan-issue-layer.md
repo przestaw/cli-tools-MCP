@@ -3,7 +3,8 @@
 Author: [przestaw](https://github.com/przestaw)
 
 Status: implemented (2026-11-09, 0.4.3). Extends [plan-agent-accounts.md](plan-agent-accounts.md) (which consolidates `pr_*`, `ci`,
-`file`, `comment`, `request`, `download`). Stages 1-3 implemented; the old tool names were removed in 0.4.3.
+`file`, `comment`, `request`, `download`). Stages 1-3 implemented; the old tool names were removed in 0.4.3. Stage 4
+(`issue_create`, field edits in `issue_update`) implemented after 0.4.8.
 
 Goal: the same rule for issues as for pull requests — **one operation, one tool, one output shape; the provider is a
 detail of the resolved profile**. Jira Server, Jira Cloud and later Asana or Azure Boards answer the same questions
@@ -22,7 +23,8 @@ Revises plan-agent-accounts.md:
 | --- | --- | --- |
 | `issue_show` | `key`, `include?: [comments, transitions, links]`, `profile?` | `jira_get_issue`, `jira_get_comments`, `jira_get_transitions`, `atlassian issue get/transitions` |
 | `issue_search` | `query` (JQL for Jira), `start_at?`, `max_results?`, `profile?` | `jira_search`, `atlassian jql` |
-| `issue_update` (write) | `key`, `transition?` (id, name or target status), `resolve?`, `resolution?`, `fix_versions?`, `assignee?`, `comment?`, `link_type?` + `link_key?`, `dry_run?`, `profile?` | none today (Jira Server had no write besides comments) |
+| `issue_update` (write) | `key`, `transition?` (id, name or target status), `resolve?`, `resolution?`, `fix_versions?`, `summary?`, `description?`, `labels?`, `assignee?`, `comment?`, `link_type?` + `link_key?`, `dry_run?`, `profile?` | none today (Jira Server had no write besides comments) |
+| `issue_create` (write, stage 4) | `project`, `type`, `summary`, `description?`, `labels?`, `assignee?`, `priority?`, `parent?`, `fields?`, `dry_run?`, `profile?` | `jira raw POST /rest/api/2/issue` |
 | `comment` | unchanged from plan-agent-accounts.md (`issue` covers Jira) | `jira_add_comment` |
 | `cli` | `module: azure \| atlassian \| jira \| gitlab \| github`, `args: []` | `azure`, `atlassian` |
 
@@ -70,3 +72,18 @@ modules: `timeouts.<module>` → `modules.timeout_seconds` → 120 s. Old config
 1. Stage 1 commit.
 2. Stage 2 commit.
 3. Stage 3 commit(s); then remove aliases in the following release.
+
+## Stage 4 — `issue_create`, field edits (done)
+
+Agents create and edit issues without `jira raw` / `request` (both stay as the fallback).
+
+- `issue_create` (write, `dry_run`): `project`, `type`, `summary`, `description?`, `labels?`, `assignee?`, `priority?`,
+  `parent?`, `fields?` (raw extra fields; named arguments win), `profile?`; returns `key`, `id`, `url`. CLI:
+  `workctl issue create PROJECT --type T --summary S ...`.
+- REST v2 for both kinds: Cloud v2 takes a plain-text description, so no ADF.
+- The issue type name is resolved to its id: `createmeta/{project}/issuetypes` (Jira 8.4+, DC 9, Cloud; paged, list
+  under `values` or `issueTypes`), on 404 the old `createmeta?projectKeys=` (removed in Jira 9). An unknown name fails
+  with the available ones, which `{"issuetype": {"name": ...}}` would not give.
+- `issue_update` gains `summary`, `description`, `labels` (replace); create and update build `fields` with one function,
+  which also addresses the assignee (`name` on Server, `accountId` on Cloud).
+- Not verified against a real server: only recorded HTTP tests.

@@ -196,7 +196,7 @@ After a refusal, the agent must stop rather than switch transport, account or po
 |---|---|
 | Accounts and routing | `accounts` |
 | Pull/merge requests | `pr_list`, `pr_show`, `pr_create`, `pr_edit` |
-| Tickets | `issue_show`, `issue_search`, `issue_update`, `task_get_context` |
+| Tickets | `issue_show`, `issue_search`, `issue_create`, `issue_update`, `task_get_context` |
 | CI and source files | `ci`, `file` |
 | Comments and media | `comment`, `upload`, `download` |
 | Grouped writes | `batch` |
