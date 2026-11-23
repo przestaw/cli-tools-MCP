@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -32,10 +33,15 @@ func initBuiltins(root *cobra.Command) {
 	root.InitDefaultCompletionCmd()
 }
 
+// resolveMu serializes Resolve: it parses flags on the command tree, which is shared by concurrent tool calls.
+var resolveMu sync.Mutex
+
 // Resolve finds the command the arguments select, without running it: its canonical path (aliases resolved),
 // whether it only prints help (a group of subcommands, or cobra parsed -h/--help as a flag, not as a flag value),
 // and the arguments left over.
 func Resolve(root *cobra.Command, args []string) (path []string, group bool, rest []string, err error) {
+	resolveMu.Lock()
+	defer resolveMu.Unlock()
 	initBuiltins(root)
 	cmd, rest, err := root.Find(args)
 	if err != nil {
