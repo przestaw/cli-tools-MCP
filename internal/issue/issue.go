@@ -496,7 +496,7 @@ func (b *Backend) issueType(ctx context.Context, project, want string) (named, e
 	if err != nil {
 		return named{}, err
 	}
-	if t, ok := matchValue(types, want); ok {
+	if t, ok := matchLocalised(types, want, standardIssueTypes); ok {
 		return t, nil
 	}
 	return named{}, fmt.Errorf("project %s has no issue type %q; available: %s", project, want, describeValues(types, want))
@@ -692,10 +692,14 @@ func (b *Backend) pickTransition(ctx context.Context, key string, u Update) (tra
 	return transitionMeta{}, fmt.Errorf("%s: no transition %s; available: %s", key, want, strings.Join(avail, ", "))
 }
 
-// standardResolutions are the ids of Jira's built-in resolutions. A localised server names them differently
-// ("Duplikat"), so an English name falls back to its id.
+// standardResolutions and standardIssueTypes are the ids of Jira's built-in values. A localised server names them
+// differently ("Duplikat", "Zadanie") and does not send the English name, so an English name falls back to its id.
 var standardResolutions = map[string]string{
 	"fixed": "1", "won't fix": "2", "wont fix": "2", "duplicate": "3", "incomplete": "4", "cannot reproduce": "5", "done": "10000",
+}
+
+var standardIssueTypes = map[string]string{
+	"bug": "1", "new feature": "2", "task": "3", "improvement": "4", "sub-task": "5", "subtask": "5",
 }
 
 func (t transitionMeta) allowed(field, want string) (named, error) {
@@ -703,13 +707,12 @@ func (t transitionMeta) allowed(field, want string) (named, error) {
 	if !ok {
 		return named{}, fmt.Errorf("transition %q has no %s field", t.Name, field)
 	}
-	if v, ok := matchValue(f.AllowedValues, want); ok {
-		return v, nil
+	var builtin map[string]string
+	if field == "resolution" {
+		builtin = standardResolutions
 	}
-	if id, ok := standardResolutions[strings.ToLower(want)]; ok && field == "resolution" {
-		if v, ok := matchValue(f.AllowedValues, id); ok {
-			return v, nil
-		}
+	if v, ok := matchLocalised(f.AllowedValues, want, builtin); ok {
+		return v, nil
 	}
 	return named{}, fmt.Errorf("%s %q is not allowed by %q; allowed: %s", field, want, t.Name, describeValues(f.AllowedValues, want))
 }
@@ -733,6 +736,17 @@ func matchValue(values []named, want string) (named, bool) {
 		if v.ID == want || strings.EqualFold(v.Name, want) {
 			return v, true
 		}
+	}
+	return named{}, false
+}
+
+// matchLocalised is matchValue that also takes the English name of a built-in value (see standardResolutions).
+func matchLocalised(values []named, want string, builtin map[string]string) (named, bool) {
+	if v, ok := matchValue(values, want); ok {
+		return v, true
+	}
+	if id, ok := builtin[strings.ToLower(want)]; ok {
+		return matchValue(values, id)
 	}
 	return named{}, false
 }
