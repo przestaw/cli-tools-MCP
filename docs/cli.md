@@ -91,7 +91,10 @@ returned as `{diff, truncated, bytes_total, bytes_returned, hint}` (read the res
 ## Issues
 
 `workctl issue` (alias `i`) serves Jira Server/Data Center (`jira` profiles) and Jira Cloud (`atlassian` profiles) through
-REST v2, like the `issue_*` tools; `workctl help issue` lists every form.
+REST v2, like the `issue_*` tools; `workctl help issue` lists every form. REST v2 is the default (it works on Server,
+Data Center and Cloud). A Jira Cloud profile can opt into v3 with `"api_version": "3"`: descriptions and comments are
+then sent as Atlassian Document Format (plain-text paragraphs) and read back as text. `api_version` "3" on a
+`jira` (Server/Data Center) profile is refused.
 
 ```sh
 workctl issue ABC-1 --include comments,transitions
