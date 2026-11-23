@@ -4,11 +4,15 @@
 package setup
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
+
+	"golang.org/x/term"
 
 	"workctl/internal/cliutil"
 	"workctl/internal/config"
@@ -54,6 +58,9 @@ func ProfileCommand(path string, args []string) error {
 		return fmt.Errorf("%s: unexpected argument %q", fs.Name(), fs.Arg(0))
 	}
 	if action == "add" {
+		if err := askClientID(&p); err != nil {
+			return err
+		}
 		if p, err = newProfile(cfg, name, p); err != nil {
 			return err
 		}
@@ -109,6 +116,37 @@ func profileFlags(fs *flag.FlagSet, p *config.Profile, opts *profileOptions, add
 	fs.BoolVar(&opts.asJSON, "json", false, "print the saved profile as JSON (identifiers redacted)")
 }
 
+// stdinIsTerminal says whether `profile add` may ask questions; tests replace it.
+var stdinIsTerminal = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
+
+// askClientID asks for the OAuth client_id of a new OAuth profile when it runs on a terminal and --client-id is absent.
+// Enter keeps the built-in client_id of the provider host; where there is none, the answer stays empty and validation
+// reports it.
+func askClientID(p *config.Profile) error {
+	if !stdinIsTerminal() || (p.Kind != config.GoogleKind && !strings.EqualFold(p.Auth, "oauth2")) {
+		return nil
+	}
+	if p.OAuth2 != nil && strings.TrimSpace(p.OAuth2.ClientID) != "" {
+		return nil
+	}
+	probe := *p
+	probe.URL = cliutil.FirstNonEmpty(p.URL, blankProfile(&config.Config{}, strings.ToLower(strings.TrimSpace(p.Kind))).URL)
+	builtin, ok := config.BuiltinClientID(probe)
+	if ok {
+		fmt.Printf("OAuth client_id [Enter = built-in: %s]: ", builtin)
+	} else {
+		fmt.Print("OAuth client_id (no built-in default for this host; register an OAuth app and enter its client_id): ")
+	}
+	line, _ := bufio.NewReader(cliutil.Stdin).ReadString('\n')
+	if line = strings.TrimSpace(line); line != "" {
+		if p.OAuth2 == nil {
+			p.OAuth2 = &config.OAuth2{}
+		}
+		p.OAuth2.ClientID = line
+	}
+	return nil
+}
+
 // hostURL turns a bare host into an https URL and leaves a full URL alone.
 func hostURL(host string) string {
 	if host = strings.TrimSpace(host); host != "" && !strings.Contains(host, "://") {
@@ -147,13 +185,24 @@ func saveProfile(cfg *config.Config, name string, p config.Profile, opts profile
 	if err := cfg.Save(); err != nil {
 		return err
 	}
+	source := ""
+	if p.OAuth2 != nil && strings.EqualFold(p.Auth, "oauth2") {
+		_, source, _ = config.ResolveClientID(name, p)
+	}
 	if opts.asJSON {
-		b, err := json.Marshal(map[string]any{"name": name, "path": cfg.Path(), "profile": cfg.Redacted().Profiles[name]})
+		out := map[string]any{"name": name, "path": cfg.Path(), "profile": cfg.Redacted().Profiles[name]}
+		if source != "" {
+			out["client_id_source"] = source
+		}
+		b, err := json.Marshal(out)
 		if err != nil {
 			return err
 		}
 		return cliutil.PrintBody(b)
 	}
 	fmt.Printf("saved: %s\nprofile %s (%s) is configured\n", cfg.Path(), name, p.Kind)
+	if source != "" {
+		fmt.Printf("OAuth client_id: %s\n", source)
+	}
 	return nil
 }

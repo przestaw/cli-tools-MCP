@@ -197,6 +197,10 @@ obsłużyć wiele kont na tym samym hoście. Jeśli zalogujesz się na złe kont
   w profil.
 - **Nie** używamy `client_id` należącego do `gh`, `glab` ani innego programu, bo to podszywanie się pod cudzą
   aplikację.
+- **Kolejność rozstrzygania (kod: `config.ResolveClientID`):** 1) `oauth2.client_id` profilu (źródło `own`);
+  2) wbudowany domyślny dla hosta dostawcy (`github.com`, `gitlab.com`) z jednej tabeli w `internal/config/clientid.go`
+  (źródło `built-in`); 3) błąd `set client_id: workctl profile edit NAME --client-id ID`. Tabela jest na razie
+  pusta, bo żadna aplikacja nie jest jeszcze zarejestrowana. `client_id` zawsze leży w `config.json`, nigdy w keyring.
 
 **Co OAuth daje w porównaniu z PAT:** nie trzeba ręcznie tworzyć ani przedłużać tokenów, tokeny GitLaba wygasają
 po 2 h i same się odświeżają (mniejsza szkoda przy wycieku), a dostęp odwołuje się jednym kliknięciem

@@ -278,7 +278,7 @@ func statusCommand(cfg *config.Config, args []string) error {
 		return cliutil.PrintBody(b)
 	}
 	for _, e := range entries {
-		fmt.Printf("%s (%s): %s\n", e.Name, e.Kind, e.Detail)
+		fmt.Printf("%s (%s): %s\n", e.Name, e.Kind, e.Detail+clientIDNote(e.ClientIDSource))
 	}
 	return nil
 }

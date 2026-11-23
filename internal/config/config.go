@@ -824,8 +824,11 @@ func validateOAuth2(name, auth string, profile Profile) error {
 		return fmt.Errorf("profiles.%s.oauth2 is required with auth \"oauth2\" and not allowed otherwise", name)
 	case o == nil:
 		return nil
-	case strings.TrimSpace(o.ClientID) == "" || strings.TrimSpace(o.TokenURL) == "":
-		return fmt.Errorf("profiles.%s.oauth2 needs client_id and token_url", name)
+	case strings.TrimSpace(o.TokenURL) == "":
+		return fmt.Errorf("profiles.%s.oauth2 needs token_url", name)
+	}
+	if _, _, err := ResolveClientID(name, profile); err != nil {
+		return err
 	}
 	for field, raw := range map[string]string{"token_url": o.TokenURL, "auth_url": o.AuthURL} {
 		if raw == "" {
