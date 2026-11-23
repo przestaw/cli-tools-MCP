@@ -88,6 +88,51 @@ replaces OAuth client ids, `token_env`, `auth_header` and form-login field value
 `files`, `diff`, `reviews`, `reviewers`, `comments`, `discussion`, `checks`; `--format raw` gives the provider JSON. `pr list|show --format compact` prints the same compact JSON as the MCP tools (the CLI default stays `text`). `diff` is the unified diff as a string; above the size cap (see [mcp.md](mcp.md)) it is cut at a line boundary and
 returned as `{diff, truncated, bytes_total, bytes_returned, hint}` (read the rest with `file` at the head ref or `request` with `accept`).
 
+## Profiles, config and credentials (CLI only)
+
+These commands let a script or a desktop GUI do what used to need hand-editing `config.json`. None of them is an MCP
+tool: an agent cannot change profiles, the write policy or credentials. Output is JSON with `--json`; a secret is never
+printed.
+
+```sh
+workctl profile add gdrive --kind google --service drive --client-id ID.apps.googleusercontent.com
+workctl profile add svc --kind api --host service.example --auth header --auth-header X-Api-Key --repos "a/*,b/c"
+workctl profile add ado --kind azure --host https://dev.azure.com/org --projects Proj1,Proj2 --json
+workctl profile edit svc --username me --read-only --default     # only the flags that are given change
+workctl config set allow_write true                              # also confirm_writes, timeouts.jira, defaults.github, ...
+workctl config validate --json                                   # {ok, path, problems[]}; exit 1 when there is a problem
+workctl auth status --json                                       # [{name, kind, username, state, source, detail, fix, client_id_source}]
+workctl auth set-token --profile svc --stdin --json              # {profile, action, username, warning}
+workctl auth login --profile gdrive --json                       # OAuth 2.0 loopback; the URL goes to stderr
+workctl profile add gh --kind github --backend cli
+workctl auth login --profile gh --existing --json                # bind to the gh login that exists; never starts one
+workctl doctor --json                                            # per check: ok, detail, error, code, fix
+```
+
+`profile add|edit` writes the profile, makes it the default of its kind when it is the first one (or with `--default`),
+validates the whole config and saves it; nothing is written when the result is invalid. `add` refuses an existing name and
+`edit` a missing one. Tokens are not flags: use `auth set-token` or `auth login`. `--host` adds `https://` to a bare host.
+Lists (`--repos`, `--projects`, `--scopes`) are comma separated; an empty value clears them. Profiles with
+`ssh-exec` commands still need the config file (`commands` is a list of objects).
+
+`config set KEY VALUE` changes `policy.allow_write`, `policy.confirm_writes`, `policy.confirm_session_writes` (the
+`policy.` prefix is optional), `timeout_seconds`, `timeouts.KIND`, `mcp.max_output_bytes`, `modules.timeout_seconds` and
+`defaults.KIND` (a profile name; empty removes it), and validates before it saves. `config validate` reports every
+problem of the file, not only the first.
+
+`auth status` states: `ok`, `missing`, `login_required` (an OAuth profile without a refresh token, or gh/glab not logged
+in), `not_needed` (auth `none`, ssh key) and `error`; `fix` holds the command that repairs `missing` and `login_required`.
+`doctor` adds the same kind of `fix` to a failed check: `workctl auth login --profile NAME` for OAuth and gh/glab
+profiles, `workctl auth set-token --profile NAME` for token profiles, `workctl profile edit NAME --host URL` for network
+errors. Its output is always JSON; `--json` is accepted for scripts.
+
+OAuth `client_id` (public, kept in `config.json`, never in the keyring) is resolved as: the profile's `oauth2.client_id`
+(`own`), else a built-in default of the provider host (`github.com`, `gitlab.com`; `built-in`), else the error
+`set client_id: workctl profile edit NAME --client-id ID`. The built-in table ships empty until workctl's OAuth apps are
+registered. `profile add` on a terminal asks `OAuth client_id [Enter = built-in: X]:` for an OAuth profile without
+`--client-id`; `--client-id` works on `add` and `edit`. `client_id_source` (`own` or `built-in`) is in the JSON of
+`auth status`, `doctor` and `profile add|edit --json`. MCP uses the same resolution and never prompts.
+
 ## Issues
 
 `workctl issue` (alias `i`) serves Jira Server/Data Center (`jira` profiles) and Jira Cloud (`atlassian` profiles) through

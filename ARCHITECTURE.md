@@ -26,7 +26,8 @@ internal/
   vcs/              provider-neutral pull request model and JSON normalisation
   modules/          embeds the azure and atlassian CLIs and decides which of their commands may run
   azure/ atlassian/ the two embedded CLIs (cobra command trees, each with its own config)
-  auth/ setup/      `auth ...` commands, git credential helper, `init` wizards
+  auth/ setup/      `auth ...` commands (credential state in `auth/credential.go`), git credential helper, `init` wizards,
+                    `profile add|edit`
   cliutil/ proc/ httpx/ secret/ render/ output/ prompt/ clikit/   small shared helpers
   testutil/         fake gh/glab and child processes for tests
 ```
@@ -100,6 +101,8 @@ timeout.
 - `ssh-exec` runs only allow-listed command prefixes, quotes every word for the remote shell, and refuses
   `ssh_destination` values that ssh would read as an option.
 - Tokens are never written to the config file.
+- Profile, policy and credential management (`profile`, `config set`, `auth`) is CLI only: no MCP tool can change
+  the write policy, a profile or a credential.
 
 ## Tests and CI
 

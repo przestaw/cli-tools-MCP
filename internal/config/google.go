@@ -69,9 +69,9 @@ func HostAllowed(patterns []string, host string) bool {
 	return false
 }
 
-// expandGoogle fills a google profile from its service preset and turns it into a kind api profile.
+// ExpandGoogle fills a google profile from its service preset and turns it into a kind api profile.
 // The user supplies the service and oauth2.client_id; everything else has a default that the profile may override.
-func expandGoogle(name string, p Profile) (Profile, error) {
+func ExpandGoogle(name string, p Profile) (Profile, error) {
 	original := p
 	svc, ok := googleServices[p.Service]
 	if !ok {
@@ -116,7 +116,7 @@ func (p Profile) declaredGoogle() (Profile, error) {
 	if source == nil || p.Kind != "api" || p.Service != source.Service {
 		return p, nil
 	}
-	baseline, err := expandGoogle("", *source)
+	baseline, err := ExpandGoogle("", *source)
 	if err != nil {
 		return p, err
 	}

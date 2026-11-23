@@ -397,3 +397,119 @@ func TestAccountsKindGoogleListsTheGoogleProfiles(t *testing.T) {
 		t.Fatalf("kind google must not try to resolve: %+v", rep)
 	}
 }
+
+// saveConfig writes a config with the given profiles to a temp file and returns its path.
+func saveConfig(t *testing.T, profiles map[string]config.Profile) string {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Profiles = profiles
+	cfg.SetPath(filepath.Join(t.TempDir(), "config.json"))
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	return cfg.Path()
+}
+
+func TestAuthStatusJSONHasStatesAndFixesButNoSecret(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv("TEST_STATUS_ENV", "env-secret-value")
+	path := saveConfig(t, map[string]config.Profile{
+		"stored":  {Kind: "github", URL: "https://api.github.com", VerifyTLS: true},
+		"empty":   {Kind: "gitlab", URL: "https://gitlab.example", VerifyTLS: true},
+		"fromenv": {Kind: "jira", URL: "https://jira.example", TokenEnv: "TEST_STATUS_ENV", VerifyTLS: true},
+		"oauth":   {Kind: "api", URL: "https://api.example", Auth: "oauth2", VerifyTLS: true, OAuth2: &config.OAuth2{ClientID: "id", TokenURL: "https://api.example/token"}},
+		"open":    {Kind: "api", URL: "https://open.example", Auth: "none", VerifyTLS: true},
+	})
+	if err := config.TokenStore.Set(secret.Account("github", "stored"), "keyring-secret-value"); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.TokenStore.Set(secret.Account("api", "oauth"), `{"client_secret":"oauth-secret-value"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	var runErr error
+	out := testutil.CaptureStdout(t, func() { runErr = Command(path, "", []string{"status", "--json"}) })
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	for _, secretValue := range []string{"env-secret-value", "keyring-secret-value", "oauth-secret-value"} {
+		if strings.Contains(out, secretValue) {
+			t.Fatalf("status leaked %q: %s", secretValue, out)
+		}
+	}
+	var entries []statusEntry
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("not one JSON array: %v\n%s", err, out)
+	}
+	type state struct{ state, source, fix string }
+	got := map[string]state{}
+	for _, e := range entries {
+		got[e.Name] = state{e.State, e.Source, e.Fix}
+	}
+	want := map[string]state{
+		"stored":  {StateOK, "keyring", ""},
+		"empty":   {StateMissing, "", "workctl auth set-token --profile empty"},
+		"fromenv": {StateOK, "env", ""},
+		"oauth":   {StateLoginNeed, "keyring", "workctl auth login --profile oauth"},
+		"open":    {StateNotNeeded, "", ""},
+	}
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s: %+v, want %+v", name, got[name], w)
+		}
+	}
+}
+
+func TestAuthSetTokenJSONIsOneDocumentWithoutTheToken(t *testing.T) {
+	keyring.MockInit()
+	path := saveConfig(t, map[string]config.Profile{"gh": {Kind: "github", URL: "https://127.0.0.1:1", VerifyTLS: true}})
+	old := cliutil.Stdin
+	cliutil.Stdin = strings.NewReader("tok-should-not-print\n")
+	defer func() { cliutil.Stdin = old }()
+
+	var runErr error
+	out := testutil.CaptureStdout(t, func() {
+		runErr = Command(path, "", []string{"set-token", "--profile", "gh", "--stdin", "--json"})
+	})
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	var res struct{ Profile, Action, Warning string }
+	if err := json.Unmarshal([]byte(out), &res); err != nil || res.Profile != "gh" || res.Action != "token_stored" || res.Warning == "" {
+		t.Fatalf("result %+v, %v\n%s", res, err, out)
+	}
+	if strings.Contains(out, "tok-should-not-print") {
+		t.Fatalf("the token is in the output: %s", out)
+	}
+}
+
+func TestAuthLoginExistingBindsWithoutStartingALogin(t *testing.T) {
+	path := saveConfig(t, map[string]config.Profile{"gh": {Kind: "github", URL: "https://api.github.com", Backend: config.BackendCLI, VerifyTLS: true}})
+
+	calls := testutil.FakeCLI(t, "auth") // gh is not logged in
+	err := Command(path, "", []string{"login", "--profile", "gh", "--existing"})
+	if err == nil || !strings.Contains(err.Error(), "auth login --profile gh") {
+		t.Fatalf("login --existing without a login: %v", err)
+	}
+	for _, call := range *calls {
+		if strings.Contains(strings.Join(call, " "), "auth login") {
+			t.Fatalf("--existing started a login: %v", call)
+		}
+	}
+
+	testutil.FakeCLI(t, "user")
+	var runErr error
+	out := testutil.CaptureStdout(t, func() {
+		runErr = Command(path, "", []string{"login", "--profile", "gh", "--existing", "--json"})
+	})
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	var res struct{ Profile, Action, Username string }
+	if err := json.Unmarshal([]byte(out), &res); err != nil || res != (struct{ Profile, Action, Username string }{"gh", "bound", "przestaw"}) {
+		t.Fatalf("result %+v, %v\n%s", res, err, out)
+	}
+	if saved, err := config.Load(path); err != nil || saved.Profiles["gh"].Username != "przestaw" {
+		t.Fatalf("profile not bound: %+v, %v", saved.Profiles["gh"], err)
+	}
+}

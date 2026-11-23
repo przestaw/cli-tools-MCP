@@ -81,7 +81,7 @@ func captureRun(t *testing.T, args ...string) (string, int) {
 func TestHelpCoversEveryCommandOfTheRegistry(t *testing.T) {
 	t.Setenv("WORKCTL_CONFIG", t.TempDir()+"/config.json")
 	top, _ := captureRun(t)
-	names := map[string]bool{"init": true, "setup": true, "auth": true, "config": true, "version": true, "help": true, "i": true}
+	names := map[string]bool{"init": true, "setup": true, "auth": true, "config": true, "profile": true, "version": true, "help": true, "i": true}
 	for name := range commandHandlers() {
 		names[name] = true
 	}

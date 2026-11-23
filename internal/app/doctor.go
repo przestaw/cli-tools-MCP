@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"maps"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"syscall"
 
 	"workctl/internal/api"
+	"workctl/internal/auth"
 	azureclient "workctl/internal/azure/client"
 	"workctl/internal/cliutil"
 	"workctl/internal/config"
@@ -33,6 +35,25 @@ type doctorCheck struct {
 	Detail any    `json:"detail,omitempty"`
 	Error  string `json:"error,omitempty"`
 	Code   string `json:"code,omitempty"` // dns, timeout, tls, refused, unauthorized, forbidden or other (see classifyError)
+	Fix    string `json:"fix,omitempty"`  // a hint: the command that most likely repairs the failure
+	// ClientIDSource is "own" or "built-in" for an OAuth profile.
+	ClientIDSource string `json:"client_id_source,omitempty"`
+}
+
+// doctorFix is the hint for a failed profile check: a missing or rejected credential first, then the cause by code.
+func doctorFix(cfg *config.Config, name string, profile config.Profile, code string) string {
+	if c := auth.ProfileCredential(cfg, name, profile); c.Fix != "" {
+		return c.Fix
+	}
+	switch code {
+	case "unauthorized", "forbidden":
+		return auth.LoginHint(name, profile)
+	case "dns", "timeout", "refused":
+		return "workctl profile edit " + name + " --host URL"
+	case "tls":
+		return "workctl profile edit " + name + " --ca CA_FILE"
+	}
+	return ""
 }
 
 // classifyError names the likely cause of a failed profile check, so that a reader need not guess from the message.
@@ -59,7 +80,14 @@ func classifyError(err error) string {
 	return "other"
 }
 
-func doctorCommand(cfg *config.Config) error {
+// doctorCommand prints one JSON document with a check per profile and module. --json is accepted so that scripts
+// and the GUI can say what they expect; the output is JSON either way.
+func doctorCommand(cfg *config.Config, args []string) error {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.Bool("json", true, "print the result as JSON (always on)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	result := map[string]doctorCheck{}
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.MaxTimeout())
 	defer cancel()
@@ -70,11 +98,13 @@ func doctorCommand(cfg *config.Config) error {
 			continue // Atlassian Cloud is verified via the embedded module below
 		}
 		detail, err := doctorCheckProfile(ctx, cfg, name, cfg.Profiles[name])
+		src := auth.ClientIDSource(name, cfg.Profiles[name])
 		if err != nil {
-			result[name] = doctorCheck{Error: err.Error(), Code: classifyError(err)}
+			code := classifyError(err)
+			result[name] = doctorCheck{Error: err.Error(), Code: code, Fix: doctorFix(cfg, name, cfg.Profiles[name], code), ClientIDSource: src}
 			allOK = false
 		} else {
-			result[name] = doctorCheck{OK: true, Detail: detail}
+			result[name] = doctorCheck{OK: true, Detail: detail, ClientIDSource: src}
 		}
 	}
 
@@ -83,7 +113,7 @@ func doctorCommand(cfg *config.Config) error {
 		out, err := modules.RunProcess(ctx, cfg, name, []string{"config", "test"})
 		key := name + " (module)"
 		if err != nil {
-			result[key] = doctorCheck{Error: err.Error()}
+			result[key] = doctorCheck{Error: err.Error(), Fix: "workctl " + name + " config init"}
 		} else {
 			result[key] = doctorCheck{OK: true, Detail: strings.TrimSpace(string(out))}
 		}
@@ -126,7 +156,7 @@ func doctorSkills() doctorCheck {
 		for i, name := range outdated {
 			fixes[i] = "workctl skills install --target " + name
 		}
-		return doctorCheck{Error: "outdated skill copy: " + strings.Join(fixes, "; "), Code: "outdated"}
+		return doctorCheck{Error: "outdated skill copy: " + strings.Join(fixes, "; "), Code: "outdated", Fix: strings.Join(fixes, "; ")}
 	}
 	return doctorCheck{OK: true, Detail: map[string][]string{"current": current}}
 }
