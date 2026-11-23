@@ -6,7 +6,6 @@ package client
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -37,20 +36,6 @@ func (c *Client) PipelineRuns(ctx context.Context, project string, pipelineID in
 	return getList[Run](ctx, c, func(string) string {
 		return c.apiURL(project, "pipelines/"+strconv.Itoa(pipelineID)+"/runs", nil)
 	}, false)
-}
-
-// PipelineRun fetches one run (keeps raw JSON).
-func (c *Client) PipelineRun(ctx context.Context, project string, pipelineID, runID int) (*Run, error) {
-	var raw json.RawMessage
-	if _, err := c.doJSON(ctx, http.MethodGet, c.apiURL(project, "pipelines/"+strconv.Itoa(pipelineID)+"/runs/"+strconv.Itoa(runID), nil), nil, &raw); err != nil {
-		return nil, err
-	}
-	var out Run
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("decode run %d: %w", runID, err)
-	}
-	out.Raw = raw
-	return &out, nil
 }
 
 // RunPipeline queues a new run of a pipeline. body may be nil (run the default

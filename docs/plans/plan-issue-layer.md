@@ -80,10 +80,21 @@ Agents create and edit issues without `jira raw` / `request` (both stay as the f
 - `issue_create` (write, `dry_run`): `project`, `type`, `summary`, `description?`, `labels?`, `assignee?`, `priority?`,
   `parent?`, `fields?` (raw extra fields; named arguments win), `profile?`; returns `key`, `id`, `url`. CLI:
   `workctl issue create PROJECT --type T --summary S ...`.
-- REST v2 for both kinds: Cloud v2 takes a plain-text description, so no ADF.
+- REST v2 for both kinds by default: Cloud v2 takes a plain-text description, so no ADF. **Decision:** v2 stays the
+  default because it works on Server, Data Center and Cloud; Cloud profiles may opt into v3 with `"api_version": "3"`
+  (`config.Profile.JiraAPIVersion`, picked in one place, `Backend.rest`). v3 only changes the path and sends
+  descriptions and comments as ADF (`atlassian/client.TextToADF`, one helper `Backend.rich`); reading already
+  renders ADF as text. `api_version` "3" on a `jira` (Server/DC) profile is a configuration error.
 - The issue type name is resolved to its id: `createmeta/{project}/issuetypes` (Jira 8.4+, DC 9, Cloud; paged, list
   under `values` or `issueTypes`), on 404 the old `createmeta?projectKeys=` (removed in Jira 9). An unknown name fails
   with the available ones, which `{"issuetype": {"name": ...}}` would not give.
-- `issue_update` gains `summary`, `description`, `labels` (replace); create and update build `fields` with one function,
+- `issue_update` gains `summary`, `description`, `labels` (replace; an empty array clears, and so does `--labels ""` on
+  the CLI, detected with `flag.Visit`; omitted leaves them); create and update build `fields` with one function,
   which also addresses the assignee (`name` on Server, `accountId` on Cloud).
 - Not verified against a real server: only recorded HTTP tests.
+
+## Decisions
+
+- The tool names stay `issue_*` (`issue_show`, `issue_search`, `issue_update`, `issue_create`); no rename to
+  `issue_list` / `issue_edit`.
+- GitHub and GitLab issues are postponed ("maybe someday").

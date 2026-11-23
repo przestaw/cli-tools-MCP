@@ -129,7 +129,10 @@ errors. Its output is always JSON; `--json` is accepted for scripts.
 ## Issues
 
 `workctl issue` (alias `i`) serves Jira Server/Data Center (`jira` profiles) and Jira Cloud (`atlassian` profiles) through
-REST v2, like the `issue_*` tools; `workctl help issue` lists every form.
+REST v2, like the `issue_*` tools; `workctl help issue` lists every form. REST v2 is the default (it works on Server,
+Data Center and Cloud). A Jira Cloud profile can opt into v3 with `"api_version": "3"`: descriptions and comments are
+then sent as Atlassian Document Format (plain-text paragraphs) and read back as text. `api_version` "3" on a
+`jira` (Server/Data Center) profile is refused.
 
 ```sh
 workctl issue ABC-1 --include comments,transitions
@@ -144,7 +147,8 @@ workctl issue close ABC-1 --as Done --comment "Released"
 or the older `createmeta` on Jira before 8.4) and fails with the available names; on a localised server use the
 name it lists (for example `Zadanie`) or the id, as the type is never guessed. `--fields` adds raw fields, which the
 named flags override. `--assignee` is the user name on Jira Server and the account id on Jira Cloud. `update --labels`
-replaces the labels. A flag the subcommand does not use (for example `update --priority`) is refused before anything
+replaces the labels, and `update --labels ""` clears them (the same as `labels: []` in the MCP tool; leaving the flag
+out changes nothing). A flag the subcommand does not use (for example `update --priority`) is refused before anything
 is sent. Writes need `allow_write`, print their steps and ask before applying (`--yes` skips the question,
 `--dry-run` only prints them; for `create` also the request body; with `--json` only one JSON document, the same as
 the MCP `dry_run` answer). An answer to `create` without key and id is an error: the issue may exist, check before

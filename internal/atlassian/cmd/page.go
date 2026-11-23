@@ -113,11 +113,8 @@ var pageAttachmentDownloadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		out := pageAttachmentOut
-		if out == "" {
-			out = match.Title
-		}
-		if err := os.WriteFile(out, data, 0o644); err != nil {
+		out, err := saveDownload(pageAttachmentOut, match.Title, data)
+		if err != nil {
 			return err
 		}
 		printer().Msg("wrote %s (%d bytes)", out, len(data))

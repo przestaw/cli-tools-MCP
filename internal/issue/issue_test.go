@@ -46,8 +46,10 @@ func (f *fakeJira) server(t *testing.T, cloud bool) *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
+		orig := r.URL.Path
+		r.URL.Path = strings.Replace(orig, "/rest/api/3/", "/rest/api/2/", 1) // v3 serves the same fixtures
 		if r.Method != http.MethodGet && !strings.Contains(r.URL.Path, "/search") {
-			f.writes = append(f.writes, r.Method+" "+r.URL.Path+" "+string(body))
+			f.writes = append(f.writes, r.Method+" "+orig+" "+string(body))
 			if r.URL.Path == "/rest/api/2/issue" {
 				w.WriteHeader(http.StatusCreated)
 				_, _ = io.WriteString(w, cliutil.FirstNonEmpty(f.created, `{"id":"10100","key":"ABC-24","self":"x"}`))
@@ -56,7 +58,7 @@ func (f *fakeJira) server(t *testing.T, cloud bool) *httptest.Server {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		f.reads = append(f.reads, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery+" "+string(body))
+		f.reads = append(f.reads, r.Method+" "+orig+"?"+r.URL.RawQuery+" "+string(body))
 		desc, cbody := `"plain text"`, `"hi"`
 		if cloud {
 			desc = `{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"adf text"}]}]}`
@@ -323,6 +325,20 @@ func TestCreateDryRunUnknownTypeAndPolicy(t *testing.T) {
 	}
 }
 
+func TestCLIUpdateEmptyLabelsClears(t *testing.T) {
+	cfg, f := setup(t, "jira")
+	cfg.Policy.AllowWrite = true
+	if _, err := runCLI(t, cfg, false, "", "update", "ABC-1", "--labels", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if want := `PUT /rest/api/2/issue/ABC-1 {"fields":{"labels":[]}}`; len(f.writes) != 1 || f.writes[0] != want {
+		t.Fatalf("writes = %v\nwant %s", f.writes, want)
+	}
+	if _, err := runCLI(t, cfg, false, "", "update", "ABC-1", "--yes"); err == nil {
+		t.Fatalf("no flags must stay a no-op error, writes=%v", f.writes)
+	}
+}
+
 func TestUpdateEditsSummaryDescriptionAndLabels(t *testing.T) {
 	cfg, f := setup(t, "jira")
 	cfg.Policy.AllowWrite = true
@@ -333,6 +349,65 @@ func TestUpdateEditsSummaryDescriptionAndLabels(t *testing.T) {
 	want := `PUT /rest/api/2/issue/ABC-1 {"fields":{"description":"d","labels":[],"summary":"s"}}`
 	if len(f.writes) != 1 || f.writes[0] != want {
 		t.Fatalf("writes = %v\nwant %s", f.writes, want)
+	}
+}
+
+// Jira Cloud stays on v2 with plain strings unless the profile opts into v3, which sends ADF and reads it back as text.
+func TestCloudAPIVersionDefaultsToV2AndV3SendsADF(t *testing.T) {
+	args := map[string]any{"key": "ABC-1", "description": "d", "comment": "c"}
+	for _, tc := range []struct{ version, path, desc string }{
+		{"", "/rest/api/2/", `"description":"d"`},
+		{"2", "/rest/api/2/", `"description":"d"`},
+		{"3", "/rest/api/3/", `"description":{"content":[{"content":[{"text":"d","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}`},
+	} {
+		t.Run("v"+tc.version, func(t *testing.T) {
+			cfg, f := setup(t, "atlassian")
+			cfg.Policy.AllowWrite = true
+			p := cfg.Profiles["atlassian"]
+			p.APIVersion = tc.version
+			cfg.Profiles["atlassian"] = p
+			if _, err := CallTool(context.Background(), cfg, "issue_update", args); err != nil {
+				t.Fatal(err)
+			}
+			if len(f.writes) != 2 || !strings.Contains(f.writes[0], tc.path+"issue/ABC-1 ") || !strings.Contains(f.writes[0], tc.desc) {
+				t.Fatalf("description write: %v", f.writes)
+			}
+			wantComment := `{"body":"c"}`
+			if tc.version == "3" {
+				wantComment = `{"body":{"content":[{"content":[{"text":"c","type":"text"}],"type":"paragraph"}],"type":"doc","version":1}}`
+			}
+			if want := "POST " + tc.path + "issue/ABC-1/comment " + wantComment; f.writes[1] != want {
+				t.Fatalf("comment write = %s\nwant %s", f.writes[1], want)
+			}
+			is, err := open(t, cfg).Show(context.Background(), "ABC-1", Include{Comments: true})
+			if err != nil || is.Description != "adf text" || !strings.HasPrefix(f.reads[len(f.reads)-1], "GET "+tc.path) {
+				t.Fatalf("show: %+v %v reads=%v", is, err, f.reads)
+			}
+		})
+	}
+}
+
+func TestV3IsRefusedOnDataCenterAndUnknownVersions(t *testing.T) {
+	for kind, version := range map[string]string{"jira": "3", "atlassian": "4"} {
+		cfg, _ := setup(t, kind)
+		p := cfg.Profiles[kind]
+		p.APIVersion = version
+		cfg.Profiles[kind] = p
+		if _, err := Open(cfg, "", "ABC-1"); err == nil || !strings.Contains(err.Error(), "api_version") {
+			t.Errorf("%s with api_version %s: err = %v", kind, version, err)
+		}
+		if err := config.ValidateProfile(kind, p); err == nil || !strings.Contains(err.Error(), "api_version") {
+			t.Errorf("%s with api_version %s: validate err = %v", kind, version, err)
+		}
+	}
+}
+
+func TestAPIVersionIsRefusedOutsideJiraProfiles(t *testing.T) {
+	for _, version := range []string{"2", "3"} {
+		p := config.Profile{Kind: "github", URL: "https://api.github.com", VerifyTLS: true, APIVersion: version}
+		if err := config.ValidateProfile("gh", p); err == nil || !strings.Contains(err.Error(), "only for Jira") {
+			t.Errorf("github with api_version %s: %v", version, err)
+		}
 	}
 }
 
