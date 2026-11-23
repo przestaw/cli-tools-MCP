@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -63,8 +64,12 @@ func TestSaveReplacesTheFileAtomically(t *testing.T) {
 	if kept, _ := os.ReadFile(link); string(kept) != string(old) {
 		t.Fatalf("the old file was rewritten in place:\n%s", kept)
 	}
-	if info, err := os.Stat(cfg.path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("mode = %v, err = %v; want 0600", info.Mode().Perm(), err)
+	info, err := os.Stat(cfg.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows keeps no Unix permission bits
+		t.Fatalf("mode = %v; want 0600", info.Mode().Perm())
 	}
 	if left, _ := filepath.Glob(cfg.path + ".tmp-*"); len(left) > 0 {
 		t.Fatalf("temp files left: %v", left)
