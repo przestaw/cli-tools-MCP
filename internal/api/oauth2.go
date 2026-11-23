@@ -82,6 +82,11 @@ func newOAuth2Session(name string, profile config.Profile, rawSecret string, bas
 	if strings.TrimSpace(cred.RefreshToken) == "" {
 		return nil, fmt.Errorf("profile %q has no OAuth2 refresh token yet: run `workctl auth login --profile %s`", name, name)
 	}
+	clientID, _, err := config.ResolveClientID(name, profile)
+	if err != nil {
+		return nil, err
+	}
+	profile = withClientID(profile, clientID)
 	tc := *base
 	tc.Jar = nil
 	return &oauth2Session{
@@ -93,10 +98,21 @@ func newOAuth2Session(name string, profile config.Profile, rawSecret string, bas
 	}, nil
 }
 
+// withClientID returns the profile with its OAuth client_id replaced by the resolved one (own or built-in).
+func withClientID(p config.Profile, id string) config.Profile {
+	o := *p.OAuth2
+	o.ClientID = id
+	p.OAuth2 = &o
+	return p
+}
+
 func oauth2CacheFile(name string, p config.Profile) string {
 	dir, err := os.UserCacheDir()
 	if err != nil || p.OAuth2 == nil {
 		return ""
+	}
+	if id, _, err := config.ResolveClientID(name, p); err == nil {
+		p = withClientID(p, id)
 	}
 	sum := sha256.Sum256([]byte(strings.Join([]string{name, p.URL, p.OAuth2.ClientID, p.OAuth2.TokenURL, strings.Join(p.OAuth2.Scopes, " ")}, "\x00")))
 	return filepath.Join(dir, "workctl", "oauth2-"+hex.EncodeToString(sum[:8])+".json")
@@ -247,6 +263,11 @@ func LoginOAuth2(ctx context.Context, cfg *config.Config, name string, profile c
 	if profile.OAuth2 == nil || strings.TrimSpace(profile.OAuth2.AuthURL) == "" {
 		return OAuth2Credential{}, fmt.Errorf("profile %q needs oauth2.auth_url in config.json for interactive login", name)
 	}
+	clientID, _, err := config.ResolveClientID(name, profile)
+	if err != nil {
+		return OAuth2Credential{}, err
+	}
+	profile = withClientID(profile, clientID)
 	verifier, challenge, err := pkcePair()
 	if err != nil {
 		return OAuth2Credential{}, err

@@ -101,7 +101,7 @@ workctl profile add ado --kind azure --host https://dev.azure.com/org --projects
 workctl profile edit svc --username me --read-only --default     # only the flags that are given change
 workctl config set allow_write true                              # also confirm_writes, timeouts.jira, defaults.github, ...
 workctl config validate --json                                   # {ok, path, problems[]}; exit 1 when there is a problem
-workctl auth status --json                                       # [{name, kind, username, state, source, detail, fix}]
+workctl auth status --json                                       # [{name, kind, username, state, source, detail, fix, client_id_source}]
 workctl auth set-token --profile svc --stdin --json              # {profile, action, username, warning}
 workctl auth login --profile gdrive --json                       # OAuth 2.0 loopback; the URL goes to stderr
 workctl profile add gh --kind github --backend cli
@@ -125,6 +125,13 @@ in), `not_needed` (auth `none`, ssh key) and `error`; `fix` holds the command th
 `doctor` adds the same kind of `fix` to a failed check: `workctl auth login --profile NAME` for OAuth and gh/glab
 profiles, `workctl auth set-token --profile NAME` for token profiles, `workctl profile edit NAME --host URL` for network
 errors. Its output is always JSON; `--json` is accepted for scripts.
+
+OAuth `client_id` (public, kept in `config.json`, never in the keyring) is resolved as: the profile's `oauth2.client_id`
+(`own`), else a built-in default of the provider host (`github.com`, `gitlab.com`; `built-in`), else the error
+`set client_id: workctl profile edit NAME --client-id ID`. The built-in table ships empty until workctl's OAuth apps are
+registered. `profile add` on a terminal asks `OAuth client_id [Enter = built-in: X]:` for an OAuth profile without
+`--client-id`; `--client-id` works on `add` and `edit`. `client_id_source` (`own` or `built-in`) is in the JSON of
+`auth status`, `doctor` and `profile add|edit --json`. MCP uses the same resolution and never prompts.
 
 ## Issues
 

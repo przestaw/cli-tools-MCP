@@ -36,6 +36,8 @@ type doctorCheck struct {
 	Error  string `json:"error,omitempty"`
 	Code   string `json:"code,omitempty"` // dns, timeout, tls, refused, unauthorized, forbidden or other (see classifyError)
 	Fix    string `json:"fix,omitempty"`  // a hint: the command that most likely repairs the failure
+	// ClientIDSource is "own" or "built-in" for an OAuth profile.
+	ClientIDSource string `json:"client_id_source,omitempty"`
 }
 
 // doctorFix is the hint for a failed profile check: a missing or rejected credential first, then the cause by code.
@@ -96,12 +98,13 @@ func doctorCommand(cfg *config.Config, args []string) error {
 			continue // Atlassian Cloud is verified via the embedded module below
 		}
 		detail, err := doctorCheckProfile(ctx, cfg, name, cfg.Profiles[name])
+		src := auth.ClientIDSource(name, cfg.Profiles[name])
 		if err != nil {
 			code := classifyError(err)
-			result[name] = doctorCheck{Error: err.Error(), Code: code, Fix: doctorFix(cfg, name, cfg.Profiles[name], code)}
+			result[name] = doctorCheck{Error: err.Error(), Code: code, Fix: doctorFix(cfg, name, cfg.Profiles[name], code), ClientIDSource: src}
 			allOK = false
 		} else {
-			result[name] = doctorCheck{OK: true, Detail: detail}
+			result[name] = doctorCheck{OK: true, Detail: detail, ClientIDSource: src}
 		}
 	}
 
