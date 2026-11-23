@@ -32,8 +32,8 @@ workctl ma być czytelnym przykładem zaawansowanego Go, a nie zbiorem wyjątkó
 - **Jeden kind `google`**, a w nim **tabela usług**. Trzy profile różnią się jednym polem `service`, nie kodem.
 - **Bez nowych narzędzi MCP.** Wystarczą istniejące `request`, `download` i `upload`.
 - **Bez heurystyk po URL-u** (dziś Drive jest rozpoznawany po końcówce `/drive/v3` w trzech miejscach).
-- Kod specyficzny dla Drive (upload resumable, `/about`) miał przejść z `generic` do `internal/google`.
-  **Jeszcze nie zrobione:** na `main` ten kod nadal jest w `internal/generic` (`upload.go`, `download.go`).
+- Kod specyficzny dla Drive (upload resumable, rozpoznanie i weryfikacja MD5 przy pobieraniu) przeszedł z `generic`
+  do `internal/google` (**zrobione** na gałęzi `refactor/drive-to-google`); `generic` woła go tylko dla profilu z Drive.
 
 Szkic tabeli (jedyne miejsce, które wie, czym różnią się profile Google):
 
@@ -106,7 +106,8 @@ Absolutny URL jest dozwolony tylko dla hostów z tabeli usług danego profilu.
 
 Zasada: **żadnych nowych nazw narzędzi** (agent czyta listę przy każdej rozmowie, a GitLens i GitKraken już ją
 wypełniają). Operacje Dysku trafiają do istniejących narzędzi, wybieranych po profilu (`HasDrive()`); ich kod jest
-dziś w `internal/generic`. Zasady zapisu, lista hostów i klient są wspólne z resztą.
+w `internal/google` (upload, pobieranie) i `internal/api/drive.go` (klient Drive v3). Zasady zapisu, lista hostów
+i klient są wspólne z resztą.
 
 | Potrzeba | Narzędzie | Zmiana |
 | --- | --- | --- |
@@ -230,7 +231,7 @@ Do poprawy:
 | --- | --- | --- |
 | **MR uproszczeń** | (**zrobione**, PR #16) osobny MR według [raport-prostota-kodu.md](raport-prostota-kodu.md), szybkie poprawki przed fazą 1 | build, testy i lint zielone; zachowanie bez zmian |
 | **0** | poprawki 1–8 (**zrobione**, PR #9) | logowanie, `doctor`, pobieranie i upload do Drive działają; brak cichego nadpisywania |
-| **1** | (**zrobione**, PR #10) `kind: "google"` z tabelą usług, presety OAuth jako dane, lista hostów zamiast heurystyki URL; przeniesienie kodu Drive do `internal/google` **odłożone** (kod jest w `internal/generic`) | trzy profile działają; `gdrive` odmawia wysłania tokenu poza Drive (test) |
+| **1** | (**zrobione**, PR #10) `kind: "google"` z tabelą usług, presety OAuth jako dane, lista hostów zamiast heurystyki URL; przeniesienie kodu Drive do `internal/google` **zrobione** na gałęzi `refactor/drive-to-google` | trzy profile działają; `gdrive` odmawia wysłania tokenu poza Drive (test) |
 | **2** | (**otwarte**) Colab API w profilu `google`: `doctor` pokazuje runtime'y i nadane scope'y, dokumentacja przykładów | `request` na `/v1beta/runtimes` działa; `POST`/`DELETE` blokowane bez `allow_write` |
 | **2b** | (**zrobione**, PR #14) Drive w istniejących narzędziach (`accounts check`, `file` list/search/metadane, `download` z metadanymi i eksportem), hosty Sheets i Docs w `gdrive`, dokumentacja | trzy narzędzia działają na profilu Dysku; testy na serwerze `httptest`; bez nowych narzędzi MCP |
 | **3** | (**otwarte**) wspólny rdzeń OAuth dla kolejnych dostawców: device flow, zapis nowego refresh tokenu z blokadą między procesami | testy każdego flow; dwa procesy naraz nie psują tokenu |
