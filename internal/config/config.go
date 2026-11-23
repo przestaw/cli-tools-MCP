@@ -45,6 +45,7 @@ type Profile struct {
 	OAuth2            *OAuth2      `json:"oauth2,omitempty"`      // kind api with auth "oauth2": OAuth 2.0 refresh-token grant
 	CSRF              *CSRF        `json:"csrf,omitempty"`        // kind api: writes carry an anti-CSRF token
 	FormLogin         *FormLogin   `json:"form_login,omitempty"`  // kind api with auth "form": the login form to post
+	APIVersion        string       `json:"api_version,omitempty"` // kind atlassian: Jira REST API "2" (default) or "3" (ADF)
 	ReadOnly          bool         `json:"read_only,omitempty"`   // only GET and HEAD, whatever policy.allow_write says
 	Service           string       `json:"service,omitempty"`     // kind google: drive, cloud or all (see google.go)
 	Username          string       `json:"username,omitempty"`
@@ -725,6 +726,9 @@ func ValidateProfile(name string, profile Profile) error {
 	if err := validateBackend(name, profile, parsed); err != nil {
 		return err
 	}
+	if _, err := profile.JiraAPIVersion(); err != nil {
+		return fmt.Errorf("profiles.%s.%w", name, err)
+	}
 	// The first scheme is the default when auth is empty.
 	auths := map[string][]string{
 		"github": {"bearer"},
@@ -890,4 +894,18 @@ func validateSSHDestination(name string, profile Profile) error {
 		return fmt.Errorf("profiles.%s.ssh_destination must be an ssh host or ~/.ssh/config alias (no spaces, not starting with -)", name)
 	}
 	return nil
+}
+
+// JiraAPIVersion is the Jira REST version the profile talks: "2" by default, "3" only on Jira Cloud (kind atlassian).
+func (p Profile) JiraAPIVersion() (string, error) {
+	switch p.APIVersion {
+	case "", "2":
+		return "2", nil
+	case "3":
+		if p.Kind != "atlassian" {
+			return "", fmt.Errorf("api_version \"3\" is Jira Cloud only (kind atlassian); Jira Server and Data Center speak API v2")
+		}
+		return "3", nil
+	}
+	return "", fmt.Errorf("api_version %q is unsupported (use \"2\" or \"3\")", p.APIVersion)
 }

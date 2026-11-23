@@ -3,7 +3,8 @@
 
 // Package issue is the provider-neutral issue layer: the same show, search, create and update operations and one output
 // shape for Jira Server/Data Center (profile kind jira) and Jira Cloud (profile kind atlassian). Both speak REST
-// API v2 through the workctl api client; they differ only in search pagination and how a user is addressed.
+// API v2 (default) through the workctl api client; Jira Cloud may opt into v3 with the profile's api_version, which
+// only changes the path and sends descriptions and comments as ADF. They differ in search pagination and how a user is addressed.
 package issue
 
 import (
@@ -104,7 +105,19 @@ type Backend struct {
 	Provider string // profile kind: jira or atlassian
 	Profile  string
 	base     string
+	version  string // Jira REST API version: "2" (default) or "3" (Cloud, ADF)
 	c        doer
+}
+
+// rest is the one place that picks the API version of a request path.
+func (b *Backend) rest(path string) string { return "/rest/api/" + b.version + path }
+
+// rich is the body of a description or comment: the plain string on v2, an ADF document on v3.
+func (b *Backend) rich(s string) any {
+	if b.version == "3" {
+		return atlclient.TextToADF(s)
+	}
+	return s
 }
 
 type doer interface {
@@ -119,11 +132,15 @@ func Open(cfg *config.Config, profileName, key string) (*Backend, error) {
 	if err != nil {
 		return nil, err
 	}
+	version, err := profile.JiraAPIVersion()
+	if err != nil {
+		return nil, fmt.Errorf("profile %q: %w", name, err)
+	}
 	c, err := api.NewProfileClient(cfg, name, profile)
 	if err != nil {
 		return nil, err
 	}
-	return &Backend{Provider: profile.Kind, Profile: name, base: config.NormalizeBaseURL(profile.URL), c: c}, nil
+	return &Backend{Provider: profile.Kind, Profile: name, base: config.NormalizeBaseURL(profile.URL), version: version, c: c}, nil
 }
 
 // ResolveProfile picks the profile for key among the jira and atlassian profiles.
@@ -183,8 +200,8 @@ func (b *Backend) getJSON(ctx context.Context, path string, q url.Values, out an
 	return json.Unmarshal(data, out)
 }
 
-func issuePath(key string, rest ...string) string {
-	return "/rest/api/2/issue/" + url.PathEscape(key) + strings.Join(rest, "")
+func (b *Backend) issuePath(key string, rest ...string) string {
+	return b.rest("/issue/" + url.PathEscape(key) + strings.Join(rest, ""))
 }
 
 const showFields = "summary,status,resolution,issuetype,priority,assignee,reporter,fixVersions,labels,created,updated,description,issuelinks"
@@ -218,7 +235,7 @@ func (b *Backend) ShowRaw(ctx context.Context, key string, in Include) ([]byte, 
 	if in.Comments {
 		fields += ",comment"
 	}
-	return b.call(ctx, http.MethodGet, issuePath(key), url.Values{"fields": {fields}}, nil)
+	return b.call(ctx, http.MethodGet, b.issuePath(key), url.Values{"fields": {fields}}, nil)
 }
 
 // Search runs a JQL query. Jira Server pages with startAt; Jira Cloud with nextPageToken.
@@ -227,12 +244,12 @@ func (b *Backend) Search(ctx context.Context, jql string, startAt, maxResults in
 		maxResults = 50
 	}
 	body := map[string]any{"jql": jql, "maxResults": maxResults, "fields": strings.Split(showFields, ",")}
-	path := "/rest/api/2/search"
+	path := b.rest("/search")
 	if b.Provider == "atlassian" {
 		if startAt > 0 {
 			return nil, fmt.Errorf("jira cloud pages with next_page_token, not start_at")
 		}
-		path = "/rest/api/2/search/jql"
+		path = b.rest("/search/jql")
 		if pageToken != "" {
 			body["nextPageToken"] = pageToken
 		}
@@ -407,7 +424,7 @@ type Fields struct {
 }
 
 // fieldMap is the "fields" object of a create or edit request. Extra goes in first, so a named field wins over it.
-// Jira Cloud still takes a plain-text description through v2, so no ADF is needed.
+// Jira Cloud takes a plain-text description through v2; on api_version 3 it is sent as ADF.
 func (b *Backend) fieldMap(f Fields) map[string]any {
 	m := maps.Clone(f.Extra)
 	if m == nil {
@@ -417,7 +434,7 @@ func (b *Backend) fieldMap(f Fields) map[string]any {
 		m["summary"] = f.Summary
 	}
 	if f.Description != "" {
-		m["description"] = f.Description
+		m["description"] = b.rich(f.Description)
 	}
 	if f.Labels != nil {
 		m["labels"] = f.Labels
@@ -472,7 +489,7 @@ func (b *Backend) PlanCreate(ctx context.Context, n NewIssue) (Step, error) {
 	fields["project"] = map[string]string{"key": n.Project}
 	fields["issuetype"] = map[string]string{"id": t.ID}
 	return Step{Describe: fmt.Sprintf("create %s (%s) in %s: %s", t.Name, t.ID, n.Project, n.Summary),
-		method: http.MethodPost, path: "/rest/api/2/issue", body: map[string]any{"fields": fields}}, nil
+		method: http.MethodPost, path: b.rest("/issue"), body: map[string]any{"fields": fields}}, nil
 }
 
 // Create runs the step of PlanCreate and returns the new issue. The request has gone out once it returns an
@@ -515,7 +532,7 @@ func (b *Backend) issueTypes(ctx context.Context, project string) ([]named, erro
 			IssueTypes []named `json:"issueTypes"`
 		}
 		q := url.Values{"startAt": {strconv.Itoa(len(types))}}
-		err := b.getJSON(ctx, "/rest/api/2/issue/createmeta/"+url.PathEscape(project)+"/issuetypes", q, &page)
+		err := b.getJSON(ctx, b.rest("/issue/createmeta/"+url.PathEscape(project)+"/issuetypes"), q, &page)
 		if len(types) == 0 && api.IsStatus(err, http.StatusNotFound) {
 			return b.legacyIssueTypes(ctx, project)
 		}
@@ -536,7 +553,7 @@ func (b *Backend) legacyIssueTypes(ctx context.Context, project string) ([]named
 			IssueTypes []named `json:"issuetypes"`
 		} `json:"projects"`
 	}
-	if err := b.getJSON(ctx, "/rest/api/2/issue/createmeta", url.Values{"projectKeys": {project}}, &r); err != nil {
+	if err := b.getJSON(ctx, b.rest("/issue/createmeta"), url.Values{"projectKeys": {project}}, &r); err != nil {
 		return nil, err
 	}
 	if len(r.Projects) == 0 {
@@ -597,7 +614,7 @@ func (b *Backend) Plan(ctx context.Context, key string, u Update) ([]Step, error
 			body["fields"] = fields
 		}
 		if u.Comment != "" {
-			body["update"] = map[string]any{"comment": []any{map[string]any{"add": map[string]string{"body": u.Comment}}}}
+			body["update"] = map[string]any{"comment": []any{map[string]any{"add": map[string]any{"body": b.rich(u.Comment)}}}}
 			with = append(with, "comment")
 			commentDone = true
 		}
@@ -605,13 +622,13 @@ func (b *Backend) Plan(ctx context.Context, key string, u Update) ([]Step, error
 		if len(with) > 0 {
 			d += " with " + strings.Join(with, ", ")
 		}
-		steps = append(steps, Step{Describe: d, method: http.MethodPost, path: issuePath(key, "/transitions"), body: body})
+		steps = append(steps, Step{Describe: d, method: http.MethodPost, path: b.issuePath(key, "/transitions"), body: body})
 	} else if u.Resolution != "" {
 		return nil, fmt.Errorf("a resolution is set by a transition: add transition or resolve")
 	}
 	if fields := b.fieldMap(Fields{Summary: u.Summary, Description: u.Description, Labels: u.Labels}); len(fields) > 0 {
 		steps = append(steps, Step{Describe: "set " + strings.Join(slices.Sorted(maps.Keys(fields)), ", "),
-			method: http.MethodPut, path: issuePath(key), body: map[string]any{"fields": fields}})
+			method: http.MethodPut, path: b.issuePath(key), body: map[string]any{"fields": fields}})
 	}
 	if len(u.FixVersions) > 0 {
 		s, err := b.editFixVersions(ctx, key, u.FixVersions)
@@ -621,10 +638,10 @@ func (b *Backend) Plan(ctx context.Context, key string, u Update) ([]Step, error
 		steps = append(steps, s)
 	}
 	if u.Assignee != "" {
-		steps = append(steps, Step{Describe: "assign to " + u.Assignee, method: http.MethodPut, path: issuePath(key, "/assignee"), body: b.user(u.Assignee)})
+		steps = append(steps, Step{Describe: "assign to " + u.Assignee, method: http.MethodPut, path: b.issuePath(key, "/assignee"), body: b.user(u.Assignee)})
 	}
 	if u.Comment != "" && !commentDone {
-		steps = append(steps, Step{Describe: "comment", method: http.MethodPost, path: issuePath(key, "/comment"), body: map[string]string{"body": u.Comment}})
+		steps = append(steps, Step{Describe: "comment", method: http.MethodPost, path: b.issuePath(key, "/comment"), body: map[string]any{"body": b.rich(u.Comment)}})
 	}
 	return steps, nil
 }
@@ -663,7 +680,7 @@ func (b *Backend) transitions(ctx context.Context, key string, withFields bool) 
 	var r struct {
 		Transitions []transitionMeta `json:"transitions"`
 	}
-	if err := b.getJSON(ctx, issuePath(key, "/transitions"), q, &r); err != nil {
+	if err := b.getJSON(ctx, b.issuePath(key, "/transitions"), q, &r); err != nil {
 		return nil, err
 	}
 	return r.Transitions, nil
@@ -759,7 +776,7 @@ func (b *Backend) editFixVersions(ctx context.Context, key string, wants []strin
 	var meta struct {
 		Fields map[string]fieldMeta `json:"fields"`
 	}
-	if err := b.getJSON(ctx, issuePath(key, "/editmeta"), nil, &meta); err != nil {
+	if err := b.getJSON(ctx, b.issuePath(key, "/editmeta"), nil, &meta); err != nil {
 		return Step{}, err
 	}
 	f, ok := meta.Fields["fixVersions"]
@@ -771,7 +788,7 @@ func (b *Backend) editFixVersions(ctx context.Context, key string, wants []strin
 	if err != nil {
 		return Step{}, err
 	}
-	return Step{Describe: "set fix versions " + strings.Join(names, ", "), method: http.MethodPut, path: issuePath(key),
+	return Step{Describe: "set fix versions " + strings.Join(names, ", "), method: http.MethodPut, path: b.issuePath(key),
 		body: map[string]any{"fields": map[string]any{"fixVersions": ids}}}, nil
 }
 
@@ -786,7 +803,7 @@ func (b *Backend) linkStep(ctx context.Context, key string, spec LinkSpec) (Step
 			Outward string `json:"outward"`
 		} `json:"issueLinkTypes"`
 	}
-	if err := b.getJSON(ctx, "/rest/api/2/issueLinkType", nil, &r); err != nil {
+	if err := b.getJSON(ctx, b.rest("/issueLinkType"), nil, &r); err != nil {
 		return Step{}, err
 	}
 	var known []string
@@ -803,7 +820,7 @@ func (b *Backend) linkStep(ctx context.Context, key string, spec LinkSpec) (Step
 		}
 		return Step{
 			Describe: fmt.Sprintf("link %s %s %s", key, rel, spec.Key),
-			method:   http.MethodPost, path: "/rest/api/2/issueLink",
+			method:   http.MethodPost, path: b.rest("/issueLink"),
 			body: map[string]any{"type": map[string]string{"name": t.Name}, "inwardIssue": map[string]string{"key": from}, "outwardIssue": map[string]string{"key": to}},
 		}, nil
 	}
