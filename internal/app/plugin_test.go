@@ -2,7 +2,7 @@
 // This file is part of workctl, licensed under the BSD 4-Clause License; see LICENSE and NOTICE.
 
 // Keeps the agent package (plugins/workctl, the marketplace, the installers) in step with the code:
-// the SKILL.md tool names are checked against mcpTools and the installer must copy the skill that exists.
+// the SKILL.md tool names are checked against mcpTools and the installer must use the embedded skills.
 
 package app
 
@@ -104,18 +104,38 @@ func TestSkillNamesOnlyExistingMCPTools(t *testing.T) {
 	}
 }
 
-func TestInstallerCopiesTheSkillThatExists(t *testing.T) {
+func TestSkillHasNoOverlappingSections(t *testing.T) {
 	root := testutil.RepoRoot(t)
-	skill := filepath.Join(root, "plugins/workctl/skills/workctl/SKILL.md")
-	if _, err := os.Stat(skill); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(filepath.Join(root, "scripts/install.py"))
+	b, err := os.ReadFile(filepath.Join(root, "plugins/workctl/skills/workctl/SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), "plugins/workctl/skills/workctl/SKILL.md") {
-		t.Error("scripts/install.py does not copy plugins/workctl/skills/workctl/SKILL.md")
+	seen := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		// The first two words name the topic: "## Google Drive, Sheets" and "## Google drive notes" overlap.
+		words := strings.Fields(strings.ToLower(strings.TrimPrefix(line, "## ")))
+		words = words[:min(2, len(words))]
+		for i, w := range words {
+			words[i] = strings.TrimRight(w, ",.:;")
+		}
+		key := strings.Join(words, " ")
+		if first, ok := seen[key]; ok {
+			t.Errorf("sections %q and %q overlap; merge them", first, line)
+		}
+		seen[key] = line
+	}
+}
+
+func TestInstallerUsesTheEmbeddedSkills(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(testutil.RepoRoot(t), "scripts/install.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"skills", "install", "--target"`) || strings.Contains(string(b), "copyfile") {
+		t.Error("scripts/install.py must install skills with `workctl skills install`, not copy files itself")
 	}
 }
 

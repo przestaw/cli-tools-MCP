@@ -20,7 +20,7 @@ omission keeps the response as received. XML stays unchanged. See [compaction an
 | Tool | What |
 | --- | --- |
 | `accounts` | profiles, their bindings and credential state; binds a repository/project with consent |
-| `pr_list`, `pr_show` | pull/merge requests (GitHub, GitLab, Azure DevOps); `include: [files, reviews, reviewers, comments, discussion, checks]`; files, reviews, comments and discussion are read page by page; a full last page is followed by one empty-page probe; results beyond the local 3000-item limit report possible truncation, not a complete list |
+| `pr_list`, `pr_show` | pull/merge requests (GitHub, GitLab, Azure DevOps); `include: [files, diff, reviews, reviewers, comments, discussion, checks]`; `diff` is the unified diff as a JSON string (GitHub: `Accept: application/vnd.github.diff`; GitLab: assembled from the merge request changes), cut at a line boundary at 200000 bytes and then returned as `{diff, truncated: true, bytes_total, bytes_returned, hint}` — read the rest with `file` at the head ref or `request` with `accept`; files, reviews, comments and discussion are read page by page; a full last page is followed by one empty-page probe; results beyond the local 3000-item limit report possible truncation, not a complete list |
 | `pr_create`, `pr_edit` | create or edit a pull/merge request (write) |
 | `ci` | runs/pipelines for a `ref`, one `run` with `include: [jobs]`, the log of one `job` |
 | `file` | repository file at a ref; explicit Drive profile: file metadata, folder listing or name search, with pagination |
@@ -125,8 +125,17 @@ python3 scripts/install.py --all      # or any of --vscode --claude --codex --gi
 | `--vscode` | server in the user `mcp.json` of VS Code, Insiders and VSCodium; skill in `~/.copilot/skills` |
 | `--claude` | server in Claude Code (user scope); skill in `~/.claude/skills` |
 | `--codex` | server in Codex; skill in `~/.codex/skills` |
+| `--with-compact-output` | also installs the optional `compact-output` skill (with any of the agent flags) |
+| `--skills-only` | rebuilds the binary from the clone and refreshes the skills of the selected agents, without MCP registration or keyring migration (an older `workctl` on `PATH` would install its own older skills); an explicitly named agent gets its skill even when its CLI is not found |
 | `--gitkraken` | GitKraken MCP (shipped with GitLens) in Claude Code and Codex, read-only while workctl writes are off; VS Code gets it from GitLens |
 
-It also migrates keyring entries of the v2 release. A server already registered as `workctl` is left as it is. Claude Code
+The skills are copied by the built binary (`workctl skills install --target vscode|claude|codex|all`, see [cli.md](cli.md)):
+only the files of the embedded skills are written, nothing else in the skills directories is touched, and
+`workctl skills status` or `workctl doctor` tell whether an installed copy is current. Do not install the skill both
+through the Claude Code plugin and through the installer: Claude Code would see two skills named `workctl`;
+`workctl skills status` warns when it finds both.
+
+It also migrates keyring entries of the v2 release. A server already registered as `workctl` is left as it is (the
+installer warns when it runs a different binary and prints the command that switches it). Claude Code
 can also install from a clone: `claude plugin marketplace add .` then `claude plugin install workctl@workctl`. Tokens are
 never part of the package: they stay in the keyring or in gh/glab.

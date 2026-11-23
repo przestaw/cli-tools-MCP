@@ -63,8 +63,10 @@ For bytes or native document exports use api download. MCP: file.`,
 
   list  [--repo R] [--project P] [--state open|closed|merged|all] [--search TEXT]
   show  [--repo R] [--project P] [--include PARTS] NUMBER
-        PARTS is a comma list of files, reviews, reviewers, comments, discussion, checks (GitHub and GitLab); the output
+        PARTS is a comma list of files, diff, reviews, reviewers, comments, discussion, checks (GitHub and GitLab); the output
         is then JSON with the same keys as the pr_show tool.
+        diff is the unified diff as a string; over the cap named in 'workctl tools pr_show' it is an object with
+        truncated, bytes_total, bytes_returned, hint.
   common: --provider github|gitlab|azure  --format text|json|compact|raw  --json
           (default text; compact = the JSON of the pr_list/pr_show tools, details compacted; raw: keep the provider details, no projection)
 
@@ -78,10 +80,21 @@ parameters. Without --all only the tools of configured backends are listed.`,
 show  print the configuration; identifiers and credential-related values (OAuth client id, token_env, auth_header,
       form fields) are replaced with "***". Secrets are in the OS keyring, never in the file.
 path  print the path of the configuration file.`,
+	"skills": `workctl skills status|install [--target vscode|claude|codex|all] [--with compact-output] [--dry-run] [--check]
+
+The agent skills are embedded in the binary. Targets: vscode (~/.copilot/skills), claude (~/.claude/skills),
+codex ($CODEX_HOME or ~/.codex, then skills); default all.
+  status   one line per target and skill: target, skill, state (missing, current, differs), path. Exit code 0;
+           with --check 1 when a selected skill is missing or differs.
+  install  copy the workctl skill (plus the ones named in --with); only files of these skills are written, nothing is
+           deleted, and files that are already current are left alone. --dry-run writes nothing.
+Optional skills: compact-output. CLI only, there is no MCP tool.`,
 	"doctor": `workctl doctor
 
 Check every profile (and the azure and atlassian modules). A failed profile carries a "code": dns, timeout, tls,
-refused, unauthorized, forbidden or other, next to the error text. Exit code 1 when a profile failed.`,
+refused, unauthorized, forbidden or other, next to the error text. Exit code 1 when a profile failed.
+The "skills" entry compares installed workctl skills with the embedded ones (code "outdated", with the fix command);
+it is informational and never changes the exit code.`,
 	"init": `workctl [--config FILE] init [module...]   (alias: setup)
 
 Guided setup of the configuration file. Without arguments it asks for each service in turn (jira, gitlab, github,

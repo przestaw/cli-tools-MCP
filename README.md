@@ -87,6 +87,13 @@ Without an integration flag, the installer builds the executable without registe
 It installs into `~/.local/bin`, may update the user PATH, and attempts migration of older keyring entries.
 Restart the MCP server through the client that owns it after installation or upgrades.
 
+Agent skills are embedded in the binary. Install or update them for every agent with
+`python scripts/install.py --all` or, from an installed binary, `workctl skills install --target all`
+(`--with compact-output` adds the optional [compact-output](docs/rtk.md) skill). Check them with `workctl skills status`
+(`--check` exits 1 when one is missing or outdated) and `workctl doctor`. For Claude Code you may instead use the
+plugin marketplace, which updates through the plugin manager; do not combine it with the installer's copied skill,
+or Claude Code sees two skills named `workctl`.
+
 Configure other services with `workctl init`, or only the provider you need.
 Tokens are entered in the setup prompt, not supplied on the command line.
 Keep writes disabled while checking the account and repository selection:

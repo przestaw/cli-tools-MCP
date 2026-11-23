@@ -25,6 +25,7 @@ import (
 	"workctl/internal/gitlab"
 	"workctl/internal/jira"
 	"workctl/internal/modules"
+	"workctl/internal/skills"
 )
 
 type doctorCheck struct {
@@ -77,7 +78,7 @@ func doctorCommand(cfg *config.Config) error {
 		}
 	}
 
-	// The embedded CLIs report their own connectivity; informational, does not change the exit code.
+	// The embedded CLIs and the skills check are informational and do not change the exit code.
 	for _, name := range []string{"azure", "atlassian"} {
 		out, err := modules.RunProcess(ctx, cfg, name, []string{"config", "test"})
 		key := name + " (module)"
@@ -87,12 +88,47 @@ func doctorCommand(cfg *config.Config) error {
 			result[key] = doctorCheck{OK: true, Detail: strings.TrimSpace(string(out))}
 		}
 	}
+	result["skills"] = doctorSkills()
 	b, _ := json.MarshalIndent(result, "", "  ")
 	_ = cliutil.PrintBody(b)
 	if !allOK {
 		return fmt.Errorf("one or more connectivity checks failed")
 	}
 	return nil
+}
+
+// doctorSkills compares the installed default skills with the embedded ones. Agents without an installed copy are
+// skipped: the user may use the plugin or no skill at all.
+func doctorSkills() doctorCheck {
+	targets, err := skills.Targets([]string{"all"})
+	if err != nil {
+		return doctorCheck{Error: err.Error()}
+	}
+	var current []string
+	var outdated []string
+	for _, t := range targets {
+		entries, err := skills.Status(skills.Embedded(), t)
+		if err != nil {
+			return doctorCheck{Error: err.Error()}
+		}
+		for _, e := range entries {
+			switch {
+			case !slices.Contains(skills.DefaultSkills, e.Skill) || e.State == skills.Missing:
+			case e.State == skills.Differs:
+				outdated = append(outdated, t.Name)
+			default:
+				current = append(current, t.Name)
+			}
+		}
+	}
+	if len(outdated) > 0 {
+		fixes := make([]string, len(outdated))
+		for i, name := range outdated {
+			fixes[i] = "workctl skills install --target " + name
+		}
+		return doctorCheck{Error: "outdated skill copy: " + strings.Join(fixes, "; "), Code: "outdated"}
+	}
+	return doctorCheck{OK: true, Detail: map[string][]string{"current": current}}
 }
 
 // doctorCheckProfile makes one lightweight authenticated call and returns a compact identity detail.
