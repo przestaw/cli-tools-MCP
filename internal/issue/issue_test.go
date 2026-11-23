@@ -323,6 +323,20 @@ func TestCreateDryRunUnknownTypeAndPolicy(t *testing.T) {
 	}
 }
 
+func TestCLIUpdateEmptyLabelsClears(t *testing.T) {
+	cfg, f := setup(t, "jira")
+	cfg.Policy.AllowWrite = true
+	if _, err := runCLI(t, cfg, false, "", "update", "ABC-1", "--labels", "", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if want := `PUT /rest/api/2/issue/ABC-1 {"fields":{"labels":[]}}`; len(f.writes) != 1 || f.writes[0] != want {
+		t.Fatalf("writes = %v\nwant %s", f.writes, want)
+	}
+	if _, err := runCLI(t, cfg, false, "", "update", "ABC-1", "--yes"); err == nil {
+		t.Fatalf("no flags must stay a no-op error, writes=%v", f.writes)
+	}
+}
+
 func TestUpdateEditsSummaryDescriptionAndLabels(t *testing.T) {
 	cfg, f := setup(t, "jira")
 	cfg.Policy.AllowWrite = true
