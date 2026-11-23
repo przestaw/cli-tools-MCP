@@ -159,11 +159,6 @@ func SetToken(profile, orgURL, token string) error {
 	return store.Set(keyringAccount(profile), token)
 }
 
-// DeleteToken removes a stored PAT from the keyring.
-func DeleteToken(profile, orgURL string) error {
-	return store.Delete(keyringAccount(profile))
-}
-
 // ResolveToken returns the PAT for a profile.
 // Precedence: ADO_PAT env > AZURE_DEVOPS_EXT_PAT env > keyring.
 // Returns ErrNoToken if none is set.
