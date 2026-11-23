@@ -20,7 +20,7 @@ When unsure which account serves a resource, call `accounts` first: it lists the
 
 ## Read
 
-- Pull/merge requests (GitHub, GitLab; Azure DevOps for list/show): `pr_list`, `pr_show` with `include: [files, diff, reviews, reviewers, comments, discussion, checks]` (`comments` = inline review threads, `discussion` = conversation; `diff` = unified diff to read the actual changes, capped at 200000 bytes: when cut it is an object with `truncated`, read the rest via `file` at the head ref). Accounts: `accounts` (read-only unless asked to bind).
+- Pull/merge requests (GitHub, GitLab; Azure DevOps for list/show): `pr_list`, `pr_show` with `include: [files, diff, reviews, reviewers, comments, discussion, checks]` (`comments` = inline review threads, `discussion` = conversation; `diff` = unified diff to read the actual changes, size-capped: when cut it is an object with `truncated`, read the rest via `file` at the head ref). Accounts: `accounts` (read-only unless asked to bind).
 - CI: `ci` lists runs/pipelines for a `ref`, shows one `run` (with `include: [jobs]`) or the log of one `job` (GitHub logs arrive as a downloaded file). Files: `file` with `path` and optional `ref`.
 - Issues (Jira Server and Cloud): `issue_show` (with `include: [comments, transitions]`), `issue_search` (JQL). `task_get_context` joins an issue with its branches and merge requests.
 - `cli` runs a module command line (`module`: azure, atlassian, jira; `args` as an array) for anything the tools above do not cover. Consult its help and use only read operations for an inspection; the wrapper is not permission to change configuration or policy.

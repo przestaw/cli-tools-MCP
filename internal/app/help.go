@@ -65,7 +65,8 @@ For bytes or native document exports use api download. MCP: file.`,
   show  [--repo R] [--project P] [--include PARTS] NUMBER
         PARTS is a comma list of files, diff, reviews, reviewers, comments, discussion, checks (GitHub and GitLab); the output
         is then JSON with the same keys as the pr_show tool.
-        diff is the unified diff as a string, capped at 200000 bytes (then an object with truncated, bytes_total, hint).
+        diff is the unified diff as a string; over the cap named in 'workctl tools pr_show' it is an object with
+        truncated, bytes_total, bytes_returned, hint.
   common: --provider github|gitlab|azure  --format text|json  --json  (--format raw: keep the provider details, no projection)
 
 MCP: pr_list, pr_show.`,

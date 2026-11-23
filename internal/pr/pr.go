@@ -198,10 +198,10 @@ func Tools() []mcp.Tool {
 			"search":  mcp.StrProp("Search text (title and description)"),
 			"format":  mcp.StrProp("Output format: json (default, details compacted), text, or raw (json with the provider details)"),
 		})},
-		{Name: "pr_show", Description: "Get details and description of a pull request or merge request; include adds files, diff (unified diff text, capped at 200000 bytes), reviews, reviewers, comments (inline), discussion and checks (GitHub and GitLab).", InputSchema: mcp.ObjSchema(map[string]any{
+		{Name: "pr_show", Description: fmt.Sprintf("Get details and description of a pull request or merge request; include adds files, diff (unified diff text, capped at %d bytes), reviews, reviewers, comments (inline), discussion and checks (GitHub and GitLab).", diffCap), InputSchema: mcp.ObjSchema(map[string]any{
 			"number":  mcp.IntProp("Pull request or merge request number"),
 			"id":      mcp.IntProp("Same as number (older name)"),
-			"include": mcp.ArrProp("Optional parts: files, diff, reviews, reviewers, comments, discussion, checks. diff is a string of unified diff text; over 200000 bytes it is an object {diff, truncated, bytes_total, bytes_returned, hint}"),
+			"include": mcp.ArrProp(fmt.Sprintf("Optional parts: files, diff, reviews, reviewers, comments, discussion, checks. diff is a string of unified diff text; over %d bytes it is an object {diff, truncated, bytes_total, bytes_returned, hint}", diffCap)),
 			"profile": mcp.StrProp("Profile name (optional if default profile exists)"),
 			"repo":    mcp.StrProp("Repository name or path (optional if default_repo is set)"),
 			"project": mcp.StrProp("Project name (required for Azure DevOps unless set in profile)"),

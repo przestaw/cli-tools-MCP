@@ -99,7 +99,8 @@ var prParts = map[string][2]string{
 }
 
 // diffCap bounds the diff part: the MCP layer cuts a whole answer in the middle of JSON, so the part is cut here.
-var diffCap = 200000
+// The tool descriptions print it (docs/mcp.md repeats it for readers); a var, so a test can lower it.
+var diffCap = 200_000
 
 // capDiff returns the diff as a JSON string, or, when over max bytes, as an object cut at a line boundary.
 func capDiff(text string, max int) json.RawMessage {

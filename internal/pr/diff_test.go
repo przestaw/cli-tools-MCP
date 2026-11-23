@@ -20,11 +20,12 @@ import (
 const githubDiff = "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old\n+new\n"
 
 const gitlabChanges = `{"changes":[
- {"old_path":"m.go","new_path":"m.go","diff":"@@ -1 +1 @@\n-a\n+b\n"},
- {"old_path":"n.go","new_path":"n.go","new_file":true,"diff":"@@ -0,0 +1 @@\n+x\n"},
- {"old_path":"d.go","new_path":"d.go","deleted_file":true,"diff":"@@ -1 +0,0 @@\n-y\n"},
- {"old_path":"o.go","new_path":"r.go","renamed_file":true,"diff":""},
- {"old_path":"img.png","new_path":"img.png","diff":""}]}`
+ {"old_path":"m.go","new_path":"m.go","a_mode":"100644","b_mode":"100644","diff":"@@ -1 +1 @@\n-a\n+b\n"},
+ {"old_path":"n.sh","new_path":"n.sh","a_mode":"0","b_mode":"100755","new_file":true,"diff":"@@ -0,0 +1 @@\n+x\n"},
+ {"old_path":"d.go","new_path":"d.go","a_mode":"100644","b_mode":"0","deleted_file":true,"diff":"@@ -1 +0,0 @@\n-y\n"},
+ {"old_path":"o.go","new_path":"r.go","a_mode":"100644","b_mode":"100644","renamed_file":true,"diff":""},
+ {"old_path":"run","new_path":"run","a_mode":"100644","b_mode":"100755","diff":""},
+ {"old_path":"img.png","new_path":"img.png","a_mode":"100644","b_mode":"100644","diff":""}]}`
 
 const gitlabWant = `diff --git a/m.go b/m.go
 --- a/m.go
@@ -32,10 +33,10 @@ const gitlabWant = `diff --git a/m.go b/m.go
 @@ -1 +1 @@
 -a
 +b
-diff --git a/n.go b/n.go
-new file mode 100644
+diff --git a/n.sh b/n.sh
+new file mode 100755
 --- /dev/null
-+++ b/n.go
++++ b/n.sh
 @@ -0,0 +1 @@
 +x
 diff --git a/d.go b/d.go
@@ -47,6 +48,9 @@ deleted file mode 100644
 diff --git a/o.go b/r.go
 rename from o.go
 rename to r.go
+diff --git a/run b/run
+old mode 100644
+new mode 100755
 diff --git a/img.png b/img.png
 # diff not available (binary or too large file)
 `
