@@ -933,12 +933,17 @@ func validateSSHDestination(name string, profile Profile) error {
 }
 
 // JiraAPIVersion is the Jira REST version the profile talks: "2" by default, "3" only on Jira Cloud (kind atlassian).
+// api_version belongs to Jira profiles only; on any other kind it is an error instead of being ignored.
 func (p Profile) JiraAPIVersion() (string, error) {
+	isJira := strings.EqualFold(p.Kind, "jira") || strings.EqualFold(p.Kind, "atlassian")
+	if !isJira && p.APIVersion != "" {
+		return "", fmt.Errorf("api_version is only for Jira profiles (kind jira or atlassian), not %s", p.Kind)
+	}
 	switch p.APIVersion {
 	case "", "2":
 		return "2", nil
 	case "3":
-		if p.Kind != "atlassian" {
+		if !strings.EqualFold(p.Kind, "atlassian") {
 			return "", fmt.Errorf("api_version \"3\" is Jira Cloud only (kind atlassian); Jira Server and Data Center speak API v2")
 		}
 		return "3", nil

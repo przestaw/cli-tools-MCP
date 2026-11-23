@@ -402,6 +402,15 @@ func TestV3IsRefusedOnDataCenterAndUnknownVersions(t *testing.T) {
 	}
 }
 
+func TestAPIVersionIsRefusedOutsideJiraProfiles(t *testing.T) {
+	for _, version := range []string{"2", "3"} {
+		p := config.Profile{Kind: "github", URL: "https://api.github.com", VerifyTLS: true, APIVersion: version}
+		if err := config.ValidateProfile("gh", p); err == nil || !strings.Contains(err.Error(), "only for Jira") {
+			t.Errorf("github with api_version %s: %v", version, err)
+		}
+	}
+}
+
 // Review regressions: each case below would end with a write that is not what was asked, so none may send one.
 func TestCreateAndUpdateRefuseWhatTheyCannotDoExactly(t *testing.T) {
 	cfg, f := setup(t, "jira")
