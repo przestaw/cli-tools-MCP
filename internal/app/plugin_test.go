@@ -115,12 +115,13 @@ func TestSkillHasNoOverlappingSections(t *testing.T) {
 		if !strings.HasPrefix(line, "## ") {
 			continue
 		}
-		words := strings.Fields(strings.TrimPrefix(line, "## "))
-		if len(words) > 2 {
-			words = words[:2]
+		// The first two words name the topic: "## Google Drive, Sheets" and "## Google drive notes" overlap.
+		words := strings.Fields(strings.ToLower(strings.TrimPrefix(line, "## ")))
+		words = words[:min(2, len(words))]
+		for i, w := range words {
+			words[i] = strings.TrimRight(w, ",.:;")
 		}
-		key := strings.ToLower(strings.Trim(strings.Join(words, " "), ",.:;"))
-		key = strings.ReplaceAll(key, ",", "")
+		key := strings.Join(words, " ")
 		if first, ok := seen[key]; ok {
 			t.Errorf("sections %q and %q overlap; merge them", first, line)
 		}

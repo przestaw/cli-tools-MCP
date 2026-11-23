@@ -39,7 +39,7 @@ HTML conversion is lossy: attributes are dropped (so link targets, form values a
 
 ## Google Drive, Sheets and Docs
 
-For a `kind: "google"` profile (`gdrive`, `gcloud`, `google`) no extra tools are needed.
+For a `kind: "google"` profile with Drive access (service `drive`, as in `gdrive`, or `all`, as in `google`; `cloud` has no Drive) no extra tools are needed.
 
 - `accounts` with `check: true` shows account and quota. `file` gives metadata (file ID) or lists/searches (folder ID or omitted path, `query`, `limit`, `page_token`). Follow `nextPageToken`; one page is not proof of completeness. Take the file `id` from an unambiguous lookup, because names are not unique.
 - `download` fetches bytes; native documents need `export_mime`. CSV export contains only the first sheet. Metadata and available MD5 verification come with downloads. `upload` refuses to overwrite without `overwrite: true`.
